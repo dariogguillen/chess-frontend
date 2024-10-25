@@ -1,6 +1,8 @@
 import { Box, Container, Typography } from "@mui/material";
-
-const Home = () => {
+interface WIProps {
+  str: string;
+}
+const Wip = ({ str }: WIProps) => {
   return (
     <Container maxWidth="sm">
       <Box
@@ -13,7 +15,7 @@ const Home = () => {
         }}
       >
         <Typography variant="h2" gutterBottom align="center">
-          Chess App WIP
+          Chess App {str} WIP
         </Typography>
         <Typography variant="h5" gutterBottom align="center">
           Bienvendo, este es un ejercicio de Desarrollo Web utilizando React y
@@ -24,4 +26,4 @@ const Home = () => {
   );
 };
 
-export default Home;
+export default Wip;

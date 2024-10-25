@@ -1,27 +1,18 @@
 import { ThemeProvider } from "@emotion/react";
 import { Box, CssBaseline } from "@mui/material";
 import { useState } from "react";
-import {
-  createBrowserRouter,
-  Navigate,
-  RouterProvider,
-} from "react-router-dom";
-import { Drawer } from "./components/Drawer";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import Drawer from "./components/Drawer";
 import Header from "./components/Header";
-import Error from "./pages/Error";
-import Home from "./pages/Home";
 import theme from "./theme.tsx";
-
-// TODO: create route file
-const router = createBrowserRouter([
-  { path: "/", element: <Navigate to="/home" />, errorElement: <Error /> },
-  { path: "/home", element: <Home /> },
-]);
 
 const App = () => {
   const [open, setOpen] = useState(false);
   // TODO: Handle authentication properly, Context Api???
-  const [authed, setAuthe] = useState(false);
+  const [authed, setAuthed] = useState(false);
+
+  const location = useLocation();
+
   return (
     <ThemeProvider theme={theme({ mode: "dark" })}>
       <Box sx={{ display: "flex" }}>
@@ -29,7 +20,7 @@ const App = () => {
         <Header authed={authed} open={open} setOpen={setOpen} />
         <Drawer open={open} setOpen={setOpen} />
         <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
-          <RouterProvider router={router} />
+          {location.pathname === "/" ? <Navigate to="/home" /> : <Outlet />}
         </Box>
       </Box>
     </ThemeProvider>
