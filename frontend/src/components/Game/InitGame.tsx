@@ -1,7 +1,7 @@
 import { Button, Stack, TextField } from "@mui/material";
 import { Dispatch, useState } from "react";
-import CustomDialog from "./components/CustomDialog";
-import socket from "./socket";
+import CustomDialog from "../CustomDialog";
+import socket from "../../socket";
 import { BoardOrientation } from "react-chessboard/dist/chessboard/types";
 
 interface InitGameObj {

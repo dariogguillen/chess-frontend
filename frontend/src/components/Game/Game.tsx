@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Chessboard } from "react-chessboard";
 import { Chess, Color, Square } from "chess.js";
-import CustomDialog from "./components/CustomDialog";
+import CustomDialog from "../CustomDialog";
 import {
   Card,
   CardContent,
@@ -13,7 +13,7 @@ import {
   Typography,
   Box,
 } from "@mui/material";
-import socket from "./socket";
+import socket from "../../socket";
 import { BoardOrientation } from "react-chessboard/dist/chessboard/types";
 import { PlayerObj } from "./InitGame";
 
