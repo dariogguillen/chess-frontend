@@ -1,12 +1,19 @@
-import { createTheme, PaletteMode } from "@mui/material";
+import { createTheme, PaletteOptions } from "@mui/material";
 
-export interface ThemeOpts {
-  mode: PaletteMode;
-}
-
-const theme = ({ mode }: ThemeOpts) =>
+const theme = ({ mode }: PaletteOptions) =>
   createTheme({
     palette: { mode },
+    components: {
+      MuiListItem: {
+        styleOverrides: {
+          root: {
+            "&.active": {
+              backgroundColor: "#1c1c1c", // or any other color
+            },
+          },
+        },
+      },
+    },
   });
 
 export default theme;

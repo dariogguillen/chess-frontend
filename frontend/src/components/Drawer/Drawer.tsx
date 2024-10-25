@@ -8,16 +8,12 @@ import PlayBotIcon from "@mui/icons-material/SmartToy";
 import Divider from "@mui/material/Divider";
 import MuiDrawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
-import List from "@mui/material/List";
-import ListItem from "@mui/material/ListItem";
-import ListItemButton from "@mui/material/ListItemButton";
-import ListItemIcon from "@mui/material/ListItemIcon";
-import ListItemText from "@mui/material/ListItemText";
 import { CSSObject, styled, Theme, useTheme } from "@mui/material/styles";
 import { Dispatch, SetStateAction } from "react";
 import DrawerHeader from "./DrawerHeader";
+import DrawerSection, { DrawerSectionProps } from "./DrawerSection";
 
-const drawerWidth = 240;
+const drawerWidth = 250;
 
 const openedMixin = (theme: Theme): CSSObject => ({
   width: drawerWidth,
@@ -77,6 +73,17 @@ const DrawerComponent = ({ open, setOpen }: DrawerComponentProps) => {
     setOpen(false);
   };
 
+  const drawerIconsS1: DrawerSectionProps[] = [
+    { name: "Home", path: "/home", icon: () => <HomeIcon /> },
+    { name: "Play Friend", path: "/friend", icon: () => <PlayFriendIcon /> },
+    { name: "Play Bot", path: "/bot", icon: () => <PlayBotIcon /> },
+  ];
+
+  const drawerIconsS2: DrawerSectionProps[] = [
+    { name: "Log in", path: "/login", icon: () => <LoginIcon /> },
+    { name: "About", path: "/about", icon: () => <InfoIcon /> },
+  ];
+
   return (
     <Drawer variant="permanent" open={open}>
       <DrawerHeader>
@@ -89,75 +96,9 @@ const DrawerComponent = ({ open, setOpen }: DrawerComponentProps) => {
         </IconButton>
       </DrawerHeader>
       <Divider />
-      <List>
-        {["Home", "Play Friend", "Play Bot"].map((text, index) => (
-          <ListItem key={text} disablePadding sx={{ display: "block" }}>
-            <ListItemButton
-              sx={[
-                { minHeight: 48, px: 2.5 },
-                open
-                  ? { justifyContent: "initial" }
-                  : { justifyContent: "center" },
-              ]}
-            >
-              <ListItemIcon
-                sx={[
-                  { minWidth: 0, justifyContent: "center" },
-                  open ? { mr: 3 } : { mr: "auto" },
-                ]}
-              >
-                {index === 0 ? (
-                  <HomeIcon />
-                ) : index === 1 ? (
-                  <PlayFriendIcon />
-                ) : (
-                  <PlayBotIcon />
-                )}
-              </ListItemIcon>
-              <ListItemText
-                primary={text}
-                sx={[open ? { opacity: 1 } : { opacity: 0 }]}
-              />
-            </ListItemButton>
-          </ListItem>
-        ))}
-      </List>
+      <DrawerSection elements={drawerIconsS1} open={open} />
       <Divider />
-      <List>
-        {["Log in", "About"].map((text, index) => (
-          <ListItem key={text} disablePadding sx={{ display: "block" }}>
-            <ListItemButton
-              sx={[
-                { minHeight: 48, px: 2.5 },
-                open
-                  ? { justifyContent: "initial" }
-                  : { justifyContent: "center" },
-              ]}
-            >
-              <ListItemIcon
-                sx={[
-                  { minWidth: 0, justifyContent: "center" },
-                  open ? { mr: 3 } : { mr: "auto" },
-                ]}
-              >
-                {index === 0 ? <LoginIcon /> : <InfoIcon />}
-              </ListItemIcon>
-              <ListItemText
-                primary={text}
-                sx={[
-                  open
-                    ? {
-                        opacity: 1,
-                      }
-                    : {
-                        opacity: 0,
-                      },
-                ]}
-              />
-            </ListItemButton>
-          </ListItem>
-        ))}
-      </List>
+      <DrawerSection elements={drawerIconsS2} open={open} />
     </Drawer>
   );
 };
