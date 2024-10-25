@@ -1,13 +1,15 @@
 import { AccountCircle } from "@mui/icons-material";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import ModeNightIcon from "@mui/icons-material/ModeNight";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import MenuIcon from "@mui/icons-material/Menu";
 import { Menu, MenuItem } from "@mui/material";
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from "@mui/material/AppBar";
 import IconButton from "@mui/material/IconButton";
-import { styled } from "@mui/material/styles";
+import { PaletteMode, styled } from "@mui/material/styles";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
-import { MouseEvent, useState } from "react";
+import { Dispatch, MouseEvent, SetStateAction, useState } from "react";
 import { DrawerComponentProps } from "../Drawer/Drawer";
 
 interface AppBarProps extends MuiAppBarProps {
@@ -21,9 +23,11 @@ const AppBar = styled(MuiAppBar)<AppBarProps>(({ theme }) => ({
 
 interface HeaderProps extends DrawerComponentProps {
   authed: boolean;
+  mode: PaletteMode;
+  setMode: Dispatch<SetStateAction<PaletteMode>>;
 }
 
-const Header = ({ authed, open, setOpen }: HeaderProps) => {
+const Header = ({ authed, open, setOpen, mode, setMode }: HeaderProps) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleDrawerOpen = (open: boolean) => {
@@ -36,6 +40,10 @@ const Header = ({ authed, open, setOpen }: HeaderProps) => {
 
   const handleClose = () => {
     setAnchorEl(null);
+  };
+
+  const handleMode = (mode: PaletteMode) => {
+    setMode(mode === "dark" ? "light" : "dark");
   };
 
   return (
@@ -53,6 +61,16 @@ const Header = ({ authed, open, setOpen }: HeaderProps) => {
         <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
           CHESS GAME DEV
         </Typography>
+        <IconButton
+          size="large"
+          aria-label="account of current user"
+          aria-controls="menu-appbar"
+          aria-haspopup="true"
+          onClick={() => handleMode(mode)}
+          color="inherit"
+        >
+          {mode === "dark" ? <LightModeIcon /> : <ModeNightIcon />}
+        </IconButton>
         {authed && (
           // TODO: Handle profile options and use corresponding file
           <div>

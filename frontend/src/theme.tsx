@@ -8,7 +8,7 @@ const theme = ({ mode }: PaletteOptions) =>
         styleOverrides: {
           root: {
             "&.active": {
-              backgroundColor: "#1c1c1c", // or any other color
+              backgroundColor: "rgba(200, 200, 200, 0.5)",
             },
           },
         },
