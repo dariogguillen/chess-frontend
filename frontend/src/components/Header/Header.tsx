@@ -1,15 +1,18 @@
+import { AccountCircle } from "@mui/icons-material";
 import MenuIcon from "@mui/icons-material/Menu";
+import { Menu, MenuItem } from "@mui/material";
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from "@mui/material/AppBar";
 import IconButton from "@mui/material/IconButton";
 import { styled } from "@mui/material/styles";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
+import { MouseEvent, useState } from "react";
 import { DrawerComponentProps } from "../Drawer/Drawer";
 
 const drawerWidth = 240;
 
 interface AppBarProps extends MuiAppBarProps {
-  open?: boolean;
+  open: boolean;
 }
 
 const AppBar = styled(MuiAppBar, {
@@ -35,9 +38,23 @@ const AppBar = styled(MuiAppBar, {
   ],
 }));
 
-const MiniDrawer = ({ open, setOpen }: DrawerComponentProps) => {
+interface HeaderProps extends DrawerComponentProps {
+  authed: boolean;
+}
+
+const Header = ({ authed, open, setOpen }: HeaderProps) => {
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+
   const handleDrawerOpen = () => {
     setOpen(true);
+  };
+
+  const handleMenu = (event: MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
   };
 
   return (
@@ -52,12 +69,45 @@ const MiniDrawer = ({ open, setOpen }: DrawerComponentProps) => {
         >
           <MenuIcon />
         </IconButton>
-        <Typography variant="h6" noWrap component="div">
+        <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
           CHESS GAME DEV
         </Typography>
+        {authed && (
+          // TODO: Handle profile options and use corresponding file
+          <div>
+            <IconButton
+              size="large"
+              aria-label="account of current user"
+              aria-controls="menu-appbar"
+              aria-haspopup="true"
+              onClick={handleMenu}
+              color="inherit"
+            >
+              <AccountCircle />
+            </IconButton>
+            <Menu
+              id="menu-appbar"
+              anchorEl={anchorEl}
+              anchorOrigin={{
+                vertical: "top",
+                horizontal: "right",
+              }}
+              keepMounted
+              transformOrigin={{
+                vertical: "top",
+                horizontal: "right",
+              }}
+              open={Boolean(anchorEl)}
+              onClose={handleClose}
+            >
+              <MenuItem onClick={handleClose}>Profile</MenuItem>
+              <MenuItem onClick={handleClose}>My account</MenuItem>
+            </Menu>
+          </div>
+        )}
       </Toolbar>
     </AppBar>
   );
 };
 
-export default MiniDrawer;
+export default Header;
