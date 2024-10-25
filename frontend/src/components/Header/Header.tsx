@@ -1,4 +1,5 @@
 import { AccountCircle } from "@mui/icons-material";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import MenuIcon from "@mui/icons-material/Menu";
 import { Menu, MenuItem } from "@mui/material";
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from "@mui/material/AppBar";
@@ -9,33 +10,13 @@ import Typography from "@mui/material/Typography";
 import { MouseEvent, useState } from "react";
 import { DrawerComponentProps } from "../Drawer/Drawer";
 
-const drawerWidth = 240;
-
 interface AppBarProps extends MuiAppBarProps {
   open: boolean;
 }
 
-const AppBar = styled(MuiAppBar, {
-  shouldForwardProp: (prop) => prop !== "open",
-})<AppBarProps>(({ theme }) => ({
+const AppBar = styled(MuiAppBar)<AppBarProps>(({ theme }) => ({
   zIndex: theme.zIndex.drawer + 1,
-  transition: theme.transitions.create(["width", "margin"], {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.leavingScreen,
-  }),
-  variants: [
-    {
-      props: ({ open }) => open,
-      style: {
-        marginLeft: drawerWidth,
-        width: `calc(100% - ${drawerWidth}px)`,
-        transition: theme.transitions.create(["width", "margin"], {
-          easing: theme.transitions.easing.sharp,
-          duration: theme.transitions.duration.enteringScreen,
-        }),
-      },
-    },
-  ],
+  position: "fixed",
 }));
 
 interface HeaderProps extends DrawerComponentProps {
@@ -45,8 +26,8 @@ interface HeaderProps extends DrawerComponentProps {
 const Header = ({ authed, open, setOpen }: HeaderProps) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
-  const handleDrawerOpen = () => {
-    setOpen(true);
+  const handleDrawerOpen = (open: boolean) => {
+    setOpen(!open);
   };
 
   const handleMenu = (event: MouseEvent<HTMLElement>) => {
@@ -58,16 +39,16 @@ const Header = ({ authed, open, setOpen }: HeaderProps) => {
   };
 
   return (
-    <AppBar position="fixed" open={open}>
+    <AppBar open={open}>
       <Toolbar>
         <IconButton
           color="inherit"
           aria-label="open drawer"
-          onClick={handleDrawerOpen}
+          onClick={() => handleDrawerOpen(open)}
           edge="start"
-          sx={[{ marginRight: 5 }, open && { display: "none" }]}
+          sx={[{ marginRight: 5 }]}
         >
-          <MenuIcon />
+          {open ? <ChevronLeftIcon /> : <MenuIcon />}
         </IconButton>
         <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
           CHESS GAME DEV
