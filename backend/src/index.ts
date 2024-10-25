@@ -19,21 +19,18 @@ try {
   app.use(cors());
   const server = http.createServer(app);
 
-  // set port to value received from environment variable or 8080 if null
   const port = process.env.PORT || 8080;
   const frontendUrl = process.env.FRONTEND_URL;
   console.log({ frontendUrl });
 
-  // upgrade http server to websocket server
-  const origin = frontendUrl || "*";
-  // const origin = "*";
+  const origin = frontendUrl || "http://localhost:5173";
   const io = new Server(server, {
     cors: {
       origin: origin,
       methods: ["GET", "POST"],
       allowedHeaders: ["custom-header"],
       credentials: true,
-    }, // allow connection from any origin
+    },
   });
 
   app.get("/chess-game/hello", (req, res) => {

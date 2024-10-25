@@ -1,4 +1,4 @@
-import { io } from "socket.io-client"; // import connection function
+import { io } from "socket.io-client";
 import { backendUrl } from "./utils/config.default";
 
 const socket = io(backendUrl, {
