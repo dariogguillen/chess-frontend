@@ -7,9 +7,10 @@ import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import Home from "./pages/Home";
+import Error from "./pages/Error";
 
 const router = createBrowserRouter([
-  { path: "/", element: <App /> },
+  { path: "/", element: <App />, errorElement: <Error /> },
   { path: "/home", element: <Home /> },
 ]);
 
