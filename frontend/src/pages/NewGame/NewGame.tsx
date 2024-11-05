@@ -7,9 +7,10 @@ import {
   Paper,
   Stack,
   styled,
+  TextField,
   Typography,
 } from "@mui/material";
-import { useState } from "react";
+import { ChangeEvent, MouseEvent, useEffect, useState } from "react";
 import ToggleButtons from "../../components/ToggleButton";
 import {
   getOpponentButtonsProps,
@@ -37,19 +38,25 @@ const NewGame = () => {
   const [position, setPosition] = useState<Position>(Position.White);
   const [opponent, setOpponent] = useState<Opponent>(Opponent.Friend);
   const [time, setTime] = useState<Time>(Time.None);
+  const [join, setJoin] = useState(false);
+  const [roomId, setRoomId] = useState("");
 
   const handleOpponent = (
-    _event: React.MouseEvent<HTMLElement>,
+    _event: MouseEvent<HTMLElement>,
     newOpponent: Opponent,
   ) => setOpponent(newOpponent);
 
-  const handlePosition = (
-    _event: React.MouseEvent<HTMLElement>,
-    newPos: Position,
-  ) => setPosition(newPos);
+  const handlePosition = (_event: MouseEvent<HTMLElement>, newPos: Position) =>
+    setPosition(newPos);
 
-  const handleTime = (_event: React.MouseEvent<HTMLElement>, newTime: Time) =>
+  const handleJoin = (_event: ChangeEvent<HTMLElement>, newValue: boolean) =>
+    setJoin(newValue);
+
+  const handleTime = (_event: MouseEvent<HTMLElement>, newTime: Time) =>
     setTime(newTime);
+
+  const handleRoomId = (event: ChangeEvent<HTMLInputElement>) =>
+    setRoomId(event.target.value);
 
   const positionButtons = getPositionButtonsProps(position, handlePosition);
   const opponentButtons = getOpponentButtonsProps(opponent, handleOpponent);
@@ -75,23 +82,37 @@ const NewGame = () => {
           divider={<Divider orientation="vertical" flexItem />}
         >
           <Item>
+            <Typography variant="body1">
+              <Checkbox checked={join} value={join} onChange={handleJoin} />
+              Unirse a una partida
+            </Typography>
+            <TextField
+              label="Room Id"
+              variant="standard"
+              disabled={!join}
+              fullWidth
+              value={roomId}
+              onChange={handleRoomId}
+            />
+          </Item>
+          <Item>
             <Typography variant="body1" gutterBottom>
               Jugar con:
             </Typography>
-            <ToggleButtons {...positionButtons} />
+            <ToggleButtons {...positionButtons} disabled={join} />
           </Item>
           <Item>
             <Typography variant="body1" gutterBottom>
               Jugar contra:
             </Typography>
-            <ToggleButtons {...opponentButtons} />
+            <ToggleButtons {...opponentButtons} disabled={join} />
           </Item>
           <Item>
             <Typography variant="body1" gutterBottom>
               <Checkbox disabled />
               Timer (min). <small>Esta en progreso</small>
             </Typography>
-            <ToggleButtons {...timeButtons} />
+            <ToggleButtons {...timeButtons} disabled={join} />
           </Item>
           <NavLink
             to={`/play?position=${position}&opponent=${opponent}&time=${time}`}
