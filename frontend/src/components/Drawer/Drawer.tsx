@@ -1,10 +1,9 @@
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import GamepadIcon from "@mui/icons-material/Gamepad";
 import HomeIcon from "@mui/icons-material/Home";
 import InfoIcon from "@mui/icons-material/Info";
-import PlayFriendIcon from "@mui/icons-material/InsertEmoticon";
 import LoginIcon from "@mui/icons-material/Login";
-import PlayBotIcon from "@mui/icons-material/SmartToy";
 import Divider from "@mui/material/Divider";
 import MuiDrawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
@@ -75,8 +74,7 @@ const DrawerComponent = ({ open, setOpen }: DrawerComponentProps) => {
 
   const drawerIconsS1: DrawerSectionProps[] = [
     { name: "Home", path: "/home", icon: () => <HomeIcon /> },
-    { name: "Play Friend", path: "/friend", icon: () => <PlayFriendIcon /> },
-    { name: "Play Bot", path: "/bot", icon: () => <PlayBotIcon /> },
+    { name: "New Game", path: "/new-game", icon: () => <GamepadIcon /> },
   ];
 
   const drawerIconsS2: DrawerSectionProps[] = [
