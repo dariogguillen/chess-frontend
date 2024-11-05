@@ -1,25 +1,14 @@
 import { AccountCircle } from "@mui/icons-material";
 import LightModeIcon from "@mui/icons-material/LightMode";
-import ModeNightIcon from "@mui/icons-material/ModeNight";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import MenuIcon from "@mui/icons-material/Menu";
-import { Menu, MenuItem } from "@mui/material";
-import MuiAppBar, { AppBarProps as MuiAppBarProps } from "@mui/material/AppBar";
+import ModeNightIcon from "@mui/icons-material/ModeNight";
+import { AppBar, Menu, MenuItem } from "@mui/material";
 import IconButton from "@mui/material/IconButton";
-import { PaletteMode, styled } from "@mui/material/styles";
+import { PaletteMode } from "@mui/material/styles";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 import { Dispatch, MouseEvent, SetStateAction, useState } from "react";
 import { DrawerComponentProps } from "../Drawer/Drawer";
-
-interface AppBarProps extends MuiAppBarProps {
-  open: boolean;
-}
-
-const AppBar = styled(MuiAppBar)<AppBarProps>(({ theme }) => ({
-  zIndex: theme.zIndex.drawer + 1,
-  position: "fixed",
-}));
 
 interface HeaderProps extends DrawerComponentProps {
   authed: boolean;
@@ -47,16 +36,16 @@ const Header = ({ authed, open, setOpen, mode, setMode }: HeaderProps) => {
   };
 
   return (
-    <AppBar open={open}>
+    <AppBar position="fixed" sx={{ zIndex: 1500 }}>
       <Toolbar>
         <IconButton
           color="inherit"
           aria-label="open drawer"
           onClick={() => handleDrawerOpen(open)}
           edge="start"
-          sx={[{ marginRight: 5 }]}
+          sx={{ mr: 2, display: { sm: "none" } }}
         >
-          {open ? <ChevronLeftIcon /> : <MenuIcon />}
+          <MenuIcon />
         </IconButton>
         <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
           CHESS GAME DEV
