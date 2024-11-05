@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { backendUrl } from "./utils/config.default";
+import { backendUrl } from "./config.default";
 
 const socket = io(backendUrl, {
   withCredentials: true,
