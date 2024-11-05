@@ -36,14 +36,14 @@ const Header = ({ authed, open, setOpen, mode, setMode }: HeaderProps) => {
   };
 
   return (
-    <AppBar position="fixed" sx={{ zIndex: 1500 }}>
+    <AppBar position="fixed" sx={{ zIndex: 1400 }}>
       <Toolbar>
         <IconButton
           color="inherit"
           aria-label="open drawer"
           onClick={() => handleDrawerOpen(open)}
           edge="start"
-          sx={{ mr: 2, display: { sm: "none" } }}
+          sx={{ display: { sm: "none" } }}
         >
           <MenuIcon />
         </IconButton>
@@ -52,9 +52,7 @@ const Header = ({ authed, open, setOpen, mode, setMode }: HeaderProps) => {
         </Typography>
         <IconButton
           size="large"
-          aria-label="account of current user"
-          aria-controls="menu-appbar"
-          aria-haspopup="true"
+          aria-label="Toggle Night Mode"
           onClick={() => handleMode(mode)}
           color="inherit"
         >

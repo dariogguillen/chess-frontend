@@ -1,7 +1,7 @@
 import { ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { Fragment } from "react/jsx-runtime";
 
-interface ToggleButtonProps<T> {
+interface CustomToggleButtonProps<T> {
   value: NonNullable<T>;
   label: string;
   ariaLabel?: string;
@@ -9,17 +9,19 @@ interface ToggleButtonProps<T> {
   disabled?: boolean;
 }
 
-export interface ToggleButtonGroupProps<T> {
-  buttons: ToggleButtonProps<T>[];
+export interface CustomToggleButtonGroupProps<T> {
+  buttons: CustomToggleButtonProps<T>[];
   value: T;
   onChange: (_event: React.MouseEvent<HTMLElement>, newValue: T) => void;
+  size?: "small" | "medium" | "large";
 }
 
 const CustomToggleButton = <T,>({
   buttons,
   value,
   onChange,
-}: ToggleButtonGroupProps<T>) => {
+  size,
+}: CustomToggleButtonGroupProps<T>) => {
   return (
     <ToggleButtonGroup
       color="primary"
@@ -27,7 +29,7 @@ const CustomToggleButton = <T,>({
       exclusive
       onChange={onChange}
       aria-label="choose position"
-      size="large"
+      size={size || "large"}
       fullWidth
     >
       {buttons.map(({ value, label, ariaLabel, icon, disabled }, index) => (

@@ -4,7 +4,7 @@ import InfoIcon from "@mui/icons-material/Info";
 import LoginIcon from "@mui/icons-material/Login";
 import { Box, Drawer, Toolbar } from "@mui/material";
 import Divider from "@mui/material/Divider";
-import { Dispatch, SetStateAction, useState } from "react";
+import { Dispatch, Fragment, SetStateAction, useState } from "react";
 import DrawerSection, { DrawerSectionProps } from "./DrawerSection";
 
 export const DRAWER_WIDTH = 200;
@@ -37,13 +37,13 @@ const DrawerComponent = ({ open, setOpen }: DrawerComponentProps) => {
   ];
 
   const drawerContent = (
-    <div>
+    <Fragment>
       <Toolbar />
       <Divider />
-      <DrawerSection elements={drawerIconsS1} open={open} />
+      <DrawerSection elements={drawerIconsS1} />
       <Divider />
-      <DrawerSection elements={drawerIconsS2} open={open} />
-    </div>
+      <DrawerSection elements={drawerIconsS2} />
+    </Fragment>
   );
 
   return (
@@ -57,9 +57,7 @@ const DrawerComponent = ({ open, setOpen }: DrawerComponentProps) => {
         open={open}
         onTransitionEnd={handleDrawerTransitionEnd}
         onClose={handleDrawerToggle}
-        ModalProps={{
-          keepMounted: true, // Better open performance on mobile.
-        }}
+        ModalProps={{ keepMounted: true }}
         sx={{
           display: { xs: "block", sm: "none" },
           "& .MuiDrawer-paper": {
@@ -79,7 +77,6 @@ const DrawerComponent = ({ open, setOpen }: DrawerComponentProps) => {
             width: DRAWER_WIDTH,
           },
         }}
-        open
       >
         {drawerContent}
       </Drawer>

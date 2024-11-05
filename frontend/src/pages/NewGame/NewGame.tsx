@@ -19,6 +19,8 @@ import {
   Position,
   Time,
 } from "./utils";
+import { NavLink } from "react-router-dom";
+import { DRAWER_WIDTH } from "../../components/Drawer/Drawer";
 
 const Item = styled(Paper)(({ theme }) => ({
   backgroundColor: "#fff",
@@ -59,8 +61,7 @@ const NewGame = () => {
         sx={{
           margin: "auto",
           height: "100vh",
-          width: "100vw",
-          maxWidth: 500,
+          width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
           alignContent: "center",
         }}
       >
@@ -88,11 +89,16 @@ const NewGame = () => {
           <Item>
             <Typography variant="body1" gutterBottom>
               <Checkbox disabled />
-              Timer. <small>Esta en progreso</small>
+              Timer (min). <small>Esta en progreso</small>
             </Typography>
             <ToggleButtons {...timeButtons} />
           </Item>
-          <Button variant="contained"> Jugar</Button>
+          <NavLink
+            to={`/play?position=${position}&opponent=${opponent}&time=${time}`}
+            style={{ display: "contents" }}
+          >
+            <Button variant="contained">Jugar</Button>
+          </NavLink>
         </Stack>
       </Box>
     </Container>

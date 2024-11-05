@@ -13,7 +13,7 @@ export enum Position {
   Black = "BLACK",
 }
 
-export enum Time { // Minutes
+export enum Time { //tes
   One = 1,
   Three = 3,
   Five = 5,
@@ -80,41 +80,42 @@ export const getTimeButtonsProps: (
 ) => ToggleButtonGroupProps<Time> = (time, handleTime) => ({
   value: time,
   onChange: handleTime,
+  size: "small",
   buttons: [
     {
       value: Time.One,
-      label: "1 min.",
+      label: "1",
       disabled: true,
     },
     {
       value: Time.Three,
-      label: "2 min.",
+      label: "2",
       disabled: true,
     },
     {
       value: Time.Five,
-      label: "5 min.",
+      label: "5",
       disabled: true,
     },
     {
       value: Time.Ten,
-      label: "10 min.",
+      label: "10",
       disabled: true,
     },
     {
       value: Time.Fifteen,
-      label: "15 min.",
+      label: "15",
       disabled: true,
     },
 
     {
       value: Time.Thirty,
-      label: "30 min.",
+      label: "30",
       disabled: true,
     },
     {
       value: Time.Sixty,
-      label: "60 min.",
+      label: "60",
       disabled: true,
     },
   ],

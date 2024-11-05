@@ -15,10 +15,9 @@ export interface DrawerSectionProps {
 
 interface DrawerElProps {
   elements: DrawerSectionProps[];
-  open: boolean;
 }
 
-const DrawerSection = ({ elements, open }: DrawerElProps) => {
+const DrawerSection = ({ elements }: DrawerElProps) => {
   return (
     <List>
       {elements.map(({ name, path, icon }) => (
@@ -30,25 +29,14 @@ const DrawerSection = ({ elements, open }: DrawerElProps) => {
           sx={{ display: "block", color: "inherit" }}
         >
           <ListItemButton
-            sx={[
-              { minHeight: 48, px: 2.5 },
-              open
-                ? { justifyContent: "initial" }
-                : { justifyContent: "center" },
-            ]}
+            sx={[{ minHeight: 48, px: 2.5 }, { justifyContent: "initial" }]}
           >
             <ListItemIcon
-              sx={[
-                { minWidth: 0, justifyContent: "center" },
-                open ? { mr: 3 } : { mr: "auto" },
-              ]}
+              sx={[{ minWidth: 0, justifyContent: "center" }, { mr: 3 }]}
             >
               {icon()}
             </ListItemIcon>
-            <ListItemText
-              primary={name}
-              sx={[open ? { opacity: 1 } : { opacity: 0 }]}
-            />
+            <ListItemText primary={name} sx={[{ opacity: 1 }]} />
           </ListItemButton>
         </ListItem>
       ))}

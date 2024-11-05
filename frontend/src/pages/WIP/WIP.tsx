@@ -1,4 +1,5 @@
 import { Box, Container, Typography } from "@mui/material";
+import { DRAWER_WIDTH } from "../../components/Drawer/Drawer";
 interface WIProps {
   str: string;
 }
@@ -6,11 +7,11 @@ const Wip = ({ str }: WIProps) => {
   return (
     <Container maxWidth="sm">
       <Box
+        component="main"
         sx={{
           margin: "auto",
           height: "100vh",
-          width: "100vw",
-          maxWidth: 500,
+          width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
           alignContent: "center",
         }}
       >

@@ -10,7 +10,7 @@ const App = () => {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PaletteMode>("dark");
   // TODO: Handle authentication properly, Context Api???
-  const [authed, setAuthed] = useState(false);
+  const [authed] = useState(false);
 
   const location = useLocation();
 
@@ -26,9 +26,7 @@ const App = () => {
           setMode={setMode}
         />
         <Drawer open={open} setOpen={setOpen} />
-        <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
-          {location.pathname === "/" ? <Navigate to="/home" /> : <Outlet />}
-        </Box>
+        {location.pathname === "/" ? <Navigate to="/home" /> : <Outlet />}
       </Box>
     </ThemeProvider>
   );
