@@ -13,6 +13,7 @@ import { NavLink } from "react-router-dom";
 import UrlParser from "url-parse";
 import Container from "../../components/Container";
 import ToggleButtons from "../../components/ToggleButton";
+import { useUserContext } from "../../context/UserContext";
 import {
   getOpponentButtonsProps,
   getPositionButtonsProps,
@@ -34,12 +35,13 @@ const Item = styled(Paper)(({ theme }) => ({
 }));
 
 const NewGame = () => {
-  const [position, setPosition] = useState<Position>(Position.White);
   const [opponent, setOpponent] = useState<Opponent>(Opponent.Friend);
   const [time, setTime] = useState<Time>(Time.None);
   const [join, setJoin] = useState(false);
   const [roomId, setRoomId] = useState("");
 
+  const { nickName, setNickName, position, setPosition } = useUserContext();
+  const defaultPlayerNickname = "Jugador 1";
   const handleOpponent = (
     _event: MouseEvent<HTMLElement>,
     newOpponent: Opponent,

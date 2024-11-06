@@ -13,7 +13,7 @@ export enum Position {
   Black = "black",
 }
 
-export enum Time { //tes
+export enum Time { //TODO: implement timer
   One = 1,
   Three = 3,
   Five = 5,
@@ -33,6 +33,7 @@ export const getPositionButtonsProps: (
 ) => ToggleButtonGroupProps<Position> = (position, handlePosition) => ({
   value: position,
   onChange: handlePosition,
+  size: "small",
   buttons: [
     {
       value: Position.White,
@@ -56,6 +57,7 @@ export const getOpponentButtonsProps: (
 ) => ToggleButtonGroupProps<Opponent> = (opponent, handleOpponent) => ({
   value: opponent,
   onChange: handleOpponent,
+  size: "small",
   buttons: [
     {
       value: Opponent.Friend,
