@@ -42,6 +42,7 @@ const NewGame = () => {
 
   const { nickName, setNickName, position, setPosition } = useUserContext();
   const defaultPlayerNickname = "Jugador 1";
+
   const handleOpponent = (
     _event: MouseEvent<HTMLElement>,
     newOpponent: Opponent,
@@ -59,6 +60,13 @@ const NewGame = () => {
   const handleRoomId = (event: ChangeEvent<HTMLInputElement>) =>
     setRoomId(event.target.value);
 
+  const handleNickName = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setNickName(value);
+    if (value) setNickName(value);
+    else setNickName(defaultPlayerNickname);
+  };
+
   useEffect(() => {
     const url1 = new UrlParser(roomId);
     console.log(url1);
@@ -69,16 +77,27 @@ const NewGame = () => {
   const timeButtons = getTimeButtonsProps(time, handleTime);
 
   return (
-    <Container>
+    <Container containerProps={{ maxWidth: "md" }}>
       <Typography variant="h3" gutterBottom align="center">
         Configura tu juego
       </Typography>
       <Stack
         direction="column"
-        spacing={2}
+        spacing={1}
         alignContent="center"
         divider={<Divider orientation="vertical" flexItem />}
       >
+        <Item>
+          <Typography variant="body1">Elige un apodo:</Typography>
+          <TextField
+            label="Apodo"
+            variant="standard"
+            placeholder="Jugador 1"
+            fullWidth
+            value={nickName === defaultPlayerNickname ? "" : nickName}
+            onChange={handleNickName}
+          />
+        </Item>
         <Item>
           <Typography variant="body1">
             <Checkbox checked={join} value={join} onChange={handleJoin} />
