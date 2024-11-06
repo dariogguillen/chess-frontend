@@ -1,8 +1,6 @@
 import {
-  Box,
   Button,
   Checkbox,
-  Container,
   Divider,
   Paper,
   Stack,
@@ -11,6 +9,9 @@ import {
   Typography,
 } from "@mui/material";
 import { ChangeEvent, MouseEvent, useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
+import UrlParser from "url-parse";
+import Container from "../../components/Container";
 import ToggleButtons from "../../components/ToggleButton";
 import {
   getOpponentButtonsProps,
@@ -20,8 +21,6 @@ import {
   Position,
   Time,
 } from "./utils";
-import { NavLink } from "react-router-dom";
-import { DRAWER_WIDTH } from "../../components/Drawer/Drawer";
 
 const Item = styled(Paper)(({ theme }) => ({
   backgroundColor: "#fff",
@@ -58,70 +57,66 @@ const NewGame = () => {
   const handleRoomId = (event: ChangeEvent<HTMLInputElement>) =>
     setRoomId(event.target.value);
 
+  useEffect(() => {
+    const url1 = new UrlParser(roomId);
+    console.log(url1);
+  }, [roomId]);
+
   const positionButtons = getPositionButtonsProps(position, handlePosition);
   const opponentButtons = getOpponentButtonsProps(opponent, handleOpponent);
   const timeButtons = getTimeButtonsProps(time, handleTime);
 
   return (
-    <Container maxWidth="sm">
-      <Box
-        sx={{
-          margin: "auto",
-          height: "100vh",
-          width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
-          alignContent: "center",
-        }}
+    <Container>
+      <Typography variant="h3" gutterBottom align="center">
+        Configura tu juego
+      </Typography>
+      <Stack
+        direction="column"
+        spacing={2}
+        alignContent="center"
+        divider={<Divider orientation="vertical" flexItem />}
       >
-        <Typography variant="h3" gutterBottom align="center">
-          Configura tu juego
-        </Typography>
-        <Stack
-          direction="column"
-          spacing={2}
-          alignContent="center"
-          divider={<Divider orientation="vertical" flexItem />}
+        <Item>
+          <Typography variant="body1">
+            <Checkbox checked={join} value={join} onChange={handleJoin} />
+            Unirse a una partida
+          </Typography>
+          <TextField
+            label="Room Id"
+            variant="standard"
+            disabled={!join}
+            fullWidth
+            value={roomId}
+            onChange={handleRoomId}
+          />
+        </Item>
+        <Item>
+          <Typography variant="body1" gutterBottom>
+            Jugar con:
+          </Typography>
+          <ToggleButtons {...positionButtons} disabled={join} />
+        </Item>
+        <Item>
+          <Typography variant="body1" gutterBottom>
+            Jugar contra:
+          </Typography>
+          <ToggleButtons {...opponentButtons} disabled={join} />
+        </Item>
+        <Item>
+          <Typography variant="body1" gutterBottom>
+            <Checkbox disabled />
+            Timer (min). <small>Esta en progreso</small>
+          </Typography>
+          <ToggleButtons {...timeButtons} disabled={join} />
+        </Item>
+        <NavLink
+          to={`/play?position=${position}&opponent=${opponent}&time=${time}`}
+          style={{ display: "contents" }}
         >
-          <Item>
-            <Typography variant="body1">
-              <Checkbox checked={join} value={join} onChange={handleJoin} />
-              Unirse a una partida
-            </Typography>
-            <TextField
-              label="Room Id"
-              variant="standard"
-              disabled={!join}
-              fullWidth
-              value={roomId}
-              onChange={handleRoomId}
-            />
-          </Item>
-          <Item>
-            <Typography variant="body1" gutterBottom>
-              Jugar con:
-            </Typography>
-            <ToggleButtons {...positionButtons} disabled={join} />
-          </Item>
-          <Item>
-            <Typography variant="body1" gutterBottom>
-              Jugar contra:
-            </Typography>
-            <ToggleButtons {...opponentButtons} disabled={join} />
-          </Item>
-          <Item>
-            <Typography variant="body1" gutterBottom>
-              <Checkbox disabled />
-              Timer (min). <small>Esta en progreso</small>
-            </Typography>
-            <ToggleButtons {...timeButtons} disabled={join} />
-          </Item>
-          <NavLink
-            to={`/play?position=${position}&opponent=${opponent}&time=${time}`}
-            style={{ display: "contents" }}
-          >
-            <Button variant="contained">Jugar</Button>
-          </NavLink>
-        </Stack>
-      </Box>
+          <Button variant="contained">Jugar</Button>
+        </NavLink>
+      </Stack>
     </Container>
   );
 };

@@ -3,14 +3,14 @@ import { ToggleButtonGroupProps } from "../../components/ToggleButton";
 import { White, Black } from "../../Icons";
 
 export enum Opponent {
-  Friend = "FRIEND",
-  Bot = "BOT",
-  Random = "RANDOM",
+  Friend = "friend",
+  Bot = "bot",
+  Random = "random",
 }
 
 export enum Position {
-  White = "WHITE",
-  Black = "BLACK",
+  White = "white",
+  Black = "black",
 }
 
 export enum Time { //tes
