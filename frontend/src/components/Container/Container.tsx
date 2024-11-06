@@ -1,19 +1,33 @@
-import { Box, Container } from "@mui/material";
+import { Box, BoxProps, Container, ContainerProps } from "@mui/material";
 import { DRAWER_WIDTH } from "../Drawer/Drawer";
+import { ReactNode } from "react";
 
-interface Props {
-  children: React.ReactNode;
+export interface CustomContaienrProps {
+  containerProps?: Omit<ContainerProps, "children">;
+  boxProps?: Omit<BoxProps, "children">;
+  children: ReactNode;
 }
-const CustomContaienr = ({ children }: Props) => {
+
+const CustomContaienr = ({
+  children,
+  containerProps: {
+    maxWidth: cmw = "sm",
+    component: cComp = "main",
+    ...cProps
+  } = {},
+  boxProps: { sx: bsx = {}, ...bProps } = {},
+}: CustomContaienrProps) => {
   return (
-    <Container maxWidth="sm">
+    <Container maxWidth={cmw} component={cComp} {...cProps}>
       <Box
         sx={{
           margin: "auto",
           height: "100vh",
-          width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
+          width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
           alignContent: "center",
+          ...bsx,
         }}
+        {...bProps}
       >
         {children}
       </Box>
