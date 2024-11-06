@@ -1,6 +1,6 @@
 import { SvgIcon } from "@mui/material";
 import { ToggleButtonGroupProps } from "../../components/ToggleButton";
-import { White, Black } from "../../Icons";
+import { White, Black } from "../../icons";
 
 export enum Opponent {
   Friend = "friend",
