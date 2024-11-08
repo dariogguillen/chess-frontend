@@ -8,9 +8,15 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { ChangeEvent, MouseEvent, useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
-import UrlParser from "url-parse";
+import {
+  ChangeEvent,
+  MouseEvent,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+import { NavLink, useSearchParams } from "react-router-dom";
+import ShortUniqueId from "short-unique-id";
 import Container from "../../components/Container";
 import ToggleButtons from "../../components/ToggleButton";
 import { useUserContext } from "../../context/UserContext";
@@ -35,12 +41,19 @@ const Item = styled(Paper)(({ theme }) => ({
 }));
 
 const NewGame = () => {
-  const [opponent, setOpponent] = useState<Opponent>(Opponent.Friend);
   const [time, setTime] = useState<Time>(Time.None);
   const [join, setJoin] = useState(false);
-  const [roomId, setRoomId] = useState("");
 
-  const { nickName, setNickName, position, setPosition } = useUserContext();
+  const {
+    nickName,
+    setNickName,
+    position,
+    setPosition,
+    opponent,
+    setOpponent,
+    roomId,
+    setRoomId,
+  } = useUserContext();
   const defaultPlayerNickname = "Jugador 1";
 
   const handleOpponent = (
@@ -67,10 +80,25 @@ const NewGame = () => {
     else setNickName(defaultPlayerNickname);
   };
 
+  const generateRoomId = useCallback(() => {
+    return new ShortUniqueId({ length: 12 }).randomUUID();
+  }, []);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const roomIdOpt = searchParams.get("roomId");
+
+  const handleOnClick = () => {
+    if (!join) {
+      const newRoomId = generateRoomId();
+      setRoomId(newRoomId);
+    }
+  };
+
   useEffect(() => {
-    const url1 = new UrlParser(roomId);
-    console.log(url1);
-  }, [roomId]);
+    if (roomIdOpt) {
+      setRoomId(roomIdOpt);
+      setJoin(true);
+    }
+  }, [roomIdOpt, setRoomId, setJoin]);
 
   const positionButtons = getPositionButtonsProps(position, handlePosition);
   const opponentButtons = getOpponentButtonsProps(opponent, handleOpponent);
@@ -108,7 +136,7 @@ const NewGame = () => {
             variant="standard"
             disabled={!join}
             fullWidth
-            value={roomId}
+            value={roomId || ""}
             onChange={handleRoomId}
           />
         </Item>
@@ -132,10 +160,13 @@ const NewGame = () => {
           <ToggleButtons {...timeButtons} disabled={join} />
         </Item>
         <NavLink
-          to={`/play?position=${position}&opponent=${opponent}&time=${time}`}
+          onClick={handleOnClick}
+          to={`/play?roomId=${roomId}`}
           style={{ display: "contents" }}
         >
-          <Button variant="contained">Jugar</Button>
+          <Button variant="contained">
+            {join ? "Uniser a partida" : "Jugar"}
+          </Button>
         </NavLink>
       </Stack>
     </Container>

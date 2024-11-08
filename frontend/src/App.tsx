@@ -6,7 +6,7 @@ import Drawer from "./components/Drawer";
 import Header from "./components/Header";
 import theme from "./theme.tsx";
 import { UserContext, UserContextType } from "./context";
-import { Position } from "./pages/NewGame/utils.tsx";
+import { Opponent, Position } from "./pages/NewGame/utils.tsx";
 
 const App = () => {
   const [open, setOpen] = useState(false);
@@ -17,9 +17,19 @@ const App = () => {
     setNickName: () => {},
     position: Position.White,
     setPosition: () => {},
+    opponent: Opponent.Friend,
+    setOpponent: () => {},
+    setOpponentNickName: () => {},
+    setRoomId: () => {},
   };
-  const [nickName, setNickName] = useState<string>(userContext.nickName);
-  const [position, setPosition] = useState<Position>(userContext.position);
+  const [nickName, setNickName] = useState(userContext.nickName);
+  const [position, setPosition] = useState(userContext.position);
+  const [opponent, setOpponent] = useState(userContext.opponent);
+  const [opponentNikcName, setOpponentNickName] = useState<
+    string | undefined
+  >();
+  const [roomId, setRoomId] = useState<string | undefined>();
+
   // TODO: Handle authentication properly, Context Api???
   const [authed] = useState(false);
 
@@ -27,7 +37,18 @@ const App = () => {
 
   return (
     <UserContext.Provider
-      value={{ nickName, setNickName, position, setPosition }}
+      value={{
+        nickName,
+        setNickName,
+        position,
+        setPosition,
+        opponent,
+        setOpponent,
+        opponentNikcName,
+        setOpponentNickName,
+        roomId,
+        setRoomId,
+      }}
     >
       <ThemeProvider theme={theme({ mode })}>
         <Box sx={{ display: "flex" }}>

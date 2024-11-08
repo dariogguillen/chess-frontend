@@ -1,11 +1,17 @@
 import { createContext, Dispatch, SetStateAction, useContext } from "react";
-import { Position } from "../pages/NewGame/utils";
+import { Opponent, Position } from "../pages/NewGame/utils";
 
 export interface UserContextType {
   nickName: string;
   setNickName: Dispatch<SetStateAction<string>>;
   position: Position;
   setPosition: Dispatch<SetStateAction<Position>>;
+  opponent: Opponent;
+  setOpponent: Dispatch<SetStateAction<Opponent>>;
+  opponentNikcName?: string;
+  setOpponentNickName: Dispatch<SetStateAction<string | undefined>>;
+  roomId?: string;
+  setRoomId: Dispatch<SetStateAction<string | undefined>>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
