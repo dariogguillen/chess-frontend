@@ -1,0 +1,161 @@
+[
+  {
+    "id": "harness-setup",
+    "title": "Harness scaffolding",
+    "description": "Bootstrap the leader/implementer/reviewer harness for this repo: sub-agents, CLAUDE.md, AGENTS.md, init.sh, CHECKPOINTS.md, docs/conventions.md, docs/architecture.md, feature_list.json, progress/, notes/_template.md. Adapt the patterns from chess-backend-java's harness to the TS/React/Vite stack. Absorb best-practices guidance from the Vercel React best-practices skill and obra/superpowers verification-before-completion skill without installing external skills.",
+    "status": "done",
+    "priority": 0,
+    "acceptance": [
+      ".claude/agents/{leader,implementer,reviewer}.md exist with role definitions adapted to TS/React/Vite.",
+      "CLAUDE.md anchors the leader role at session start.",
+      "AGENTS.md describes the project map and stack summary.",
+      "init.sh runs sanity + lint + build (typecheck and test added in feature 1).",
+      "CHECKPOINTS.md captures the definition of done with TS/React-specific items.",
+      "docs/conventions.md and docs/architecture.md exist and are non-trivial.",
+      "feature_list.json contains priority 0 (this feature, done) and at least the next pending feature.",
+      "progress/current.md and progress/history.md exist; history records this setup.",
+      "notes/_template.md exists for use by future feature notes.",
+      "./init.sh exits 0 (with typecheck/test skipped until feature 1)."
+    ]
+  },
+  {
+    "id": "supply-chain-hardening",
+    "title": "Supply chain hardening (npm hygiene + Claude Code hooks)",
+    "description": "Harden the npm dependency surface and add the first Claude Code hooks for the harness. Motivated by the recent wave of npm supply-chain incidents (compromised maintainer accounts publishing malicious postinstall scripts, e.g. the s1ngularity / chalk-debug class of attacks). Adds three defensive layers: (1) `.npmrc` with `ignore-scripts=true`, `engine-strict=true`, and `minimum-release-age=7d` (npm 11.7+) — blocks the dominant attack vector and the recently-published-package window; (2) `npm audit` step in `init.sh` failing on moderate-or-higher, with the current 5 transitive CVEs resolved via `npm audit fix` and `overrides` where needed; (3) `.claude/settings.json` with hooks blocking out-of-band edits to `feature_list.json` and `package-lock.json`. Also pins Node/npm versions via `engines`, adds Dependabot config, documents the policy in `docs/conventions.md`, and updates `CHECKPOINTS.md`. Inserted at priority 0.5 — before `test-baseline` — so every subsequent feature inherits the hardening.",
+    "status": "in_progress",
+    "priority": 0.5,
+    "acceptance": [
+      "`.npmrc` exists with `ignore-scripts=true`, `engine-strict=true`, `minimum-release-age=7d`, and a comment block documenting the rationale for each setting.",
+      "`package.json` has `engines: { node: \">=20\", npm: \">=11.7\" }` and an `overrides` block (if needed) closing the current moderate CVEs.",
+      "An allowlist mechanism exists for legitimate postinstall scripts (esbuild today). Approach is documented in `docs/conventions.md` — current preferred form: explicit `npm rebuild esbuild` step in `init.sh` after `npm ci --ignore-scripts`.",
+      "`init.sh` adds: (a) `npm --version >= 11.7` sanity check, (b) explicit `npm ci` with `ignore-scripts` honoured (relies on `.npmrc`), (c) `npm rebuild` for the allowlisted packages, (d) `npm audit --audit-level=moderate` step failing the build on findings.",
+      "`npm audit` returns 0 findings at moderate-or-higher after the feature lands (vulnerabilities resolved via patch-level upgrades and `overrides`, not by silencing).",
+      "`.claude/settings.json` exists with: `permissions.allow` for `npm *`, `npx *`, `./init.sh`, `jq *`, `git *`; `permissions.deny` for `Bash(rm -rf *)`; `PreToolUse` hooks blocking direct `Edit|Write` to `feature_list.json` and `package-lock.json` from any agent (these must change via the leader workflow / `npm install` respectively).",
+      "`.github/dependabot.yml` configured for `npm` ecosystem with weekly cadence and a grouping rule that bundles dev dependencies. Security updates open immediately regardless of cadence.",
+      "`docs/conventions.md` has a new section `Supply chain hygiene` codifying the policy (no manual `package-lock.json` edits, `ignore-scripts` default, audit threshold, allowlist procedure for postinstall, `minimum-release-age` rationale).",
+      "`docs/architecture.md` records the supply-chain decision under `Decisions to revisit` or a new dedicated section.",
+      "`CHECKPOINTS.md` adds a `Dependencies` block: (a) no new dependency without justification in the implementer's report, (b) `npm audit` step in `init.sh` is green, (c) any new postinstall script triggers an explicit allowlist update review.",
+      "`README.md` mentions the dependency policy briefly (one paragraph) and links to the conventions section.",
+      "`./init.sh` exits 0 after all of the above."
+    ]
+  },
+  {
+    "id": "test-baseline",
+    "title": "Vitest + React Testing Library baseline",
+    "description": "Introduce the test pipeline: Vitest, React Testing Library, Prettier, and TypeScript strict mode if not already on. Add npm scripts for typecheck, test, format. Extend init.sh to invoke typecheck and test. Write one or two trivial tests (a presentational component + a pure util) to prove the pipeline. Mirrors the role of feature 1 (health-check) in the Java backend: the first vertical slice that proves the harness works end-to-end.",
+    "status": "pending",
+    "priority": 1,
+    "acceptance": [
+      "vitest, @testing-library/react, @testing-library/jest-dom, jsdom (or happy-dom), and prettier added to devDependencies.",
+      "package.json has npm scripts: typecheck, test, test:watch, format, format:check.",
+      "tsconfig.app.json or tsconfig.json has strict: true verified.",
+      "init.sh's typecheck and test steps now run (no longer skipped).",
+      "At least one component test and one pure utility test pass.",
+      "Prettier config exists; eslint-config-prettier resolves conflicts with ESLint formatting rules.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "stomp-client-migration",
+    "title": "STOMP client and WebSocket abstraction",
+    "description": "Replace the socket.io-client integration with a STOMP client (@stomp/stompjs, optionally with sockjs-client for fallback). Hide the WebSocket implementation behind a typed interface (open/subscribe/send/close) so the rest of the frontend never talks to the library directly. Stub server side until backend feature 6 (websocket-realtime) lands.",
+    "status": "pending",
+    "priority": 2,
+    "acceptance": [
+      "socket.io-client removed from package.json.",
+      "@stomp/stompjs added as a dependency.",
+      "A typed WebSocket abstraction exists under src/utils/ with open/subscribe/send/close semantics.",
+      "The abstraction is unit-testable with a mock implementation.",
+      "Existing pages compile after the migration (any direct socket.io usage is migrated or stubbed).",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "rest-room-integration",
+    "title": "REST integration for room create/join",
+    "description": "Replace the in-memory roomId generation and socket.io createRoom/joinRoom flow with calls to the backend's REST endpoints: POST /api/rooms and POST /api/rooms/{id}/join. Add a typed API client under src/utils/api/ aligned with the backend's OpenAPI spec. Store the returned playerId in UserContext.",
+    "status": "pending",
+    "priority": 3,
+    "acceptance": [
+      "src/utils/api/ exposes typed createRoom() and joinRoom() functions.",
+      "Types align with the backend's OpenAPI spec at /v3/api-docs.",
+      "UserContext stores playerId, roomId, role returned by the server.",
+      "NewGame page calls the REST endpoints instead of socket.io emits.",
+      "Error handling shows user-friendly messages for 4xx responses (ROOM_NOT_FOUND, ROOM_FULL, VALIDATION_FAILED, MALFORMED_REQUEST).",
+      "Tests with MSW prove happy path and at least one error path.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "rest-game-integration",
+    "title": "REST integration for game state and moves",
+    "description": "Wire the game page to the backend's POST /api/games/{id}/moves and GET /api/games/{id}. Send X-Player-Id header on move submissions. Display server status (FEN, turn, status) instead of client-side chess.js authority. Keep chess.js for legal-move highlighting as UX aid only.",
+    "status": "pending",
+    "priority": 4,
+    "acceptance": [
+      "src/utils/api/ exposes typed submitMove() and getGameState() functions.",
+      "Play page reads game state from GET /api/games/{id} on load and after each move.",
+      "Move submission sends X-Player-Id header and handles 422 (ILLEGAL_MOVE, NOT_YOUR_TURN), 409 (GAME_ALREADY_ENDED), 404, 400.",
+      "chess.js remains for client-side UX (legal-move dots) but the server's response is the source of truth.",
+      "Tests cover happy path of a short game and at least two error paths.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "stomp-live-updates",
+    "title": "STOMP subscription for real-time updates",
+    "description": "Connect the STOMP client to the backend's broadcast topic for game state. After a move is submitted via REST, the server pushes the new state to all subscribers of /topic/games/{gameId}. The frontend subscribes and updates the local state accordingly. Depends on backend feature 6 (websocket-realtime) being shipped.",
+    "status": "pending",
+    "priority": 5,
+    "acceptance": [
+      "STOMP client connects on Play page mount and disconnects on unmount.",
+      "Subscription to /topic/games/{gameId} updates the local game state on incoming messages.",
+      "Reconnect logic handles transient network failures with backoff.",
+      "Tests with a mock STOMP client cover subscribe, receive, unsubscribe.",
+      "End-to-end happy path: two browsers connected to the same room observe each other's moves in real time.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "e2e-playwright",
+    "title": "Playwright end-to-end test suite",
+    "description": "Introduce Playwright for end-to-end tests covering critical user journeys (create room, share, join, play a few moves, see live updates). Add a CI job that runs Playwright against a built dev server. Reference the anthropics/skills/webapp-testing skill for patterns where applicable.",
+    "status": "pending",
+    "priority": 6,
+    "acceptance": [
+      "@playwright/test added as a devDependency; browsers installed via Playwright's setup.",
+      "playwright.config.ts configured for the project.",
+      "At least one E2E test covers the happy path of a two-player game.",
+      "A new GitHub Actions workflow runs Playwright on PRs.",
+      "./init.sh optionally runs Playwright (gated by an env flag if it slows local iteration too much; document the trade-off).",
+      "./init.sh passes in the default mode."
+    ]
+  },
+  {
+    "id": "hosting-migration",
+    "title": "Migrate hosting (or evaluate alternatives)",
+    "description": "Evaluate moving from GitHub Pages to Vercel or Cloudflare Pages for preview deployments per PR, env var management, and edge CDN. If we go with the migration, set up the new host, update the README, and either retire the GitHub Pages workflow or keep it as a mirror. If we decide to stay on Pages, document the rationale.",
+    "status": "pending",
+    "priority": 7,
+    "acceptance": [
+      "Decision documented in docs/architecture.md with rationale.",
+      "If migration: new host is live, preview deployments work on PRs, README updated.",
+      "If staying: the existing workflow is reviewed for improvements (lint, typecheck, test pre-deploy).",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "readme-polish",
+    "title": "Polished README with project overview",
+    "description": "Final README pass: project overview, stack, how to run locally, link to the backend repo, link to the deployed app, link to OpenAPI spec, architecture diagram (Mermaid). The artifact a recruiter or collaborator reads first.",
+    "status": "pending",
+    "priority": 8,
+    "acceptance": [
+      "README explains what the project is and how to run it in under 5 minutes.",
+      "Mermaid diagram rendered correctly on GitHub.",
+      "Links to chess-backend-java repo, deployed app URL, OpenAPI spec.",
+      "Links to harness engineering files (CLAUDE.md, AGENTS.md) so reviewers can see the workflow.",
+      "./init.sh passes."
+    ]
+  }
+]
