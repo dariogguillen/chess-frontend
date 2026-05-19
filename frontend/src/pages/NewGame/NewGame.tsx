@@ -8,18 +8,13 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import {
-  ChangeEvent,
-  MouseEvent,
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
-import { NavLink, useSearchParams } from "react-router-dom";
-import ShortUniqueId from "short-unique-id";
+import { ChangeEvent, MouseEvent, useState } from "react";
+import { NavLink } from "react-router-dom";
 import Container from "../../components/Container";
 import ToggleButtons from "../../components/ToggleButton";
 import { useUserContext } from "../../context/UserContext";
+import socket from "../../utils/socket";
+import { RoomObj } from "../Play/Play";
 import {
   getOpponentButtonsProps,
   getPositionButtonsProps,
@@ -45,12 +40,14 @@ const NewGame = () => {
   const [join, setJoin] = useState(false);
 
   const {
+    id,
     nickName,
     setNickName,
     position,
     setPosition,
     opponent,
     setOpponent,
+    setOpponentNickName,
     roomId,
     setRoomId,
   } = useUserContext();
@@ -80,25 +77,30 @@ const NewGame = () => {
     else setNickName(defaultPlayerNickname);
   };
 
-  const generateRoomId = useCallback(() => {
-    return new ShortUniqueId({ length: 12 }).randomUUID();
-  }, []);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const roomIdOpt = searchParams.get("roomId");
-
   const handleOnClick = () => {
     if (!join) {
-      const newRoomId = generateRoomId();
-      setRoomId(newRoomId);
+      socket.emit(
+        "createRoom",
+        { id, nickName, position },
+        (roomId: string) => {
+          console.log({ creatRoom: roomId });
+          setRoomId(roomId);
+        },
+      );
+    } else {
+      socket.emit(
+        "joinRoom",
+        { roomId, id, nickName, position },
+        (room: RoomObj) => {
+          // r is the response from the server
+          // TODO: if (room.error) return setRoomError(room.message || "ERROR JOINING A ROOM"); // if an error is returned in the response set roomError to the error message and exit
+          console.log("response:", room);
+          if (room.opponent) setOpponentNickName(room?.player?.nickName); // set players array to the array of players in the room
+          // setOrientation("black"); // set orientation as black
+        },
+      );
     }
   };
-
-  useEffect(() => {
-    if (roomIdOpt) {
-      setRoomId(roomIdOpt);
-      setJoin(true);
-    }
-  }, [roomIdOpt, setRoomId, setJoin]);
 
   const positionButtons = getPositionButtonsProps(position, handlePosition);
   const opponentButtons = getOpponentButtonsProps(opponent, handleOpponent);
