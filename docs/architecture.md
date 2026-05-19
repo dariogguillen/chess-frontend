@@ -11,7 +11,7 @@ be invisible to a reader of the code.
 
 - **TypeScript 5.5** with `strict: true`.
 - **React 18** functional components and hooks. No class components.
-- **Vite 5** as build tool and dev server. Output is a static SPA.
+- **Vite 7** as build tool and dev server. Output is a static SPA.
 - **MUI 6** (Material UI) for components and theming, with Emotion as
   the styling engine.
 - **React Router 6** for client-side routing.
@@ -134,6 +134,56 @@ src/
 ├── main.tsx
 └── theme.tsx
 ```
+
+## Supply chain hygiene
+
+The npm dependency surface is hardened by policy, not by trust. The
+threat model and the mechanics are documented in
+`docs/conventions.md` → "Supply chain hygiene"; the architectural
+decision recorded here is **why** the policy exists and what it
+costs.
+
+**Decision.** Three defensive layers, applied in this order:
+
+1. `.npmrc` enforces `ignore-scripts=true`, `engine-strict=true`, and
+   `min-release-age=7` for every install. Postinstall is the dominant
+   attack vector in the modern npm threat landscape (compromised
+   maintainer accounts publishing malicious patch versions);
+   disabling it project-wide neutralises that vector without
+   trusting any one package.
+2. `init.sh` materialises the allowlist explicitly (`npm rebuild
+   esbuild`) and gates the build on `npm audit --audit-level=moderate`.
+   The build fails on any moderate-or-higher CVE that does not
+   already have a resolution path captured in `package.json`
+   (`overrides`) or in a planned upgrade.
+3. `.claude/settings.json` blocks out-of-band agent edits to
+   `feature_list.json` and `package-lock.json`. The first preserves
+   the leader's workflow ownership; the second preserves lockfile
+   integrity (changes must go through `npm`, not by hand).
+
+**Cost.** Two real costs and one nominal cost.
+
+- A new dependency that silently needs a `postinstall` to function
+  will fail the next build. That is the policy working, not a bug;
+  the resolution is an audited entry in the `npm rebuild` allowlist
+  in `init.sh`.
+- `min-release-age=7` delays patches for up to a week. Emergencies
+  can be unblocked by overriding the setting on a documented basis;
+  routine flow assumes the latency is acceptable.
+- Dependabot opens grouped weekly PRs (and immediate security PRs).
+  The reviewer reads each, treating it as a normal change.
+
+**Alternatives considered.** A npm proxy (Verdaccio, Sonatype Nexus)
+gives stronger control but requires infrastructure we do not have.
+Pinning every dependency to an exact version replaces a class of
+attacks with a maintenance tax that we are not staffed for. The
+policy above is the maximum hardening we can run with zero
+infrastructure beyond the repo.
+
+**Coordination with `chess-backend-java`.** None. Java/Maven has an
+independent threat model. The backend repo can adopt analogous
+discipline (Dependabot for Maven, OWASP Dependency-Check) in its
+own time.
 
 ## Decisions to revisit
 

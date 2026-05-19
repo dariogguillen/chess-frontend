@@ -312,6 +312,148 @@ navigation state.
 - 100-column soft limit, 120 hard limit (Prettier default `printWidth`
   is 80; consider tuning if it produces too many breaks for our JSX).
 
+## Supply chain hygiene
+
+This section is the canonical policy for managing the npm dependency
+surface. It exists because the modern threat is not "a package is buggy"
+but "a package version is malicious". The defenses below are mechanical
+— they survive humans and agents being tired, in a hurry, or careless.
+
+### Threat model
+
+We defend against three concrete vectors:
+
+1. A legitimate package version is published from a compromised
+   maintainer account with a hostile `postinstall` script. Lockfile
+   integrity is satisfied (the SHA-512 matches what npm served), but
+   the script runs on every install.
+2. A new dependency added during a feature brings in a previously
+   unaudited `postinstall` script.
+3. A patch-level upgrade pulls in a freshly-published transitive that
+   has not had time to be flagged by npm's abuse pipeline.
+
+### Lockfile integrity model
+
+`package-lock.json` is the contract between this repo and the npm
+registry: every entry carries an `integrity` SHA-512 of the tarball
+npm served at install time. `npm ci` validates each downloaded
+tarball against that hash and refuses to proceed on mismatch.
+
+What this guarantees: byte-for-byte reproducibility of what is
+installed. What it does **not** guarantee: that the contents of those
+tarballs are benign. A compromised maintainer can publish a malicious
+version that npm cheerfully hashes and serves.
+
+**Rule:** `package-lock.json` is generated, not edited. Never modify
+it by hand. The Claude Code hook in `.claude/settings.json` enforces
+this — direct `Edit`/`Write` to `package-lock.json` is refused.
+
+### `.npmrc` policy
+
+The file at the repo root is the load-bearing piece. It declares:
+
+- **`ignore-scripts=true`** — disables `preinstall`, `install`, and
+  `postinstall` for every dependency. This neutralises the dominant
+  attack vector. Even if a poisoned version lands in the tree, no
+  arbitrary code runs at install time.
+- **`engine-strict=true`** — pairs with `engines` in `package.json`.
+  Refuses to install on an unsupported Node/npm version instead of
+  warning. Keeps every contributor on the same supported floor.
+- **`min-release-age=7`** — refuses to install any package version
+  published less than 7 days ago. Catches the typical
+  detection-and-deprecation window for compromised-account publications.
+  Requires npm 11.7+. The value is in days as a Number; the kebab-case
+  key is the canonical npm config name.
+
+### Postinstall allowlist (the controlled escape hatch)
+
+`ignore-scripts=true` is a hard block. Packages that legitimately
+need a `postinstall` to be usable (e.g. `esbuild` materialising its
+platform binary) are explicitly rebuilt by `init.sh`:
+
+```bash
+npm rebuild esbuild --silent
+```
+
+This is the **allowlist**. Adding a new package that silently
+relies on a `postinstall` fails the next build (missing binary or
+similar) and forces an audited update of this list. The procedure:
+
+1. Identify the package and the work its `postinstall` does.
+2. Read the `postinstall` script in the package source. Confirm it
+   is doing what it claims (e.g. fetching a binary from a vendor
+   CDN, not running arbitrary code).
+3. Add a `npm rebuild <pkg>` line to `init.sh` next to the existing
+   `esbuild` entry, with a comment explaining what the script does
+   and why we trust it.
+4. Note the addition in the implementer's report and in the
+   feature note.
+
+If you cannot confirm what the script does, the answer is no.
+
+### Audit threshold
+
+`init.sh` runs `npm audit --audit-level=moderate` and fails the build
+on any finding at moderate severity or higher. Resolution path, in
+order of preference:
+
+1. **Patch-level upgrade.** Bump the offending dependency to its
+   fixed version. Captured automatically by `npm audit fix` when no
+   breaking change is needed.
+2. **Transitive pin via `overrides`.** When the fix is in a
+   transitive dependency we do not declare ourselves, use the
+   `overrides` block in `package.json` to force resolution. This is
+   the npm 8.3+ feature that replaces the older `resolutions`
+   workaround.
+3. **Major-version upgrade.** If no patch or override path exists,
+   the upgrade is documented in the plan in `progress/current.md`
+   and reviewed as a deliberate change, not slipped in.
+4. **Escalate.** If even a major upgrade does not exist, the leader
+   decides whether to accept the risk (and document it) or block
+   the feature.
+
+`npm audit fix --force` is **not** in this list. The `--force` flag
+implies "make a breaking change without telling you why" — every
+major-version bump goes through a plan, not a one-liner.
+
+### Dependabot
+
+`.github/dependabot.yml` opens weekly PRs for routine updates
+(grouped: dev dependencies in one PR; production dependencies
+individually) and immediate PRs for security advisories regardless
+of cadence. Security PRs jump the queue.
+
+The reviewer treats a Dependabot PR like any other change: read the
+diff, confirm the lockfile changes are consistent with the
+`package.json` changes, run `./init.sh` locally before merging.
+
+### Engines floor
+
+`engines` in `package.json` declares the supported Node and npm
+versions:
+
+```json
+"engines": {
+  "node": ">=20",
+  "npm": ">=11.7"
+}
+```
+
+Combined with `engine-strict=true` in `.npmrc`, an install on an
+unsupported version fails fast. Bumping the floor is a deliberate
+decision, captured in the plan that needs it.
+
+### What "no manual lockfile edits" means in practice
+
+- A new dependency: `npm install --save <pkg>` or `--save-dev`.
+- An upgrade: `npm update <pkg>` or `npm install <pkg>@<version>`.
+- A transitive pin: edit `overrides` in `package.json`, then
+  `npm install` to regenerate the lock.
+- A clean refresh: `rm -rf node_modules package-lock.json && npm install`.
+
+In none of these does anyone open `package-lock.json` and type. The
+hook will refuse if an agent tries.
+
 ## Verification protocol
 
 This is the iron law. Paraphrased from

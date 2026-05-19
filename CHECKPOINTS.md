@@ -47,6 +47,33 @@ approves **and** the user gives explicit OK.
 - [ ] DTOs and shared types are immutable by default (`readonly` on
   fields where mutation would be a bug, or `Readonly<T>` wrappers).
 
+### Dependencies
+
+The supply chain hygiene policy is the iron law for the dependency
+surface. The full rationale lives in `docs/conventions.md`
+("Supply chain hygiene") and `docs/architecture.md` (decision
+record). The checks below are what the reviewer verifies.
+
+- [ ] No new dependency in `package.json` without a one-sentence
+  justification in the implementer's report (audience, runtime cost,
+  size if heavy).
+- [ ] `npm audit --audit-level=moderate` is green inside `./init.sh`.
+  No moderate-or-higher findings are present in the lockfile.
+- [ ] `package-lock.json` was changed only by `npm` (install,
+  update, audit fix). No manual edits — the `.claude/settings.json`
+  hook blocks them on agent sessions; the reviewer spot-checks the
+  diff for hand-edited markers.
+- [ ] No new `postinstall` script in the tree without an explicit
+  `npm rebuild <pkg>` entry in `init.sh` and a paragraph in the
+  implementer's report explaining what the script does and why we
+  trust it.
+- [ ] `engines` in `package.json` matches the Node/npm floor the
+  feature actually requires. If the feature bumps the floor, the
+  bump is captured in the plan (`progress/current.md`).
+- [ ] `overrides` in `package.json` is used for transitive pins, not
+  for forking. Each entry exists because the upstream is vulnerable
+  or out of date; comments are welcome but not required.
+
 ### Tests
 
 Unit and component tests (`*.test.ts` / `*.test.tsx`) are co-located

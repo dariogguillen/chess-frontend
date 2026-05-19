@@ -1,212 +1,160 @@
-# Current session — `supply-chain-hardening` (priority 0.5)
+# Current session — `supply-chain-hardening` (priority 0.5) — RE-OPENED
 
 **Status:** plan drafted by leader, awaiting user approval before delegation
 to implementer.
 
+This is the second pass on the same feature. The first close (recorded
+in `progress/history.md` and now retracted) shipped a `.claude/settings.json`
+hook that referenced a non-existent environment variable
+(`CLAUDE_TOOL_INPUT_FILE_PATH`) and therefore never blocked anything.
+This re-open ships the actual fix and tightens the verification
+protocol so the failure mode cannot recur silently.
+
 ---
 
-## Feature ID and title
+## What broke
 
-`supply-chain-hardening` — Supply chain hardening (npm hygiene + Claude
-Code hooks).
+The shipped hook:
 
-## Why this feature, and why now
+```
+bash -c 'path="$CLAUDE_TOOL_INPUT_FILE_PATH"; if [[ "$path" == */feature_list.json ]]; then ...'
+```
 
-The user surfaced concern about the recent npm supply-chain incident
-pattern: compromised maintainer accounts publishing malicious postinstall
-scripts in patch-level releases of widely-used packages (the
-chalk/debug/s1ngularity class of attacks). Standard `npm ci` validates
-package integrity via SHA-512 hashes against the lockfile, but does not
-defend against three real vectors:
+`$CLAUDE_TOOL_INPUT_FILE_PATH` is **not** a Claude Code env var. The
+correct mechanism is **stdin JSON**: Claude Code pipes the tool
+invocation to the hook's stdin as `{"tool_input": {"file_path": "...",
+"old_string": "...", "new_string": "...", ...}}`. The hook must read
+stdin and parse with `jq`.
 
-1. A legitimate package version published from a compromised account
-   runs a malicious `postinstall` script the moment it lands in the
-   tree. Lockfile integrity is satisfied — the hash matches what npm
-   served.
-2. A new dependency added by an agent (or by drift) brings in a
-   postinstall script nobody audited.
-3. A patch-level upgrade pulls in a freshly-published transitive that
-   has not had time to be flagged by npm's abuse pipeline.
+Empirical evidence:
 
-This feature inserts at priority 0.5 — **before** `test-baseline` — so
-every subsequent feature inherits the hardening. Adding Vitest and a
-test pipeline expands the dependency surface; we want the policy in
-place first.
+1. Leader's own `Edit` to `feature_list.json` after the close
+   succeeded silently — should have been blocked.
+2. Manual reproduction with `CLAUDE_TOOL_INPUT_FILE_PATH=...` exported
+   confirmed the bash logic works under that precondition. With the
+   variable unset (which is the real Claude Code condition), the
+   `if` branch never fires.
 
-## Approach
+## What the corrected hook should look like
 
-Three defensive layers, ordered by impact:
+```bash
+FILE=$(jq -r '.tool_input.file_path // empty' < /dev/stdin)
+if [[ "$FILE" == */feature_list.json ]]; then
+  echo "BLOCKED: feature_list.json is owned by the leader workflow. Rotate status via 'jq' in Bash, not Edit/Write." >&2
+  exit 2
+fi
+if [[ "$FILE" == */package-lock.json ]]; then
+  echo "BLOCKED: package-lock.json must change via npm (npm install / npm ci / npm audit fix), never by hand." >&2
+  exit 2
+fi
+exit 0
+```
 
-### Layer 1 — `.npmrc` policy (the hard block)
+Key details:
+- Read tool input from **stdin** with `jq -r '.tool_input.file_path // empty'`.
+- Exit code **2** = blocking error in Claude Code hooks (not 1).
+- The `// empty` jq guard ensures the script does not crash if some
+  future tool invocation lacks `file_path` (e.g. NotebookEdit).
 
-- `ignore-scripts=true` — disables `preinstall` / `install` /
-  `postinstall` by default. The dominant attack vector goes from
-  "running on every developer's machine" to "running only on packages
-  we explicitly rebuild".
-- `engine-strict=true` — pairs with `package.json` `engines` to refuse
-  installs on unsupported Node/npm.
-- `minimum-release-age=7d` — refuses to install a package version
-  published less than 7 days ago. Catches the typical detection window
-  for compromised-account publications. Requires npm 11.7+ (current
-  local: 11.5.2, must bump).
+## Workflow implication for the leader
 
-### Layer 2 — current vulnerabilities resolved + audit gate
+Once the hook starts blocking `Edit|Write` on `feature_list.json`, the
+leader can no longer Edit it directly. **Status rotations from now on
+go through `jq` in Bash**, which is not matched by `Edit|Write`.
 
-- `npm audit` today reports 5 transitive vulnerabilities (all moderate
-  or low ReDoS): `@babel/helpers`, `@babel/runtime`,
-  `@eslint/plugin-kit`, `ajv`, `brace-expansion`. All `fixAvailable:
-  true`.
-- Resolve via `npm audit fix` for what closes without major bumps, and
-  `overrides` in `package.json` for transitive pins not reachable via
-  fix.
-- Add `npm audit --audit-level=moderate` step in `init.sh`. Build fails
-  on moderate-or-higher findings. (User-confirmed threshold.)
+Canonical leader recipe for marking a feature done:
 
-### Layer 3 — Claude Code hooks (the disciplined-self guard)
+```bash
+jq '(.[] | select(.id == "FEATURE_ID") | .status) = "done"' \
+  feature_list.json > .tmp.feature_list.json && \
+  mv .tmp.feature_list.json feature_list.json
+```
 
-- `.claude/settings.json` with `PreToolUse` hooks that block
-  `Edit|Write` to `feature_list.json` (only the leader rotates status
-  through the documented workflow) and to `package-lock.json` (must
-  change via `npm install`, not by hand).
-- Permission allowlist for the npm-era commands (`npm *`, `npx *`,
-  `./init.sh`, `jq *`, `git *`).
-- Deny `Bash(rm -rf *)` defensively.
+This will be documented in `.claude/agents/leader.md` as part of this
+feature's scope.
 
-### Supporting changes
+## Files to modify in the re-open
 
-- `package.json` gains `engines` (node >=20, npm >=11.7) and `overrides`
-  if needed.
-- `init.sh` gains: npm version sanity check, explicit `npm ci`
-  (relies on `.npmrc` for `ignore-scripts`), `npm rebuild esbuild`
-  (the only legitimate postinstall in the current tree), `npm audit`
-  step.
-- `.github/dependabot.yml` configured for the `npm` ecosystem: weekly
-  cadence with grouping for dev dependencies, immediate security
-  updates regardless of cadence.
-- `docs/conventions.md` gets a new `Supply chain hygiene` section.
-- `docs/architecture.md` records the policy decision.
-- `CHECKPOINTS.md` gains a `Dependencies` block.
-- `README.md` mentions the policy in one paragraph linking to
-  conventions.
+- `.claude/settings.json` — fix the hook to read stdin/jq, use exit 2.
+- `.claude/agents/leader.md` — document the `jq` rotation recipe.
+- `.claude/agents/reviewer.md` — add an **end-to-end** hook
+  verification recipe under "Concrete checks worth scripting":
+  reviewer must trigger an actual `Edit` attempt on the protected
+  file and observe the block, not just test the bash logic with a
+  manually-set variable.
+- `notes/00.5-supply-chain-hardening.md` — append a section
+  "Post-close correction" documenting the bug, the root cause, and
+  the lesson (synthetic verification ≠ end-to-end verification).
+- `progress/history.md` — already updated with the retraction note;
+  the new close entry will be appended after the re-review.
 
-## Files that will be created or modified
+Not modified (out of scope for the re-open):
+- `.npmrc`, `package.json`, `init.sh`, `dependabot.yml`,
+  `docs/conventions.md`, `docs/architecture.md`, `CHECKPOINTS.md`,
+  `README.md`, `AGENTS.md` — all still correct from the first pass.
 
-By area:
+## Verification protocol for this re-open
 
-**Root config**
-- `.npmrc` (new) — supply chain policy
-- `package.json` (modify) — `engines`, optionally `overrides`
-- `package-lock.json` (regenerated by `npm install`)
+This is the change with the highest leverage. The reviewer must
+verify the hook **by triggering an actual tool invocation that should
+be blocked**, not by setting environment variables manually. Concrete
+recipe (to be added to `reviewer.md`):
 
-**Verification**
-- `init.sh` (modify) — npm version check, audit step, controlled
-  rebuild
+1. Confirm hook bash logic with stdin:
+   ```
+   echo '{"tool_input":{"file_path":"/x/feature_list.json"}}' | <hook command>
+   echo "exit=$?"
+   ```
+   Expected: exit 2, message on stderr.
 
-**Claude Code hooks**
-- `.claude/settings.json` (new) — permissions + PreToolUse hooks
+2. Confirm hook **inside Claude Code**: attempt an actual `Edit` on
+   `feature_list.json` from a fresh tool call (the reviewer can do
+   this by trying a no-op edit and reverting). If the Edit goes
+   through, the hook is broken. If Claude Code surfaces the block
+   message, the hook works.
 
-**CI / dependency automation**
-- `.github/dependabot.yml` (new)
+3. Confirm `jq`-based status rotation still succeeds (the Bash tool
+   is not matched by `Edit|Write`):
+   ```
+   jq '...' feature_list.json > .tmp && mv .tmp feature_list.json
+   ```
 
-**Documentation**
-- `docs/conventions.md` (modify) — `Supply chain hygiene` section
-- `docs/architecture.md` (modify) — policy decision recorded
-- `CHECKPOINTS.md` (modify) — `Dependencies` block added
-- `README.md` (modify) — one paragraph on the policy
+The reviewer's first-pass mistake was stopping at step 1.
 
-**Feature note**
-- `notes/00.5-supply-chain-hardening.md` (new) — per the
-  decimal-priority convention
+## TS / React / Vite concepts to highlight in the feature note update
 
-## Verification approach
+The post-close correction note will cover:
 
-`./init.sh` is the gate. After the feature:
+- The Claude Code hooks input mechanism (stdin JSON, exit codes 0/2).
+- Why synthetic verification is insufficient — applies to any test
+  that mocks the precondition under test.
+- The split between "bash logic correct" and "wiring correct" —
+  parallel to the unit-vs-integration distinction in test design.
 
-1. `npm --version` sanity check fires if npm < 11.7. (Manual fix:
-   `npm install -g npm@latest`.)
-2. `npm ci` honours `.npmrc` — no install scripts run unless
-   allowlisted.
-3. `npm rebuild esbuild` runs explicitly. Adding new packages with
-   install scripts triggers a discoverable failure (build can't find
-   the binary) unless they are added to the allowlist with
-   justification.
-4. `npm audit --audit-level=moderate` exits 0. The 5 current
-   vulnerabilities are closed by this feature; the gate prevents
-   regression.
-5. `npm run lint` and `npm run build` still pass.
-6. Editing `feature_list.json` or `package-lock.json` from an agent
-   session triggers the hook block.
+## Public-facing surface and architecture
 
-## TS / React / Vite concepts to highlight in the feature note
+No changes to public surface or architecture beyond what shipped in
+the first pass.
 
-This is a harness-meta feature, so the note will focus on the
-**ecosystem mechanics**, not on React patterns:
+## Cross-repo coordination
 
-- npm lockfile integrity model (`integrity:` SHA-512) and what it does
-  and does not guarantee.
-- The `postinstall` lifecycle hook and why it is the modern supply-
-  chain attack surface.
-- `overrides` in `package.json` — npm 8.3+ feature for forcing
-  transitive resolution without forking.
-- `minimum-release-age` — npm 11.7 feature.
-- How esbuild's `postinstall` reconciles with `ignore-scripts=true`
-  via explicit `npm rebuild` (the package looks up its platform-
-  specific binary; without postinstall the binary is missing).
+None.
 
-The cross-ecosystem comparison section will contrast this with how
-Maven and sbt handle the equivalent risk surface (Maven's lack of
-runtime postinstall, sbt's `Plugin` model, Coursier's hash verification
-without a postinstall lifecycle).
+## Open questions for the user
 
-## Public-facing surface changes
-
-- **`README.md`:** yes, one paragraph added describing the policy.
-  Reviewer to confirm.
-- **`init.sh`:** procedure changes (new steps), so anyone running it
-  locally sees the new behavior. Documented in the policy section.
-- **No URL, env var, or deployment target change.**
-
-## Architectural decision
-
-Yes. The supply-chain policy is a new architectural decision and will
-be recorded in `docs/architecture.md`.
-
-## Cross-repo coordination with `chess-backend-java`
-
-None. Java/Maven has an independent dependency model and an independent
-security posture. The backend repo can adopt analogous discipline in
-its own time (Dependabot for Maven, OWASP Dependency-Check plugin), but
-that is out of scope here. Documented separately if the user requests.
-
-## Risk and rollback
-
-- **Risk:** `ignore-scripts=true` breaks any future dependency that
-  silently relies on a postinstall. Mitigation: `init.sh` runs the
-  build immediately after install; a missing binary fails fast and
-  visibly.
-- **Risk:** `minimum-release-age=7d` blocks legitimate patches for up
-  to a week. Mitigation: emergencies can be unblocked by overriding
-  the setting temporarily and documenting the deviation in the plan.
-- **Rollback:** all changes are additive and reversible. Removing
-  `.npmrc` restores the previous behavior; removing the audit step
-  from `init.sh` restores the previous gate.
-
-## Open questions for the user (already answered)
-
-- **Alcance:** Feature 0.5 dedicada (single feature).
-- **Audit threshold:** moderate or higher fails the build.
-- **`ignore-scripts`:** yes, with documented allowlist.
-- **`minimum-release-age`:** yes, 7 days.
+None pre-decided. The user already approved the original plan; this
+is a fix pass, not a scope change.
 
 ## Next steps
 
-1. **User reviews this plan.** Approve, request changes, or reject.
+1. **User reviews this plan.** Approve or reject.
 2. On approval, leader delegates to `implementer` with this plan as
    the spec.
-3. Implementer produces all files listed, runs `./init.sh` to green,
-   writes `notes/00.5-supply-chain-hardening.md`.
-4. Reviewer walks `CHECKPOINTS.md` (including the new `Dependencies`
-   block once the implementer adds it — reviewer reads the version
-   updated by the implementer).
-5. Leader reports outcome to user; user gives explicit OK; leader
-   closes the feature.
+3. Implementer fixes `.claude/settings.json`, updates `leader.md` and
+   `reviewer.md`, appends the correction section to the feature note,
+   runs `./init.sh` to confirm it stays green.
+4. Reviewer runs the new end-to-end verification protocol and either
+   approves or returns specific issues.
+5. Leader rotates status to `done` via `jq` (the new recipe),
+   appends a closing entry to `progress/history.md`, and resets
+   `progress/current.md`.

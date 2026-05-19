@@ -2,6 +2,19 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Supply chain hygiene
+
+The npm dependency surface in this repo is hardened by policy. The
+project-level `.npmrc` sets `ignore-scripts=true`, `engine-strict=true`,
+and `min-release-age=7` so that no `postinstall` script runs at install
+time, every contributor stays on the same Node/npm floor (Node ≥ 20,
+npm ≥ 11.7), and freshly-published versions are kept out of the tree
+during the typical detection window for compromised publications.
+`./init.sh` rebuilds the allowlisted `esbuild` binary explicitly and
+fails the build on any `npm audit` finding at moderate severity or
+higher. The full rationale, the audit threshold, and the allowlist
+procedure live in [`docs/conventions.md`](./docs/conventions.md#supply-chain-hygiene).
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh

@@ -1,0 +1,48 @@
+# Dependabot configuration for chess-frontend.
+#
+# Pairs with the supply chain hygiene policy in `docs/conventions.md`.
+# Security updates ship immediately regardless of cadence; routine
+# updates are batched weekly to keep PR noise low.
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    # Group dev dependencies so we get a single PR per week for ESLint
+    # plugins, TypeScript tooling, Vite, etc. Production dependencies
+    # stay individual — easier to review and revert.
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    # Security updates ignore the grouping and weekly cadence; they
+    # open as individual PRs immediately. This is Dependabot's default
+    # behaviour and is reaffirmed here for clarity.
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

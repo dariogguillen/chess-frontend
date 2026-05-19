@@ -82,7 +82,7 @@ This section is a fast-access summary. The authoritative versions are in
 
 ### Stack
 
-- **TypeScript 5.5**, **React 18**, **Vite 5**, served as a static SPA.
+- **TypeScript 5.5**, **React 18**, **Vite 7**, served as a static SPA.
 - **MUI 6** (Material UI) + Emotion for components and styling.
 - **React Router 6** for client-side routing.
 - **chess.js** + **react-chessboard** for board UI and local move

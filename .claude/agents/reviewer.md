@@ -112,6 +112,73 @@ Any wildcard import in production code is a `[FAIL]` unless the comment
 beside it justifies it (e.g. a library that only exports a namespace
 object).
 
+### Claude Code hook verification
+
+Checkpoint: the `PreToolUse` hook in `.claude/settings.json` blocks
+`Edit`/`Write` against `feature_list.json` and `package-lock.json`.
+
+This check has **two** steps. Both are required. Step 1 alone is
+**not** sufficient.
+
+**Step 1 — Bash logic check (necessary but not sufficient).**
+
+Extract the hook command from `settings.json` and pipe simulated
+Claude Code stdin into it. Confirm exit code 2 and the blocking
+message on stderr.
+
+```
+HOOK_CMD=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' .claude/settings.json)
+echo '{"tool_input":{"file_path":"/x/feature_list.json"}}' | eval "$HOOK_CMD"
+echo "exit=$?"
+echo '{"tool_input":{"file_path":"/x/package-lock.json"}}' | eval "$HOOK_CMD"
+echo "exit=$?"
+echo '{"tool_input":{"file_path":"/x/src/main.tsx"}}' | eval "$HOOK_CMD"
+echo "exit=$?"
+```
+
+Expected:
+
+- Both protected paths print the `BLOCKED: ...` message and exit 2.
+- The safe path exits 0 with no output.
+
+**Step 2 — End-to-end check (this is the one that catches wiring bugs).**
+
+The reviewer must demonstrate that an **actual Claude Code tool
+invocation** is blocked. Concrete procedure: from a fresh tool call,
+attempt a no-op `Edit` (or a `Write` with the file's current
+contents) on `feature_list.json` or `package-lock.json`. If Claude
+Code surfaces the block message and the operation is refused, the
+wiring works. If the `Edit` goes through silently, the hook is
+broken regardless of what step 1 reported.
+
+**Step 1 alone is insufficient — that mistake shipped a broken hook
+in the first pass of `supply-chain-hardening`.** The bash logic was
+correct, but it referenced `$CLAUDE_TOOL_INPUT_FILE_PATH`, which is
+not a Claude Code env var; the actual mechanism is stdin JSON.
+Synthetic verification (setting environment variables manually, or
+piping a hand-crafted JSON object) confirms the script's logic but
+says nothing about whether Claude Code is wired to invoke the script
+at all, or with the expected payload. Only step 2 closes that gap.
+
+If step 1 passes and step 2 fails, the issue is in the hook
+configuration (matcher, command shape, settings file path,
+permissions), not in the hook script — investigate accordingly.
+
+**Step 3 — `jq` rotation still works.** Confirm the leader's
+documented status-rotation recipe runs cleanly (the `Bash` tool is
+not matched by `Edit|Write`):
+
+```
+jq '(.[] | select(.id == "FEATURE_ID") | .status) = "in_progress"' \
+  feature_list.json > .tmp.feature_list.json && \
+  mv .tmp.feature_list.json feature_list.json
+```
+
+Run this with a no-op value (e.g. set the status to its current
+value, or revert after) so the review pass does not actually change
+state. If `jq` is itself blocked, the permissions allowlist has
+regressed.
+
 ## Reporting back
 
 When done, write a review report. There are two outcomes.

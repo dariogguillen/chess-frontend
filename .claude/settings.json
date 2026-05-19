@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(./init.sh)",
+      "Bash(jq *)",
+      "Bash(git *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=$(jq -r \".tool_input.file_path // empty\"); if [[ \"$FILE\" == */feature_list.json ]]; then echo \"BLOCKED: feature_list.json is owned by the leader workflow. Rotate status via jq in Bash (recipe in .claude/agents/leader.md), not Edit/Write.\" >&2; exit 2; fi; if [[ \"$FILE\" == */package-lock.json ]]; then echo \"BLOCKED: package-lock.json must change via npm (npm install / npm ci / npm audit fix), never by hand.\" >&2; exit 2; fi; exit 0'"
+          }
+        ]
+      }
+    ]
+  }
+}
