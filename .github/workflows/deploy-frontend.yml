@@ -2,11 +2,18 @@
 name: Deploy static content to Pages
 
 on:
-  # Runs on pushes targeting the default branch and the frontend folder
+  # Runs on pushes targeting the default branch that affect the frontend build
   push:
     branches: ["main"]
     paths:
-      - "frontend/**"
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "tsconfig*.json"
+      - "eslint.config.js"
       - ".github/workflows/deploy-frontend.yml"
       - ".nvmrc"
 
@@ -42,14 +49,10 @@ jobs:
         with:
           node-version-file: ".nvmrc"
       - name: Install dependencies
-        run: |
-          cd frontend
-          npm ci
+        run: npm ci
       - name: Build
         run: |
-          cd frontend
           echo VITE_BACKEND_URL=$VITE_BACKEND_URL > .env
-          ls
           npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -57,7 +60,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload dist folder
-          path: "./frontend/dist"
+          path: "./dist"
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
