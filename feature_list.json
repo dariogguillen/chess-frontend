@@ -22,7 +22,7 @@
     "id": "supply-chain-hardening",
     "title": "Supply chain hardening (npm hygiene + Claude Code hooks)",
     "description": "Harden the npm dependency surface and add the first Claude Code hooks for the harness. Motivated by the recent wave of npm supply-chain incidents (compromised maintainer accounts publishing malicious postinstall scripts, e.g. the s1ngularity / chalk-debug class of attacks). Adds three defensive layers: (1) `.npmrc` with `ignore-scripts=true`, `engine-strict=true`, and `minimum-release-age=7d` (npm 11.7+) — blocks the dominant attack vector and the recently-published-package window; (2) `npm audit` step in `init.sh` failing on moderate-or-higher, with the current 5 transitive CVEs resolved via `npm audit fix` and `overrides` where needed; (3) `.claude/settings.json` with hooks blocking out-of-band edits to `feature_list.json` and `package-lock.json`. Also pins Node/npm versions via `engines`, adds Dependabot config, documents the policy in `docs/conventions.md`, and updates `CHECKPOINTS.md`. Inserted at priority 0.5 — before `test-baseline` — so every subsequent feature inherits the hardening. RE-OPENED 2026-05-19 after the initial close: the Claude Code hooks shipped using a non-existent env var (`CLAUDE_TOOL_INPUT_FILE_PATH`) and therefore never blocked anything. The reviewer's verification was synthetic (set the variable manually and confirmed the bash branch executed) but not end-to-end (never confirmed that Claude Code actually populates that variable). The correct mechanism is stdin JSON parsed via `jq` against `.tool_input.file_path`. This re-open ships the corrected hook, adds a real end-to-end verification recipe to `reviewer.md`, and updates `leader.md` to reflect that status rotations in `feature_list.json` will go through `jq`-driven Bash from now on (the hook will block direct Edit|Write).",
-    "status": "in_progress",
+    "status": "done",
     "priority": 0.5,
     "acceptance": [
       "`.npmrc` exists with `ignore-scripts=true`, `engine-strict=true`, `minimum-release-age=7d`, and a comment block documenting the rationale for each setting.",
@@ -43,7 +43,7 @@
     "id": "test-baseline",
     "title": "Vitest + React Testing Library baseline",
     "description": "Introduce the test pipeline: Vitest, React Testing Library, Prettier, and TypeScript strict mode if not already on. Add npm scripts for typecheck, test, format. Extend init.sh to invoke typecheck and test. Write one or two trivial tests (a presentational component + a pure util) to prove the pipeline. Mirrors the role of feature 1 (health-check) in the Java backend: the first vertical slice that proves the harness works end-to-end.",
-    "status": "pending",
+    "status": "done",
     "priority": 1,
     "acceptance": [
       "vitest, @testing-library/react, @testing-library/jest-dom, jsdom (or happy-dom), and prettier added to devDependencies.",

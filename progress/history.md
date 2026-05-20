@@ -170,3 +170,133 @@ features if the pattern recurs.
 > hook, an end-to-end verification recipe, and the workflow
 > implication that status rotations now go through `jq`. A new
 > closing entry will follow once the corrected close lands.
+
+## 2026-05-19 — supply-chain-hardening (corrected close)
+
+**Status:** done
+
+**Summary:** This entry supersedes the retracted close above. The
+re-open shipped the actual fix for the broken Claude Code hook plus
+the workflow and verification updates that resulted from the
+post-mortem. Three substantive changes: (1) `.claude/settings.json`
+hook rewritten to read tool input from stdin JSON via
+`jq -r '.tool_input.file_path // empty'` and exit with code 2 on
+block (the Claude Code "blocking error" code), replacing the
+non-existent `$CLAUDE_TOOL_INPUT_FILE_PATH` env var that the first
+pass had used. (2) `.claude/agents/leader.md` gained a "Rotating
+feature status" subsection documenting the canonical `jq` recipe for
+status rotations — the leader can no longer Edit `feature_list.json`
+directly because the now-working hook blocks it, so rotations go
+through a `jq` filter into a temp file followed by `mv`. The Bash
+tool is not matched by the hook's `Edit|Write` selector, so this is
+the documented escape hatch. (3) `.claude/agents/reviewer.md` gained
+a "Claude Code hook verification" subsection codifying the lesson:
+bash-logic verification with a manually-set env var is necessary but
+not sufficient. The reviewer must additionally attempt a real
+`Edit`/`Write` on a protected path from a live Claude Code session
+and observe the block — that is what catches wiring bugs. The
+section calls out the first-pass mistake explicitly.
+
+The re-review confirmed end-to-end blocking in case (a) of the new
+recipe: a real `Edit` attempt on `feature_list.json` from Claude
+Code surfaced the `PreToolUse:Edit` hook error with the BLOCKED
+message visible, and a post-attempt grep confirmed the file was
+unmodified. The `jq` rotation path was also exercised (no-op
+write-and-mv) to confirm `Bash` is not affected by the matcher.
+
+**Process notes:** the failure mode was specifically that synthetic
+verification can succeed while end-to-end verification would fail,
+because the synthetic precondition is the exact thing the wiring
+bug breaks. The reviewer's recipe now treats steps 1 and 2 as
+distinct, with explicit "necessary but not sufficient" language on
+step 1. This is the harness equivalent of the unit-test-passes /
+integration-test-fails trap.
+
+**Files touched (re-open only):**
+
+- `.claude/settings.json` (modified — stdin/jq + exit 2)
+- `.claude/agents/leader.md` (modified — Rotating feature status section)
+- `.claude/agents/reviewer.md` (modified — Claude Code hook verification recipe)
+- `notes/00.5-supply-chain-hardening.md` (modified — Post-close correction appendix)
+
+The first-pass files (.npmrc, package.json, init.sh, dependabot.yml,
+docs, CHECKPOINTS.md, README.md, AGENTS.md, notes/00.5 main body)
+were not modified — they were correct as shipped.
+
+**Feature note:** `notes/00.5-supply-chain-hardening.md` (now
+includes the Post-close correction appendix).
+
+## 2026-05-19 — test-baseline
+
+**Status:** done
+
+**Summary:** First feature where the `Tests` block of `CHECKPOINTS.md`
+activates for real — the `typecheck` and `test` steps in `init.sh`
+transitioned from "Skipping" to live execution. Vitest + React Testing
+Library + jsdom is the test pipeline; Prettier + eslint-config-prettier
+handles formatting concerns disjoint from ESLint's structural rules.
+Six tests cover the only two non-trivial surfaces in `src/` today:
+four behavior tests on `CustomDialog` (title + contentText render,
+children render, content hidden when `open=false`, Continue button
+triggers `handleContinue` via `user-event`) and two on the
+`config.default` utility (non-empty fallback string, fallback equals
+`http://localhost:3001` when `VITE_BACKEND_URL` is unset).
+
+The Prettier config matches the user-confirmed choices: `printWidth:
+100`, `semi: true`, `singleQuote: true`, `trailingComma: "all"`,
+`tabWidth: 2`, `arrowParens: "always"`. `eslint-config-prettier` is
+appended last in the flat `eslint.config.js` chain so formatting
+rules ESLint and Prettier both have an opinion on go to Prettier.
+
+**Judgment calls the implementer made, all approved by the reviewer:**
+
+1. `tsc -b --noEmit` for `typecheck` (project references walked
+   correctly).
+2. `format:check` script defined but **not** wired into `init.sh` —
+   22 pre-existing files have formatting drift; the cleanup belongs
+   to its own feature (a candidate to fold into `readme-polish`
+   priority 8 or a new dedicated feature). The acceptance criterion
+   for `test-baseline` only required `typecheck` and `test` to run.
+3. `@testing-library/jest-dom/vitest` imported in BOTH `vitest.setup.ts`
+   (runtime) AND in `src/components/CustomDialog.test.tsx`
+   (compile-time type augmentation). Reviewer verified empirically:
+   removing the per-file import yields 8 TS2339 errors on
+   `toBeInTheDocument` / `toHaveTextContent`. `vitest.setup.ts` lives
+   at repo root, outside `tsconfig.app.json`'s `include: ["src"]`, so
+   the type augmentation does not reach `tsc` without the explicit
+   per-file import. Documented in the feature note Gotchas.
+
+**Process notes:** the supply-chain-hardening hook fired correctly
+when invoked during the test phase — no agent attempted to touch
+`feature_list.json` or `package-lock.json` directly. `package-lock.json`
+regenerated by `npm install` (Bash, not `Edit|Write`) was unaffected
+by the hook, as designed. Closing rotation used the `jq` recipe from
+`.claude/agents/leader.md`.
+
+**Out-of-scope observations forwarded:**
+- 22 files have Prettier drift across configs, docs, notes, legacy
+  `src/` components, and harness files. Whatever feature picks this
+  up will need to either run `npm run format` repo-wide (single
+  large diff) or stage it section by section.
+- `src/components/CustomDialog.tsx` uses default export and lacks
+  `Readonly<Props>`. Worth picking up when CustomDialog is next
+  touched (likely STOMP migration in feature 2 or the REST
+  integration features).
+- `vite.config.ts` and `vitest.config.ts` both reference
+  `@vitejs/plugin-react`. Known cost of the two-file decision, not
+  a defect.
+
+**Files touched:**
+
+- `package.json` (modified — 7 devDeps + 5 scripts)
+- `package-lock.json` (regenerated by `npm install`)
+- `vitest.config.ts` (new)
+- `vitest.setup.ts` (new)
+- `.prettierrc.json` (new)
+- `.prettierignore` (new)
+- `eslint.config.js` (modified — `eslint-config-prettier` appended last)
+- `src/components/CustomDialog.test.tsx` (new — 4 behavior tests)
+- `src/utils/config.default.test.ts` (new — 2 tests)
+- `notes/01-test-baseline.md` (new)
+
+**Feature note:** `notes/01-test-baseline.md`
