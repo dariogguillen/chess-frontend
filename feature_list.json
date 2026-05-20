@@ -117,6 +117,20 @@
     ]
   },
   {
+    "id": "ci-engine-strict-fix",
+    "title": "Fix GitHub Pages deploy after engine-strict policy",
+    "description": "After feature 0.5 (supply-chain-hardening) introduced `engines: { node: '>=20', npm: '>=11.7' }` in package.json plus `engine-strict=true` in .npmrc, the GitHub Pages deploy workflow started failing on `npm ci` with EBADENGINE. The runner installs Node 20.18 (per .nvmrc) which ships with npm 10.8.2 — below the 11.7 floor we require. The fix is a single step in `.github/workflows/deploy-frontend.yml` that bumps npm to 11.x immediately after `actions/setup-node`. Documented as a regression of feature 0.5 (the workflow update was missing from the original scope). Inserted at priority 3.5 because it blocks production deploys and should land before any of the still-pending features 4+.",
+    "status": "done",
+    "priority": 3.5,
+    "acceptance": [
+      "`.github/workflows/deploy-frontend.yml` includes an explicit step `npm install -g npm@11` (pinned to major to avoid an accidental major bump from latest) between `actions/setup-node` and `npm ci`.",
+      "The step is documented with a one-line comment referencing the engine-strict policy from feature 0.5.",
+      "`./init.sh` still passes locally (no regression).",
+      "`docs/conventions.md` Supply chain hygiene section gains a one-paragraph note about the CI-side counterpart (CI must satisfy the same engines as local). The same paragraph mentions the workflow file as the canonical place for the npm bump.",
+      "After merging to main, the deploy workflow runs green end-to-end. Verification of the live run is the user's manual check post-merge — the reviewer cannot run GitHub Actions locally without extra tooling (act), so the in-harness verification is a careful read of the YAML diff plus the `./init.sh` sanity."
+    ]
+  },
+  {
     "id": "rest-room-integration",
     "title": "REST integration for room create/join",
     "description": "Replace the in-memory roomId generation and socket.io createRoom/joinRoom flow with calls to the backend's REST endpoints: POST /api/rooms and POST /api/rooms/{id}/join. Add a typed API client under src/utils/api/ aligned with the backend's OpenAPI spec. Store the returned playerId in UserContext.",

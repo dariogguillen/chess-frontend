@@ -619,3 +619,58 @@ needs its own rules. The growth path is documented in
   "UI and accessibility (when applicable)")
 - `progress/history.md` (this entry)
 - `progress/current.md` (reset to session-closed post-update)
+
+## 2026-05-20 — ci-engine-strict-fix
+
+**Status:** done (with post-merge CI verification pending the user's push)
+
+**Summary:** Single-step fix to the GitHub Pages deploy workflow
+that broke when feature 0.5 (`supply-chain-hardening`) introduced
+`engines: { node: ">=20", npm: ">=11.7" }` + `engine-strict=true`
+without updating CI. The runner's `actions/setup-node` reads
+`.nvmrc` (Node 20+) and lands on Node 20.18 which ships with
+npm 10.8.2 — below the 11.7 floor. `npm ci` aborts with
+`EBADENGINE`. The user pushed the `ui-refresh` close and saw the
+first manifestation: production deploy red, app stale on GitHub
+Pages.
+
+**Fix:** added a step `npm install -g npm@11` between
+`actions/setup-node` and `npm ci` in
+`.github/workflows/deploy-frontend.yml`. Pinned to major 11
+(not `latest`) to avoid a silent npm 12+ jump when that ships;
+the inline comment captures the lockstep maintenance rule
+(bumping the local `engines` floor requires bumping this step
+in lockstep).
+
+**Verification limit:** GitHub Actions cannot be run locally
+without `act` or equivalent. The reviewer's pass was necessarily
+file-level: YAML diff readable, scope discipline confirmed,
+local `./init.sh` green. The criterion "deploy workflow runs
+green end-to-end" is **DEFERRED to the user's post-merge push**.
+This is the canonical pattern for CI fixes — in-repo review is
+necessarily incomplete; the final gate is the CI run.
+
+**Lesson recorded as carry-over consideration:** the original
+feature 0.5 plan should have included the CI workflow update.
+The harness scaffold does not have a check that catches
+"local engines floor changed but CI workflow did not". A future
+harness update could add this — e.g., the reviewer recipe for
+features that touch `engines` or `.nvmrc` walks every workflow
+under `.github/workflows/` and flags mismatches. Out of scope
+for this feature; flagged for the next harness retrospective.
+
+**No feature note** — mini-feature convention. Rationale lives
+here.
+
+**Files touched:**
+
+- `.github/workflows/deploy-frontend.yml` (modified — new step
+  `Bump npm to satisfy engines (>=11.7)` between Set up Node and
+  Install dependencies, with 4-line inline justification comment)
+- `docs/conventions.md` (modified — new `CI engine policy`
+  subsection at the end of `Supply chain hygiene`, before
+  `Verification protocol`; 5 sentences covering the local floor,
+  the runner-npm gap, the workflow step, the major-pin rationale,
+  and the lockstep rule)
+
+**Feature note:** N/A (mini-feature, per convention).
