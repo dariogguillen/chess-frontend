@@ -675,6 +675,94 @@ here.
 
 **Feature note:** N/A (mini-feature, per convention).
 
+## 2026-05-20 — actions-bump
+
+**Status:** done (with post-merge CI + Dependabot auto-close
+verification pending the user's push)
+
+**Summary:** Applied five GitHub Actions major bumps in a single
+commit on `.github/workflows/deploy-frontend.yml`. Dependabot
+had opened PRs #1-5 for each bump, but `gh pr update-branch`
+failed for #1 because the workflow file was already modified by
+`ci-engine-strict-fix` (the new `npm install -g npm@11` step).
+Each Dependabot PR touches the same file with adjacent context;
+the same conflict would reproduce for #2-5. Applying the five
+bumps locally is cleaner: one diff, one harness pass, no
+force-pushes; Dependabot detects the merged versions and auto-
+closes #1-5 as superseded.
+
+**Bumps applied (lines in `deploy-frontend.yml`):**
+
+- `actions/checkout` `@v4` → `@v6` (line 46)
+- `actions/setup-node` `@v4` → `@v6` (line 48)
+- `actions/configure-pages` `@v4` → `@v6` (line 60)
+- `actions/upload-pages-artifact` `@v3` → `@v5` (line 62)
+- `actions/deploy-pages` `@v4` → `@v5` (line 68)
+
+The `Bump npm to satisfy engines (>=11.7)` step from
+`ci-engine-strict-fix` is preserved verbatim. No other workflow
+change.
+
+**Release-notes spot-check (implementer + reviewer):**
+
+- `actions/checkout v4→v6`: `persist-credentials` now stored
+  under `$RUNNER_TEMP`. Requires runner v2.329.0+ which
+  `ubuntu-latest` satisfies. We use no Docker container actions.
+  No impact.
+- `actions/setup-node v4→v6`: v5 added auto-caching when
+  `packageManager` field is present in `package.json`; v6
+  limited that to npm only. Our `package.json` has no
+  `packageManager` field (confirmed via `jq` in review), so both
+  changes are no-ops. Only input we use is `node-version-file:
+  '.nvmrc'`, unchanged across versions.
+- `actions/configure-pages v4→v6`: drops Next.js <13.3.0 support
+  when `static_site_generator: next` is set. We're Vite; we
+  pass no inputs. No impact.
+- `actions/upload-pages-artifact v3→v5`: v4 began excluding
+  dotfiles from the artifact; v5 bumped underlying
+  upload-artifact to v7. Our `./dist` from Vite contains no
+  dotfiles. No impact.
+- `actions/deploy-pages v4→v5`: Node 24 runtime change only.
+  No input or behaviour change.
+
+**Verification limit (unchanged):** GitHub Actions cannot be run
+locally without `act`. Reviewer's verification was file-level +
+release-notes spot-check + `./init.sh` local green. Acceptance
+criterion 5 (deploy workflow green end-to-end) and criterion 6
+(Dependabot auto-closes PRs #1-5) are both **DEFERRED to the
+user's post-merge push and the leader's follow-up `gh pr list`
+check**.
+
+**Leader's post-close verification protocol:**
+
+1. After the user pushes, watch the deploy workflow run.
+   Expected: green.
+2. Wait for Dependabot to detect the merged versions (immediate
+   via webhook, or up to the next scheduled run depending on
+   timing).
+3. Run `gh pr list` and confirm PRs #1-5 are no longer in the
+   open set. If any remain after a reasonable wait, comment
+   `@dependabot close` on the holdout(s) to force the cleanup.
+4. Record the auto-close confirmation in this entry if needed
+   (post-close annotation).
+
+**No feature note** — mini-feature convention.
+
+**Files touched:**
+
+- `.github/workflows/deploy-frontend.yml` (modified — five
+  action version bumps, no other change)
+
+**Feature note:** N/A (mini-feature, per convention).
+
+> **POST-CLOSE UPDATE 2026-05-20** — After the corrected close, the
+> user pushed and the deploy workflow completed end-to-end green.
+> The live site at `https://dariogguillen.github.io/chess-frontend/`
+> serves the shell (dark theme, "Chess Room" header, drawer with
+> Home/New Game/Log in/About, WIP placeholder pages working).
+> Acceptance criterion 5 satisfied. The feature is fully and
+> finally closed.
+
 > **RETRACTED 2026-05-20** — The deferred verification failed. After
 > the user pushed the close commit, the deploy workflow advanced
 > past the `Bump npm to satisfy engines (>=11.7)` step (npm 11.15.0

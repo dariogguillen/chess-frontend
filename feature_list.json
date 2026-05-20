@@ -131,6 +131,21 @@
     ]
   },
   {
+    "id": "actions-bump",
+    "title": "Bump GitHub Actions to latest majors in deploy workflow",
+    "description": "Apply the five GitHub Actions major bumps that Dependabot opened as PRs #1-5 (actions/setup-node 4→6, actions/checkout 4→6, actions/configure-pages 4→6, actions/upload-pages-artifact 3→5, actions/deploy-pages 4→5) in a single local commit. The Dependabot PRs cannot be auto-rebased because the workflow file was modified by ci-engine-strict-fix (which added the npm bump step), and each Dependabot PR touches the same file. Applying the bumps locally + pushing lets Dependabot auto-close PRs #1-5 as superseded. Inserted at priority 3.7 between ci-engine-strict-fix (3.5) and rest-room-integration (4); does not block the latter.",
+    "status": "done",
+    "priority": 3.7,
+    "acceptance": [
+      "`.github/workflows/deploy-frontend.yml` updates the five action versions exactly: actions/setup-node@v4 → @v6, actions/checkout@v4 → @v6, actions/configure-pages@v4 → @v6, actions/upload-pages-artifact@v3 → @v5, actions/deploy-pages@v4 → @v5. No other changes to the workflow.",
+      "The custom `Bump npm to satisfy engines (>=11.7)` step added by ci-engine-strict-fix is preserved verbatim, including its inline comment.",
+      "`./init.sh` passes locally (workflow is not executed locally, but no other regression).",
+      "No breaking changes documented in the release notes of the bumped actions that affect the inputs we use (`node-version-file: '.nvmrc'` for setup-node; default args for the rest). The implementer spot-checks each action's release notes for breaking changes affecting our usage.",
+      "After merge, the deploy workflow runs green end-to-end. Verification is the user's post-push manual check; the reviewer cannot dry-run GitHub Actions.",
+      "After the deploy is confirmed green, Dependabot auto-closes PRs #1-5 (immediately on webhook or in the next scheduled run). The leader confirms the closure during the session-close report; if any PR is still open after 24h, comment `@dependabot close` on it manually."
+    ]
+  },
+  {
     "id": "rest-room-integration",
     "title": "REST integration for room create/join",
     "description": "Replace the in-memory roomId generation and socket.io createRoom/joinRoom flow with calls to the backend's REST endpoints: POST /api/rooms and POST /api/rooms/{id}/join. Add a typed API client under src/utils/api/ aligned with the backend's OpenAPI spec. Store the returned playerId in UserContext.",
