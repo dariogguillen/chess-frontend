@@ -550,3 +550,72 @@ agent time rather than at user-eyeball time.
   - `src/components/CustomDialog.test.tsx`
 
 **Feature note:** `notes/03-ui-refresh.md`
+
+## 2026-05-20 — [harness update] ui-reviewer agent added
+
+**Status:** applied
+
+**Why:** the `ui-refresh` close above documented two real visual
+regressions the regular reviewer's file-level walk missed (the
+`AppBar position="fixed"` with no `<Toolbar />` spacer; the
+`CssBaseline` under a non-reactive outer `ThemeProvider`). Both
+were statically detectable — no Playwright, no screenshot
+required — but the regular reviewer's recipes do not look for the
+class. The user surfaced both bugs in their manual visual audit,
+and reopened the prior decision (made earlier in the session) not
+to introduce a `ui-reviewer` agent. This harness update is the
+result.
+
+**Scope:** leader-owned harness maintenance. Not a product feature,
+so no entry in `feature_list.json`. The change is logged here for
+traceability.
+
+**What landed:**
+
+- `.claude/agents/ui-reviewer.md` (new) — role definition with a
+  10-item checklist. The first three items target the exact bugs
+  that motivated the update (AppBar spacer; CssBaseline under
+  reactive provider; nested ThemeProvider conflicts). The
+  remaining items codify a11y, theming, and bundle-hygiene rules
+  that overlap with the regular reviewer but provide defense in
+  depth.
+- `.claude/agents/leader.md` (modified) — the `Delegation` section
+  now lists the `ui-reviewer` as step 2, invoked between the
+  implementer and the regular `reviewer`, but only when the
+  feature touches a UI surface (paths listed in a new "When to
+  invoke the ui-reviewer" subsection). The regular reviewer still
+  runs after the ui-reviewer — they cover disjoint concerns.
+- `CHECKPOINTS.md` (modified) — the prior `Accessibility` section
+  is now `UI and accessibility (when applicable)`, expanded with
+  the "Layout and theming" items the ui-reviewer enforces. Each
+  item is cross-referenced to the corresponding ui-reviewer
+  recipe number so a contributor can trace from checklist line to
+  agent rule.
+
+**What did NOT change:**
+
+- No new dependencies.
+- No production code modified.
+- No tests added (the agent is a process gate, not a runtime
+  artefact).
+- `feature_list.json` untouched. Harness updates are not features.
+- `progress/current.md` post-update reflects the closed
+  `ui-refresh` session plus this harness update marked as
+  applied; the carry-over debt list is unchanged.
+
+**Process note:** the agent's checklist is explicitly framed as
+living documentation. New items get added when (a) a UI bug ships
+under the current rules and is retrospected here, or (b) a new UI
+surface (animations, modals, drag-and-drop) joins the codebase and
+needs its own rules. The growth path is documented in
+`.claude/agents/ui-reviewer.md` → "Growing this checklist".
+
+**Files touched:**
+
+- `.claude/agents/ui-reviewer.md` (new)
+- `.claude/agents/leader.md` (modified — Delegation section, plus
+  new "When to invoke the ui-reviewer" subsection)
+- `CHECKPOINTS.md` (modified — Accessibility section expanded into
+  "UI and accessibility (when applicable)")
+- `progress/history.md` (this entry)
+- `progress/current.md` (reset to session-closed post-update)

@@ -111,7 +111,15 @@ skill, adapted to our SPA stack. They are checks, not aspirations.
 - [ ] If a new route-level page weighs more than ~50KB after
       minification, it ships with `React.lazy()` + `<Suspense>`.
 
-### Accessibility
+### UI and accessibility (when applicable)
+
+This block applies when the feature touches any of the UI surfaces
+that trigger the `ui-reviewer` (see `.claude/agents/leader.md` →
+"When to invoke the ui-reviewer"). The `ui-reviewer` walks the
+checklist independently before the regular `reviewer` runs; the
+items below are the canonical list both agents reference.
+
+**Accessibility (always applies when the feature touches UI):**
 
 - [ ] Interactive elements have accessible names (`aria-label`,
       visible text, or explicit `<label>` association).
@@ -119,6 +127,39 @@ skill, adapted to our SPA stack. They are checks, not aspirations.
       surface in text or icon.
 - [ ] New keyboard-reachable flows have been spot-checked with Tab /
       Enter / Space.
+
+**Layout and theming (statically checked by the ui-reviewer):**
+
+- [ ] If any component renders `<AppBar position="fixed">` (or an
+      equivalent overlay), every `<main>` / `<Box component="main">`
+      reachable from the shell has a `<Toolbar />` spacer or
+      equivalent `pt: theme.mixins.toolbar.minHeight`. Without the
+      spacer, page-top content is clipped under the AppBar.
+      (`ui-reviewer` recipe 1.)
+- [ ] When the app has a reactive color-mode toggle (`useColorMode`
+      or equivalent), `<CssBaseline />` is rendered under the
+      `<ThemeProvider>` that reacts to the toggle, never under a
+      non-reactive outer one. (`ui-reviewer` recipe 2.)
+- [ ] If multiple `<ThemeProvider>` instances exist, they share a
+      single reactive theme, or any divergence is justified by an
+      inline comment. (`ui-reviewer` recipe 3.)
+- [ ] Every `<IconButton>` whose only child is an icon carries an
+      `aria-label`. (`ui-reviewer` recipe 5.)
+- [ ] Components consume colors from theme tokens, not hardcoded
+      hex literals. Exempt: `src/theme.tsx` and `src/icons/`.
+      (`ui-reviewer` recipe 6.)
+- [ ] `index.html` declares a `viewport` meta. (`ui-reviewer`
+      recipe 8.)
+- [ ] MUI components use `sx` for styling, not `style={{ }}`,
+      unless the receiving element is third-party or native HTML.
+      (`ui-reviewer` recipe 10.)
+
+**Bundle hygiene (also checked by the regular reviewer):**
+
+- [ ] No barrel imports of `@mui/icons-material`. Every icon is
+      imported as `import IconName from '@mui/icons-material/IconName'`.
+      (`ui-reviewer` recipe 4; also caught by the regular reviewer's
+      `grep` recipes.)
 
 ### Documentation (verified at review time)
 

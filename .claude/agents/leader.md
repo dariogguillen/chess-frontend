@@ -58,11 +58,46 @@ Once the plan is approved:
    `progress/current.md` and produces code + a feature note in
    `notes/NN-<feature-id>.md`. The implementer reports back with a
    reference to the files touched, not with code in chat.
-2. Hand the implementation to the `reviewer` sub-agent. The reviewer
+2. **If the feature touches a UI surface** (see "When to invoke the
+   ui-reviewer" below), hand the implementation to the `ui-reviewer`
+   sub-agent first. The ui-reviewer walks `CHECKPOINTS.md`'s "UI and
+   accessibility" block and the checklist in
+   `.claude/agents/ui-reviewer.md`. Either approves or returns
+   specific issues. If the feature does not touch UI, skip this step.
+3. Hand the implementation to the `reviewer` sub-agent. The reviewer
    walks through `CHECKPOINTS.md`, runs `./init.sh` independently, and
-   either approves or returns specific issues.
-3. If the reviewer returns issues, hand them back to the implementer
-   with the issues. Repeat until approved.
+   either approves or returns specific issues. The reviewer runs even
+   if the ui-reviewer already approved — they cover disjoint concerns.
+4. If either reviewer returns issues, hand them back to the
+   implementer with the issues. Repeat until both approve.
+
+### When to invoke the ui-reviewer
+
+Invoke the `ui-reviewer` when the implementer's report lists any
+modified or new file under:
+
+- `src/components/`
+- `src/pages/`
+- `src/theme.tsx` (or any module exporting a theme)
+- `src/App.tsx`, `src/main.tsx`
+- `src/icons/`
+- `index.html`
+- `eslint.config.js` (when the change concerns a11y or React
+  Refresh rules)
+
+If none of these are touched, skip the ui-reviewer step entirely.
+
+The ui-reviewer was added to the harness on 2026-05-20 after the
+`ui-refresh` feature shipped two real visual regressions the regular
+file-level reviewer did not catch (an `AppBar position="fixed"` with
+no `<Toolbar />` spacer, and a `CssBaseline` under a non-reactive
+outer `ThemeProvider`). The class of bug is statically detectable;
+the regular reviewer's recipes do not look for it. The ui-reviewer's
+checklist starts from those two patterns and is expected to grow as
+more UI bugs ship and get retrospected. See
+`.claude/agents/ui-reviewer.md` and `progress/history.md` (the
+"Harness update: ui-reviewer added" entry) for the rationale and
+checklist.
 
 ## Closing the session
 
