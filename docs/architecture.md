@@ -14,7 +14,8 @@ be invisible to a reader of the code.
 - **Vite 7** as build tool and dev server. Output is a static SPA.
 - **MUI 6** (Material UI) for components and theming, with Emotion as
   the styling engine.
-- **React Router 6** for client-side routing.
+- **React Router 7** for client-side routing (data router API,
+  `createBrowserRouter`).
 - **chess.js** + **react-chessboard** for board UI and local move
   prediction. The server (`chess-backend-java`) is authoritative for
   legality.
@@ -252,6 +253,51 @@ infrastructure beyond the repo.
 independent threat model. The backend repo can adopt analogous
 discipline (Dependabot for Maven, OWASP Dependency-Check) in its
 own time.
+
+## App-shell and routing
+
+The frontend is a client-routed SPA. A single `App` component owns the
+shell — header, drawer, theme provider, user context — and `react-router-dom`
+v7's `createBrowserRouter` mounts pages into the shell's `<Outlet />`.
+
+**Decision.** Use the data-router pattern (`createBrowserRouter`) over
+the legacy `<BrowserRouter>` + nested `<Route>` JSX. The data API gives
+us route-level `errorElement` (no top-level `ErrorBoundary` plumbing),
+loaders for future REST integrations, and a cleaner separation between
+"route configuration" and "shell composition".
+
+**Route hierarchy.**
+
+```
+/                  → <App />              (shell, errorElement: <Error />)
+  /                → <Navigate to="/home" replace />
+  /home            → <WIP str="Home" />
+  /new             → <NewGame />
+  /play            → <Play />
+  /login           → <WIP str="Log in" />
+  /about           → <WIP str="About" />
+```
+
+**Basename and deployment.** The app is served from the sub-path
+`/chess-frontend/` on GitHub Pages. Vite injects
+`import.meta.env.BASE_URL` (which ends with a trailing slash) from the
+`base` setting in `vite.config.ts`. The router strips that trailing
+slash and passes the result as `basename` to `createBrowserRouter`. Dev
+mode (`/`) and production (`/chess-frontend/`) both work without
+per-environment configuration.
+
+**User identity.** A discriminated union `Identity =
+{ kind: 'guest'; displayName } | { kind: 'authenticated'; userId;
+displayName }` lives in `UserContext`. The provider always seeds a
+guest today; the `authenticated` arm exists so a future auth feature
+can swap identity without touching consumers. Consumers narrow with
+`if (identity.kind === 'authenticated') { ... }`.
+
+**Theme provider source.** `ThemeProvider` is imported from
+`@mui/material/styles`, not from `@emotion/react`. The two re-export
+the same React component but the MUI theme augmentation only resolves
+through the MUI re-export — using the Emotion one silently degrades to
+the default theme typings.
 
 ## Decisions to revisit
 

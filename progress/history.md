@@ -425,3 +425,128 @@ that recipe earned its keep this feature.
 - Deleted: `src/socket.ts`.
 
 **Feature note:** `notes/02-stomp-client-migration.md`
+
+## 2026-05-20 — ui-refresh
+
+**Status:** done
+
+**Summary:** Largest feature so far. Ported the UI work from the
+`refactor-base` branch into the post-harness `main`, adapting to
+MUI 6 / Vite 7 / Prettier / the new tests pipeline / no-socket.io /
+no-client-side-roomId. Shipped a custom dark-first theme (indigo +
+zinc + Inter), introduced `react-router-dom v7` (new dep),
+introduced `@fontsource/inter` and `@mui/icons-material@6`, retitled
+the product as "Chess Room", and extended `UserContext` to a
+discriminated union `{ kind: 'guest' | 'authenticated' }` so future
+auth plugs in without refactor. Paid down the long-standing
+`CustomDialog` legacy debt (default export → named, props wrapped in
+`Readonly`). The legacy `src/InitGame.tsx` and `src/Game.tsx` were
+deleted and replaced by `src/pages/NewGame/` and `src/pages/Play/`
+respectively, both still stubbed with `// TODO(feature-4|5|6)`
+markers that point to the right downstream wiring. App-shell
+introduced: `src/App.tsx` is no longer a switching page but a
+layout component (Header + Drawer + Outlet). Routes live under
+`src/routes/`.
+
+**Bundle delta:** +152.80 KB raw / +47.32 KB gzip vs feature 2
+baseline. The reviewer evaluated as reasonable — mechanically
+explained by `react-router-dom` (~12 KB) + 8 named-default
+`@mui/icons-material` icons + the actual new page/component code
+(NewGame's many MUI inputs, Play's Chessboard/Stack/Container
+composition, Header, Drawer with NavLink wiring). `@fontsource/inter`
+contributes only CSS rules (7.63 KB) to the JS bundle; the woff2
+files are separate assets.
+
+**Visual fix pass (post-reviewer-approval):** the user surfaced two
+real regressions in their manual visual audit that the reviewer's
+file-level walk did not catch:
+
+1. The "Configure your game" heading on `/new` was clipped under
+   the fixed `AppBar`. Root cause: `<Box component="main">` in
+   `App.tsx` had no spacer to push content below the
+   `AppBar position="fixed"`. Fix: added the canonical MUI
+   `<Toolbar />` spacer pattern.
+
+2. The dark/light toggle flipped components inside the page but
+   not the `<body>` background. Root cause: two `ThemeProvider`
+   instances were nested. `main.tsx` had an outer non-reactive
+   provider with `createAppTheme('dark')` hardcoded; `CssBaseline`
+   was under that one, so the `<body>` background was pinned to
+   `#18181B` regardless of the toggle. Fix: removed the outer
+   provider from `main.tsx` and moved `CssBaseline` inside
+   `App.tsx` under the reactive provider. First-paint dark
+   default is preserved because `useColorMode()` reads
+   `localStorage` synchronously.
+
+After the fix pass, the user reconfirmed visually and approved
+closing. The visual fix pass touched only `src/App.tsx` and
+`src/main.tsx`; bundle delta was net-neutral.
+
+**Out-of-scope observations forwarded (carry-over debt):**
+
+- `index.html` favicon + og:image URLs are hardcoded with the
+  production `/chess-frontend/` prefix. In dev mode the URL doubles
+  (`/chess-frontend/chess-frontend/chess-room.svg`) and the favicon
+  404s. Production deploy is fine. Trivial fix for a future
+  housekeeping pass — strip the prefix from both lines.
+- 4 new `react-refresh/only-export-components` warnings on
+  `src/components/Drawer/index.tsx`,
+  `src/context/UserContext.tsx`, `src/context/index.tsx`,
+  `src/pages/NewGame/index.tsx`. ESLint rule is `warn` (not
+  `error`), so the build is green. Recommend a follow-up to either
+  split types/constants into sibling files or add justified
+  `// eslint-disable-next-line` comments.
+- Bundle is now a single 635 KB chunk; the
+  `> 500 KB warning` is firing. `React.lazy` at route boundaries
+  is the natural next-step optimization now that routes exist.
+  Candidate follow-up feature.
+- Cosmetic: the plan listed `src/pages/NewGame/utils.ts`; the file
+  shipped as `utils.tsx` because it contains JSX. `.tsx` is
+  correct; the plan was slightly off.
+
+**Process note:** the user's visual audit caught regressions the
+reviewer's file-level walk missed. The reviewer correctly
+documented that interactive visual review was the user's
+responsibility per the explicit decision earlier in the session
+not to introduce a `ui-reviewer` sub-agent — but the experience
+prompted reopening that decision. A follow-up harness update will
+introduce the `ui-reviewer` agent with concrete static checks
+(AppBar-fixed-without-spacer, CssBaseline-under-wrong-provider,
+nested-ThemeProvider, etc.) so this class of bug is caught at
+agent time rather than at user-eyeball time.
+
+**Files touched:**
+
+- New:
+  - `src/theme.tsx`, `theme.test.tsx`
+  - `src/icons/{black,white,index}.tsx`
+  - `src/components/CustomDialog/{CustomDialog,CustomDialog.test,index}.tsx`
+  - `src/components/Header/{Header,Header.test,index}.tsx`
+  - `src/components/Drawer/{Drawer,DrawerSection,Drawer.test,index}.tsx`
+  - `src/components/ToggleButton/{ToggleButton,index}.tsx`
+  - `src/context/{UserContext,UserContext.test,index}.tsx`
+  - `src/routes/{Public,index}.tsx`
+  - `src/pages/Error/{Error,Error.test,index}.tsx`
+  - `src/pages/WIP/{WIP,WIP.test,index}.tsx`
+  - `src/pages/NewGame/{NewGame,utils,NewGame.test,index}.tsx`
+  - `src/pages/Play/{Play,Play.test,index}.tsx`
+  - `public/chess-room.svg`
+  - `notes/03-ui-refresh.md`
+- Modified:
+  - `package.json` (+react-router-dom@7, +@fontsource/inter,
+    +@mui/icons-material@6)
+  - `package-lock.json` (via npm)
+  - `index.html` (title, favicon, theme-color, OG)
+  - `src/main.tsx` (initial port + visual-fix pass: ThemeProvider
+    moved to App.tsx)
+  - `src/App.tsx` (rewritten as shell + visual-fix pass:
+    Toolbar spacer, CssBaseline moved in)
+  - `docs/architecture.md` (App-shell + routing section)
+  - `docs/conventions.md` (routing v7 note)
+- Deleted:
+  - `src/InitGame.tsx`
+  - `src/Game.tsx`
+  - `src/components/CustomDialog.tsx`
+  - `src/components/CustomDialog.test.tsx`
+
+**Feature note:** `notes/03-ui-refresh.md`

@@ -272,8 +272,8 @@ useEffect(() => {
 
 ## Routing
 
-`react-router-dom` v6+ with the declarative API. Routes live in
-`src/routes/`. Pages live in `src/pages/<PageName>/`.
+`react-router-dom` v7 with the data-router API (`createBrowserRouter`).
+Routes live in `src/routes/`. Pages live in `src/pages/<PageName>/`.
 
 ```tsx
 // src/routes/index.tsx (conceptual)

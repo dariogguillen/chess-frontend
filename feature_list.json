@@ -87,11 +87,41 @@
     ]
   },
   {
+    "id": "ui-refresh",
+    "title": "UI refresh and app-shell foundations",
+    "description": "Port the UI work from the refactor-base branch into the post-harness main, adapting to MUI 6 / Vite 7 / Prettier / the new tests pipeline / no-socket.io / no-client-side-roomId. The refactor-base branch already contains an app-shell (Header + Drawer + Routes + Theme + UserContext + ToggleButton + custom icons + Error/WIP/NewGame/Play pages) but lives under the pre-harness monorepo layout and uses obsolete patterns (socket.io, ShortUniqueId for room ids). Scope: port the structural pieces, adopt them to current conventions, ship a custom dark-first theme (indigo + zinc + Inter), introduce react-router-dom v7 (new dep), extend UserContext to a discriminated union of guest/authenticated, retitle the product as 'Chess Room', and pay down the CustomDialog legacy debt (default export, missing Readonly<Props>). Page logic that depends on REST/STOMP stays stubbed with TODO(feature-N) markers per the existing pattern. Inserted at priority 3 so REST integrations (now 4-5) and live updates (now 6) land on the polished shell.",
+    "status": "done",
+    "priority": 3,
+    "acceptance": [
+      "react-router-dom v7 added as a dependency; npm audit clean at moderate+ after the install.",
+      "index.html: title 'Chess Room', favicon SVG (chess-room.svg or equivalent), meta description, theme-color, OG tags for previews.",
+      "src/theme.tsx exists with a custom MUI theme: dark-first palette (primary #6366F1 indigo-500, secondary #A5B4FC indigo-300, background #18181B zinc-900, surface #27272A zinc-800, text #FAFAFA zinc-50, border #3F3F46 zinc-700), Inter as the typography family, mode-toggle behavior persisted to localStorage.",
+      "Inter loaded via @fontsource/inter (subset latin); the loaded weights documented in the feature note.",
+      "main.tsx wraps the app in ThemeProvider (from @mui/material/styles, NOT @emotion/react) + CssBaseline + RouterProvider from react-router-dom.",
+      "src/App.tsx is the app-shell: Header + Drawer + Outlet; no more in-component switch between InitGame and Game.",
+      "src/components/Header/Header.tsx ported from refactor-base with title 'Chess Room', dark/light toggle wired to the theme mode state, slot for future authed user (Account icon + menu) gated by an authed boolean prop that is false for now.",
+      "src/components/Drawer/{Drawer,DrawerSection}.tsx ported: temporary on xs, permanent on sm+. Two sections: Home/New Game and Log in/About. Items navigate via react-router-dom NavLink.",
+      "src/components/ToggleButton/ToggleButton.tsx ported and used by NewGame for piece-color and opponent-type selection.",
+      "src/components/CustomDialog/CustomDialog.tsx — refactored: moved into its own folder, named export, props wrapped in Readonly. All call sites updated.",
+      "src/context/UserContext.tsx provides a discriminated union: UserState = { kind: 'guest'; displayName } | { kind: 'authenticated'; userId; displayName } plus position/opponent/roomId fields. Today the provider always constructs a guest. useUserContext() hook throws if used outside the provider.",
+      "src/icons/{black,white,index}.tsx ported.",
+      "src/routes/{Public,index}.tsx introduces routing with createBrowserRouter and react-router-dom v7. Routes: / redirects to /home, /home WIP placeholder, /new NewGame, /play Play, /login WIP, /about WIP, Error page handles errorElement.",
+      "src/pages/Error/, src/pages/WIP/, src/pages/NewGame/{NewGame,utils}, src/pages/Play/ all ported from refactor-base, reformatted with Prettier, adapted to MUI 6 imports and to the new UserContext shape.",
+      "src/pages/NewGame replaces src/InitGame.tsx; src/pages/Play replaces src/Game.tsx; the old files are deleted.",
+      "Socket.io and ShortUniqueId references in the ported pages are removed; the room creation / join / move call sites carry TODO(feature-4|6): ... markers pointing to the right next-feature wiring.",
+      "Existing tests still pass; new tests added for: theme constructs in dark and light, Header renders with toggle behavior, Drawer renders both temporary and permanent variants, UserContext provider + useUserContext hook (with a test of the discriminated union narrowing), at least one smoke test per new page (renders without throwing).",
+      "All @mui/icons-material imports are named-default (import HomeIcon from '@mui/icons-material/Home'), never barrel (import { Home } from '@mui/icons-material'), to keep tree-shaking.",
+      "docs/architecture.md updated to reflect the app-shell + routing architectural decision and the new folder layout under src/.",
+      "docs/conventions.md updated if folder layout description needs refreshing to match what is now on disk.",
+      "./init.sh passes: lint, format:check, typecheck, all tests, build. Bundle delta vs baseline reported in the implementer's report; reasonable growth expected (~+20-40 KB for react-router-dom + @fontsource/inter + new icons; the reviewer evaluates)."
+    ]
+  },
+  {
     "id": "rest-room-integration",
     "title": "REST integration for room create/join",
     "description": "Replace the in-memory roomId generation and socket.io createRoom/joinRoom flow with calls to the backend's REST endpoints: POST /api/rooms and POST /api/rooms/{id}/join. Add a typed API client under src/utils/api/ aligned with the backend's OpenAPI spec. Store the returned playerId in UserContext.",
     "status": "pending",
-    "priority": 3,
+    "priority": 4,
     "acceptance": [
       "src/utils/api/ exposes typed createRoom() and joinRoom() functions.",
       "Types align with the backend's OpenAPI spec at /v3/api-docs.",
@@ -107,7 +137,7 @@
     "title": "REST integration for game state and moves",
     "description": "Wire the game page to the backend's POST /api/games/{id}/moves and GET /api/games/{id}. Send X-Player-Id header on move submissions. Display server status (FEN, turn, status) instead of client-side chess.js authority. Keep chess.js for legal-move highlighting as UX aid only.",
     "status": "pending",
-    "priority": 4,
+    "priority": 5,
     "acceptance": [
       "src/utils/api/ exposes typed submitMove() and getGameState() functions.",
       "Play page reads game state from GET /api/games/{id} on load and after each move.",
@@ -122,7 +152,7 @@
     "title": "STOMP subscription for real-time updates",
     "description": "Connect the STOMP client to the backend's broadcast topic for game state. After a move is submitted via REST, the server pushes the new state to all subscribers of /topic/games/{gameId}. The frontend subscribes and updates the local state accordingly. Depends on backend feature 6 (websocket-realtime) being shipped.",
     "status": "pending",
-    "priority": 5,
+    "priority": 6,
     "acceptance": [
       "STOMP client connects on Play page mount and disconnects on unmount.",
       "Subscription to /topic/games/{gameId} updates the local game state on incoming messages.",
@@ -137,7 +167,7 @@
     "title": "Playwright end-to-end test suite",
     "description": "Introduce Playwright for end-to-end tests covering critical user journeys (create room, share, join, play a few moves, see live updates). Add a CI job that runs Playwright against a built dev server. Reference the anthropics/skills/webapp-testing skill for patterns where applicable.",
     "status": "pending",
-    "priority": 6,
+    "priority": 7,
     "acceptance": [
       "@playwright/test added as a devDependency; browsers installed via Playwright's setup.",
       "playwright.config.ts configured for the project.",
@@ -152,7 +182,7 @@
     "title": "Migrate hosting (or evaluate alternatives)",
     "description": "Evaluate moving from GitHub Pages to Vercel or Cloudflare Pages for preview deployments per PR, env var management, and edge CDN. If we go with the migration, set up the new host, update the README, and either retire the GitHub Pages workflow or keep it as a mirror. If we decide to stay on Pages, document the rationale.",
     "status": "pending",
-    "priority": 7,
+    "priority": 8,
     "acceptance": [
       "Decision documented in docs/architecture.md with rationale.",
       "If migration: new host is live, preview deployments work on PRs, README updated.",
@@ -165,7 +195,7 @@
     "title": "Polished README with project overview",
     "description": "Final README pass: project overview, stack, how to run locally, link to the backend repo, link to the deployed app, link to OpenAPI spec, architecture diagram (Mermaid). The artifact a recruiter or collaborator reads first.",
     "status": "pending",
-    "priority": 8,
+    "priority": 9,
     "acceptance": [
       "README explains what the project is and how to run it in under 5 minutes.",
       "Mermaid diagram rendered correctly on GitHub.",

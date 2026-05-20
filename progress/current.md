@@ -2,37 +2,62 @@
 
 **Status:** session closed.
 
-The previous feature `stomp-client-migration` (priority 2) was closed
-on 2026-05-19 and is recorded in `progress/history.md`. The
-`@stomp/stompjs` typed client + mock + hook are in place under
-`src/utils/ws/` and `src/hooks/`, fully unit-tested; no page is
-wired to a real STOMP topic yet (feature 5 work). `socket.io-client`
-is gone.
+The previous feature `ui-refresh` (priority 3) was closed on
+2026-05-20 and is recorded in `progress/history.md`. The shell
+(Header + Drawer + Routes + dark/light Theme + UserContext) is in
+place; the legacy `InitGame.tsx` and `Game.tsx` are gone and their
+flows live under `/new` and `/play` as `pages/NewGame` and
+`pages/Play` with `// TODO(feature-4|5|6)` stubs.
 
-The next feature in `feature_list.json` is `rest-room-integration`
-(priority 3). It introduces the typed REST API client under
-`src/utils/api/` and migrates `InitGame.tsx`'s `createRoom` and
-`joinRoom` flows from the current `TODO(feature-3)` stubs to real
-`POST /api/rooms` and `POST /api/rooms/{id}/join` calls. The leader
-will open a plan here once the scope and key decisions are aligned
-with the user.
+The next product feature in `feature_list.json` is
+`rest-room-integration` (priority 4), which is **paused** waiting
+on `chess-backend-java` to enum-ize `ErrorResponse.error` via
+`@Schema(allowableValues = {...})`. The full set of 9 codes and the
+drift-guard rationale are captured in the session before this one
+(see `progress/history.md` for the
+`stomp-client-migration` close note and the pause discussion).
 
-## Carry-over from completed features (worth flagging at next planning)
+## Pending harness update (leader-owned, not a feature)
 
-- `// TODO(feature-3): ...` markers in `App.tsx`, `Game.tsx`, and
-  `InitGame.tsx` describe the exact endpoints the next feature
-  needs to wire (POST /api/rooms, POST /api/rooms/{id}/join, close
-  room, include username on join).
-- `// TODO(feature-4): POST /api/games/{id}/moves` in `Game.tsx`
-  awaits feature 4.
+The user surfaced visual regressions during the manual audit of
+`ui-refresh` that the file-level reviewer walk did not catch. The
+class of bugs (AppBar-fixed without spacer; `CssBaseline` under the
+wrong `ThemeProvider`) is detectable statically. The decision is
+to introduce a `ui-reviewer` sub-agent into the harness as a leader
+update, not as a product feature. Scope:
+
+- New `.claude/agents/ui-reviewer.md` with a concrete static
+  checklist (10 rules, growing over time).
+- Update to `.claude/agents/leader.md` describing when to invoke
+  the `ui-reviewer` (features that touch UI surfaces).
+- New section in `CHECKPOINTS.md` referencing the UI/a11y checks.
+- A history-only entry (under "Harness updates") so the change is
+  traceable without polluting `feature_list.json`.
+
+The change runs **after** the user commits the `ui-refresh` work,
+so the commit stays scoped to the closed feature.
+
+## Carry-over debt (forwarded from ui-refresh close)
+
+- `index.html`: favicon + og:image URLs hardcode `/chess-frontend/`;
+  dev mode doubles the prefix and 404s the favicon. Trivial fix for
+  a housekeeping pass.
+- 4 new `react-refresh/only-export-components` warnings on
+  `src/components/Drawer/index.tsx`, `src/context/UserContext.tsx`,
+  `src/context/index.tsx`, `src/pages/NewGame/index.tsx`. ESLint
+  rule is `warn`; non-blocking. Follow-up: split types/constants
+  or justify with `// eslint-disable-next-line`.
+- Bundle is a single 635 KB chunk above Vite's 500 KB warning.
+  `React.lazy` at route boundaries is the natural follow-up
+  optimization. Candidate dedicated feature.
+
+## Older carry-over (unchanged)
+
+- `// TODO(feature-4): POST /api/rooms` etc. — wired in NewGame.tsx
+  / Play.tsx awaiting REST features 4-5.
 - `// TODO(feature-5): subscribe to /topic/games/{id} for MoveEvent`
-  in `Game.tsx` and `// TODO(feature-5+): server disconnect signal`
-  await feature 5.
-- The backend's STOMP API contract has a viewer-count / spectator
-  sub-section that the frontend doc omits today; feature 5 mirrors
-  it.
-- `src/components/CustomDialog.tsx` legacy shape (default export,
-  no `Readonly<Props>`). Pick up when the component is next touched
-  — likely feature 3, since InitGame uses the dialog for room flow.
+  in Play.tsx — wired in feature 6.
+- Backend's STOMP API contract has a viewer-count / spectator
+  sub-section the frontend doc omits; feature 6 mirrors it.
 - `@vitejs/plugin-react` referenced in both `vite.config.ts` and
-  `vitest.config.ts`. Known cost of the two-config decision.
+  `vitest.config.ts` (known cost).

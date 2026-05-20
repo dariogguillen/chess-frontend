@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import CustomDialog from './CustomDialog';
+import { CustomDialog } from './CustomDialog';
 
 describe('CustomDialog', () => {
   it('renders the title and contentText when open is true', () => {
