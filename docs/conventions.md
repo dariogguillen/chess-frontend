@@ -452,6 +452,20 @@ decision, captured in the plan that needs it.
 In none of these does anyone open `package-lock.json` and type. The
 hook will refuse if an agent tries.
 
+### CI engine policy
+
+The local `engines: { node: ">=20", npm: ">=11.7" }` declaration in
+`package.json`, paired with `engine-strict=true` in `.npmrc`, enforces
+the floor on every developer machine. CI runners do not inherit a
+contributor's local npm: `actions/setup-node` lands the runtime that
+ships with the requested Node version, which is npm 10.x for Node
+20.x — below our floor. To bridge that gap, the GitHub Pages deploy
+workflow has an explicit `npm install -g npm@11` step immediately
+after `setup-node`, before `npm ci`. The pinned major is deliberate:
+`npm@latest` would silently jump to npm 12+ once it ships and break
+the deploy without warning. If the local floor in `engines` ever bumps
+to npm 12+, the workflow step must bump in lockstep.
+
 ## Verification protocol
 
 This is the iron law. Paraphrased from

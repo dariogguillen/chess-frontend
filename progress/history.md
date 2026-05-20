@@ -619,3 +619,151 @@ needs its own rules. The growth path is documented in
   "UI and accessibility (when applicable)")
 - `progress/history.md` (this entry)
 - `progress/current.md` (reset to session-closed post-update)
+
+## 2026-05-20 — ci-engine-strict-fix
+
+**Status:** done (with post-merge CI verification pending the user's push)
+
+**Summary:** Single-step fix to the GitHub Pages deploy workflow
+that broke when feature 0.5 (`supply-chain-hardening`) introduced
+`engines: { node: ">=20", npm: ">=11.7" }` + `engine-strict=true`
+without updating CI. The runner's `actions/setup-node` reads
+`.nvmrc` (Node 20+) and lands on Node 20.18 which ships with
+npm 10.8.2 — below the 11.7 floor. `npm ci` aborts with
+`EBADENGINE`. The user pushed the `ui-refresh` close and saw the
+first manifestation: production deploy red, app stale on GitHub
+Pages.
+
+**Fix:** added a step `npm install -g npm@11` between
+`actions/setup-node` and `npm ci` in
+`.github/workflows/deploy-frontend.yml`. Pinned to major 11
+(not `latest`) to avoid a silent npm 12+ jump when that ships;
+the inline comment captures the lockstep maintenance rule
+(bumping the local `engines` floor requires bumping this step
+in lockstep).
+
+**Verification limit:** GitHub Actions cannot be run locally
+without `act` or equivalent. The reviewer's pass was necessarily
+file-level: YAML diff readable, scope discipline confirmed,
+local `./init.sh` green. The criterion "deploy workflow runs
+green end-to-end" is **DEFERRED to the user's post-merge push**.
+This is the canonical pattern for CI fixes — in-repo review is
+necessarily incomplete; the final gate is the CI run.
+
+**Lesson recorded as carry-over consideration:** the original
+feature 0.5 plan should have included the CI workflow update.
+The harness scaffold does not have a check that catches
+"local engines floor changed but CI workflow did not". A future
+harness update could add this — e.g., the reviewer recipe for
+features that touch `engines` or `.nvmrc` walks every workflow
+under `.github/workflows/` and flags mismatches. Out of scope
+for this feature; flagged for the next harness retrospective.
+
+**No feature note** — mini-feature convention. Rationale lives
+here.
+
+**Files touched:**
+
+- `.github/workflows/deploy-frontend.yml` (modified — new step
+  `Bump npm to satisfy engines (>=11.7)` between Set up Node and
+  Install dependencies, with 4-line inline justification comment)
+- `docs/conventions.md` (modified — new `CI engine policy`
+  subsection at the end of `Supply chain hygiene`, before
+  `Verification protocol`; 5 sentences covering the local floor,
+  the runner-npm gap, the workflow step, the major-pin rationale,
+  and the lockstep rule)
+
+**Feature note:** N/A (mini-feature, per convention).
+
+> **RETRACTED 2026-05-20** — The deferred verification failed. After
+> the user pushed the close commit, the deploy workflow advanced
+> past the `Bump npm to satisfy engines (>=11.7)` step (npm 11.15.0
+> installed correctly) but failed at `npm ci` again with a new
+> `EBADENGINE` on a transitive: `@asamuzakjp/css-color@5.1.11`
+> (pulled in by `jsdom@29.1.1`, our Vitest environment dep from
+> feature 1) requires `node ^20.19.0 || ^22.12.0 || >=24.0.0`. The
+> runner is on Node 20.18.0 per `.nvmrc`. Same class of bug as the
+> original — engine floor satisfied locally but not in CI — moved
+> one layer down. Feature re-opened to bump `.nvmrc` to 22.18.0
+> (matching the user's local environment) and refresh the
+> `engines.node` floor to `>=20.19` to reflect the real transitive
+> floor. A new closing entry will follow once the corrected close
+> lands.
+
+## 2026-05-20 — ci-engine-strict-fix (corrected close)
+
+**Status:** done (with post-merge CI verification pending the user's push)
+
+**Summary:** This entry supersedes the retracted close above. The
+re-open shipped two coordinated metadata bumps to align the
+Node/npm engine floor across local and CI:
+
+- `.nvmrc`: `20.18.0` → `22.18.0`. Matches the user's local Node
+  exactly; gives reproducibility across local and CI; satisfies
+  the `^22.12.0` arm of the transitive constraint by margin
+  (22.18 > 22.13). Patch-pinned instead of major-pinned for
+  reproducibility — bumping is mechanical when needed.
+- `package.json` `engines.node`: `>=20` → `>=20.19`. Reflects the
+  true floor imposed by the dependency tree (`^20.19.0` is the
+  lower arm of `@asamuzakjp/css-color`'s constraint). Contributors
+  with Node 20.19+ stay supported; the metadata stops
+  misrepresenting the support surface. We did NOT bump to `>=22`
+  because Node 20.19+ is genuinely usable.
+
+`engines.npm` stays at `>=11.7` (unchanged from feature 0.5; the
+first-pass CI fix is independent of this re-open).
+`.github/workflows/deploy-frontend.yml` is unchanged from the
+retracted first pass — the `npm install -g npm@11` step is
+correct and stays in place.
+
+The reviewer ran a defensive scan of `node_modules/**/package.json`
+for transitive `engines.node` floors above 22.18 / 20.19. Nine
+packages surfaced (all in the jsdom + @asamuzakjp + whatwg-url
+neighborhood + vitest); each was satisfied by both 22.18.0 and
+20.19+. No other latent transitive surprise was found.
+
+**Verification limit (unchanged):** GitHub Actions cannot be run
+locally without `act`. The reviewer's in-repo verification was
+necessarily file-level + the defensive scan + `./init.sh` local
+green. The deploy-green criterion (acceptance #5) is **DEFERRED
+to the user's post-merge push**. This is the second time the
+deferred verification is the gate; if this push also fails, the
+class-of-bug pattern (transitive engines drift between local and
+CI) warrants a more permanent fix — see process notes below.
+
+**Process notes (worth recording):**
+
+- **Class of bug:** transitive `engines.node` drift between local
+  and CI surfaces only on push. The first-pass scope (our own
+  `engines.npm`) was too narrow; the second-pass scope (`.nvmrc`
+  + our own `engines.node`) targets the second layer. There may
+  be further layers in principle but the defensive scan suggests
+  no current ones.
+- **Why the deferred verification is the right gate, not a hack:**
+  CI workflows can only be exercised in CI without `act`. The
+  in-repo review is necessarily file-level for this class. The
+  protocol — close, push, watch, re-open if red — is the
+  canonical loop for CI fixes.
+- **Harness retrospective candidate:** the harness lacks a check
+  that detects "local `engines` / `.nvmrc` floor changed but CI
+  workflow not validated against the actual installed set". A
+  future ui-reviewer-style agent (call it `ci-reviewer`) could
+  walk `.github/workflows/`, parse each `actions/setup-node`
+  step, and confirm the runtime it lands satisfies (a) our own
+  engines and (b) the transitive engines surfaced by `npm ls`.
+  Out of scope for this feature; flagged for the next harness
+  retrospective.
+
+**No feature note** — mini-feature convention. Rationale lives
+here.
+
+**Files touched (re-open only):**
+
+- `.nvmrc` (modified — `20.18.0` → `22.18.0`)
+- `package.json` (modified — `engines.node` `>=20` → `>=20.19`)
+
+The first-pass files (`.github/workflows/deploy-frontend.yml`,
+`docs/conventions.md`) were not modified in the re-open — the
+first-pass changes are still correct.
+
+**Feature note:** N/A (mini-feature, per convention).

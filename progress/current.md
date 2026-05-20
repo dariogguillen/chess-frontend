@@ -2,59 +2,88 @@
 
 **Status:** session closed.
 
-The previous product feature `ui-refresh` (priority 3) was closed
-on 2026-05-20 and is recorded in `progress/history.md`. The
-shell (Header + Drawer + Routes + dark/light Theme + UserContext)
-is in place; the legacy `InitGame.tsx` and `Game.tsx` are gone and
-their flows live under `/new` and `/play` as `pages/NewGame` and
-`pages/Play` with `// TODO(feature-4|5|6)` stubs.
+The previous feature `ci-engine-strict-fix` (priority 3.5) was
+closed on 2026-05-20 (second close, after a re-open). Recorded
+in `progress/history.md` with the two-pass story:
 
-A **harness update** also landed on 2026-05-20 introducing the
-`ui-reviewer` sub-agent. The agent runs on any feature that touches
-a UI surface, invoked between the implementer and the regular
-reviewer. The full rationale, scope, and checklist live in
-`.claude/agents/ui-reviewer.md`, the invocation rules in
-`.claude/agents/leader.md` → "When to invoke the ui-reviewer", and
-the cross-referenced check items in `CHECKPOINTS.md` → "UI and
-accessibility (when applicable)". The harness update is documented
-in `progress/history.md` as a `[harness update]` entry —
-intentionally not a product feature, so no row in
-`feature_list.json`.
+1. First pass: workflow gained `npm install -g npm@11`. Closed,
+   user pushed, deploy advanced past the npm-engine check but
+   hit a transitive `EBADENGINE` on `@asamuzakjp/css-color`
+   (Node floor `^20.19.0`).
+2. Re-open: `.nvmrc` bumped to `22.18.0` (matches local),
+   `engines.node` bumped to `>=20.19` (reflects the true floor).
+   Defensive scan confirmed no further transitive surprises.
+   Workflow file unchanged from the first pass.
 
-## Next product feature
+## Pending post-close verification
 
-`rest-room-integration` (priority 4) is **paused** waiting on
+The acceptance criterion "deploy workflow runs green end-to-end"
+is again deferred to the user's post-merge push. **Same protocol
+as before:** push, watch the workflow, confirm green, then we're
+fully done. If red again, re-open with the new CI log.
+
+If this third pass also fails, the class of bug (transitive engine
+drift CI vs local) warrants a more permanent fix — see the
+"Harness retrospective candidate" note in
+`progress/history.md`'s second close entry.
+
+## Next planned action (post-verification)
+
+Once the user confirms the deploy is green, we move to the
+Dependabot PRs. The user has `gh` installed and configured. The
+leader will:
+
+- List the open PRs with `gh pr list`.
+- Read each PR's diff.
+- Propose a triage: merge directly (patch/minor of trusted deps,
+  no breaking changes); hold for analysis (majors, or anything
+  that touches `react`, `react-router-dom`, `@mui/material`,
+  `vite`, `vitest`); close as superseded (anything that conflicts
+  with what we've already shipped).
+
+Each merged bump that meaningfully changes behavior (a major) will
+get its own mini-feature entry in `feature_list.json`. Patch
+bundles can be grouped into a single follow-up feature
+`deps-bump-YYYY-MM-DD` if that turns out to be cleaner than many
+tiny features.
+
+## Next product feature (still blocked)
+
+`rest-room-integration` (priority 4) remains paused waiting on
 `chess-backend-java` to enum-ize `ErrorResponse.error` via
-`@Schema(allowableValues = {...})`. The full set of 9 codes and the
-drift-guard rationale are captured in the `stomp-client-migration`
-close note + the pause discussion in `progress/history.md`.
+`@Schema(allowableValues = {...})`. Nine codes documented in
+`stomp-client-migration`'s close note.
 
-When the backend ships the change, the leader regenerates
-`src/types/api.d.ts` via `npm run gen:api` (to be introduced by
-that feature), confirms `error` is now a union literal in the
-generated types, rotates `rest-room-integration` to `in_progress`,
-and writes the plan in this file.
-
-## Carry-over debt (forwarded from ui-refresh close)
+## Carry-over debt (unchanged)
 
 - `index.html`: favicon + og:image URLs hardcode `/chess-frontend/`;
-  dev mode doubles the prefix and 404s the favicon. Trivial fix for
-  a housekeeping pass.
-- 4 new `react-refresh/only-export-components` warnings on
-  `src/components/Drawer/index.tsx`, `src/context/UserContext.tsx`,
-  `src/context/index.tsx`, `src/pages/NewGame/index.tsx`. ESLint
-  rule is `warn`; non-blocking. Follow-up: split types/constants
-  or justify with `// eslint-disable-next-line`.
+  dev mode doubles the prefix and 404s the favicon.
+- 4 `react-refresh/only-export-components` warnings on Drawer,
+  UserContext, context/index, NewGame/index. ESLint rule is
+  `warn`.
 - Bundle is a single 635 KB chunk above Vite's 500 KB warning.
-  `React.lazy` at route boundaries is the natural follow-up
-  optimization. Candidate dedicated feature.
+  `React.lazy` at route boundaries is the natural follow-up.
+
+## Harness retrospective candidates
+
+- The harness lacks a recipe that detects "local `engines` floor
+  changed but CI workflow not validated against it" — that gap
+  produced this feature in two passes. A future harness update
+  could add a reviewer / new sub-agent (`ci-reviewer`?) that
+  walks `.github/workflows/`, parses `actions/setup-node` steps,
+  and confirms the resolved Node version satisfies the union of
+  our own engines + transitive engines.
+- Same retrospective lens flagged in `ui-refresh`'s close: the
+  regular reviewer is file-level and misses end-to-end concerns
+  (CI behavior, browser render). `ui-reviewer` was the first
+  carve-out; `ci-reviewer` would be the second.
 
 ## Older carry-over (unchanged)
 
-- `// TODO(feature-4): POST /api/rooms` etc. — wired in NewGame.tsx
-  / Play.tsx awaiting REST features 4-5.
-- `// TODO(feature-6): subscribe to /topic/games/{id} for MoveEvent`
-  in Play.tsx — wired in feature 6.
+- `// TODO(feature-4): POST /api/rooms` etc. in `pages/NewGame.tsx`
+  / `pages/Play.tsx`, awaiting REST features 4-5.
+- `// TODO(feature-6): subscribe to /topic/games/{id} for
+  MoveEvent` in `pages/Play.tsx` — wired in feature 6.
 - Backend's STOMP API contract has a viewer-count / spectator
   sub-section the frontend doc omits; feature 6 mirrors it.
 - `@vitejs/plugin-react` referenced in both `vite.config.ts` and
