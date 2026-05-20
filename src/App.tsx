@@ -1,29 +1,29 @@
-import { useEffect, useState, useCallback } from "react";
-import Container from "@mui/material/Container";
-import Game from "./Game";
-import InitGame, { PlayerObj, RoomObj } from "./InitGame";
-import CustomDialog from "./components/CustomDialog";
-import socket from "./socket";
-import { TextField } from "@mui/material";
-import { BoardOrientation } from "react-chessboard/dist/chessboard/types";
+import { useEffect, useState, useCallback } from 'react';
+import Container from '@mui/material/Container';
+import Game from './Game';
+import InitGame, { PlayerObj, RoomObj } from './InitGame';
+import CustomDialog from './components/CustomDialog';
+import socket from './socket';
+import { TextField } from '@mui/material';
+import { BoardOrientation } from 'react-chessboard/dist/chessboard/types';
 
 const App = () => {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState('');
   const [usernameSubmitted, setUsernameSubmitted] = useState(false);
 
-  const [room, setRoom] = useState("");
-  const [orientation, setOrientation] = useState<BoardOrientation>("white");
+  const [room, setRoom] = useState('');
+  const [orientation, setOrientation] = useState<BoardOrientation>('white');
   const [players, setPlayers] = useState<PlayerObj[]>([]);
 
   // resets the states responsible for initializing a game
   const cleanup = useCallback(() => {
-    setRoom("");
-    setOrientation("white");
+    setRoom('');
+    setOrientation('white');
     setPlayers([]);
   }, []);
 
   useEffect(() => {
-    socket.on("opponentJoined", (roomData: RoomObj) => {
+    socket.on('opponentJoined', (roomData: RoomObj) => {
       console.log({ roomData });
       setPlayers(roomData.players || []);
     });
@@ -38,7 +38,7 @@ const App = () => {
         contentText="Please select a username"
         handleContinue={() => {
           if (!username) return;
-          socket.emit("username", username);
+          socket.emit('username', username);
           setUsernameSubmitted(true);
         }}
       >
@@ -65,11 +65,7 @@ const App = () => {
           cleanup={cleanup}
         />
       ) : (
-        <InitGame
-          setRoom={setRoom}
-          setOrientation={setOrientation}
-          setPlayers={setPlayers}
-        />
+        <InitGame setRoom={setRoom} setOrientation={setOrientation} setPlayers={setPlayers} />
       )}
     </Container>
   );

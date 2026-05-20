@@ -152,7 +152,7 @@ costs.
    disabling it project-wide neutralises that vector without
    trusting any one package.
 2. `init.sh` materialises the allowlist explicitly (`npm rebuild
-   esbuild`) and gates the build on `npm audit --audit-level=moderate`.
+esbuild`) and gates the build on `npm audit --audit-level=moderate`.
    The build fails on any moderate-or-higher CVE that does not
    already have a resolution path captured in `package.json`
    (`overrides`) or in a planned upgrade.

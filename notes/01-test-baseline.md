@@ -117,7 +117,7 @@ and `test` steps — every subsequent feature inherits a real gate.
   next to the code they test and Vitest discovers them by glob. The
   build tool is the same; the discriminator is the filename. Closer
   in spirit to `weaver`'s zero-ceremony `object FooSpec extends
-  SimpleIOSuite` than to MUnit's class-based suites.
+SimpleIOSuite` than to MUnit's class-based suites.
 - **jsdom vs the JVM.** The JVM does not need a DOM emulator because
   Scala UI work is either server-rendered HTML (http4s + scalatags)
   or a Scala.js Laminar app running in an actual browser via

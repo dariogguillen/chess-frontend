@@ -300,3 +300,51 @@ by the hook, as designed. Closing rotation used the `jq` recipe from
 - `notes/01-test-baseline.md` (new)
 
 **Feature note:** `notes/01-test-baseline.md`
+
+## 2026-05-19 — format-the-world
+
+**Status:** done
+
+**Summary:** Inserted at priority 1.5 to wipe the 22-file Prettier
+drift surfaced at `test-baseline` close before any integration
+feature lands on it. Purely mechanical: `npm run format` repo-wide,
+21 files reflowed (the 22nd estimate was off-by-one), the new
+`format:check` step wired into `init.sh` between `lint` and
+`typecheck`, and a gate line added to `CHECKPOINTS.md` so drift
+fails the build from now on. Bundle output byte-identical before
+and after (524173 bytes, same `dist/assets/index-yv8l1I7D.js` hash)
+— confirms the cleanup was purely cosmetic. The Claude Code hook
+in `.claude/settings.json` was re-verified end-to-end after the
+reflow: synthetic stdin + real `Edit` attempt on `feature_list.json`
+both still surface the BLOCKED message and exit 2.
+
+**Judgment call worth recording:** the implementer added `progress/`
+to `.prettierignore` after observing that without it, `prettier
+--write .` would have rewritten the leader-owned `current.md` and
+`history.md` mid-rotation. Pre-empts a race the original plan had
+not anticipated.
+
+**Side-effects flagged in feature-note Gotchas (no action needed):**
+CRLF→LF normalization on `package.json` and `vite.config.ts`
+(git's LF policy + Prettier defaults agree); the entire-file diff
+that produced is misleading but benign. `git diff --ignore-all-space`
+on `package.json` returned empty during the review, confirming zero
+semantic change.
+
+**Files touched:**
+
+- Reformatted (21): `.claude/settings.json`, `.github/dependabot.yml`,
+  `.github/workflows/deploy-frontend.yml`, `AGENTS.md`,
+  `CHECKPOINTS.md`, `README.md`, `docs/architecture.md`,
+  `docs/conventions.md`, `eslint.config.js`,
+  `notes/00.5-supply-chain-hardening.md`, `notes/01-test-baseline.md`,
+  `package.json`, `src/App.tsx`, `src/Game.tsx`, `src/InitGame.tsx`,
+  `src/components/CustomDialog.tsx`, `src/main.tsx`, `src/socket.ts`,
+  `src/utils/config.default.ts`, `tsconfig.json`, `vite.config.ts`.
+- Explicitly modified:
+  - `init.sh` (new step 6.5: `format:check`)
+  - `CHECKPOINTS.md` (gate line under Build and verification)
+  - `.prettierignore` (added `progress/`)
+- New: `notes/01.5-format-the-world.md`.
+
+**Feature note:** `notes/01.5-format-the-world.md`

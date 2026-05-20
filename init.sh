@@ -21,13 +21,14 @@
 #      any moderate-or-higher finding. Resolution path: patch upgrade,
 #      `overrides` in `package.json`, or escalate.
 #   6. Lint (npm run lint)
+#   6.5. Format check (npm run format:check) — introduced by feature 1.5
 #   7. Type check (npm run typecheck) — introduced by feature 1
 #   8. Test (npm run test) — introduced by feature 1
 #   9. Build (npm run build)
 #
-# Steps 7 and 8 are skipped silently if the corresponding npm script does
-# not exist yet (the harness ships with only lint and build initially;
-# typecheck and test are added in feature 1).
+# Steps 6.5, 7, and 8 are skipped silently if the corresponding npm script
+# does not exist yet (the harness ships with only lint and build initially;
+# typecheck and test are added in feature 1, format:check in feature 1.5).
 #
 # Exit code 0 = green. Any non-zero = stop and read the output.
 
@@ -147,6 +148,18 @@ ok "Audit clean at moderate+"
 info "Lint (npm run lint)"
 npm run lint --silent
 ok "Lint passed"
+
+# --- Step 6.5: Format check (if script exists) ---
+# Gates only — `format:check` runs Prettier in `--check` mode and never
+# mutates the working tree. Local fix is `npm run format`. Introduced
+# in feature 1.5 (`format-the-world`).
+if has_script format:check; then
+  info "Format check (npm run format:check)"
+  npm run format:check --silent
+  ok "Format check passed"
+else
+  info "Skipping format:check — not yet defined in package.json (feature 1.5 adds it)"
+fi
 
 # --- Step 7: Type check (if script exists) ---
 if has_script typecheck; then

@@ -56,20 +56,20 @@ The workflow for every non-trivial change is:
 
 ## Where things live
 
-| Topic | Location |
-| --- | --- |
-| Project orchestration role | `CLAUDE.md` |
-| Project map (this file) | `AGENTS.md` |
-| Feature scope and state | `feature_list.json` |
-| Verification script | `./init.sh` |
-| Active session plan | `progress/current.md` |
-| Session log (append-only) | `progress/history.md` |
-| Architectural guidelines | `docs/architecture.md` |
-| Code conventions | `docs/conventions.md` |
-| "Done" checklist | `CHECKPOINTS.md` |
-| Sub-agent definitions | `.claude/agents/` |
-| Feature learning notes | `notes/` |
-| Feature note template | `notes/_template.md` |
+| Topic                      | Location               |
+| -------------------------- | ---------------------- |
+| Project orchestration role | `CLAUDE.md`            |
+| Project map (this file)    | `AGENTS.md`            |
+| Feature scope and state    | `feature_list.json`    |
+| Verification script        | `./init.sh`            |
+| Active session plan        | `progress/current.md`  |
+| Session log (append-only)  | `progress/history.md`  |
+| Architectural guidelines   | `docs/architecture.md` |
+| Code conventions           | `docs/conventions.md`  |
+| "Done" checklist           | `CHECKPOINTS.md`       |
+| Sub-agent definitions      | `.claude/agents/`      |
+| Feature learning notes     | `notes/`               |
+| Feature note template      | `notes/_template.md`   |
 
 If you need a rule, check the table first. Do not invent rules from memory.
 

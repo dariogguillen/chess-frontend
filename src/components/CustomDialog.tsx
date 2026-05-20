@@ -1,10 +1,10 @@
-import Button from "@mui/material/Button";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogContentText from "@mui/material/DialogContentText";
-import DialogTitle from "@mui/material/DialogTitle";
-import { MouseEventHandler } from "react";
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
+import { MouseEventHandler } from 'react';
 
 interface CustomDialogObj {
   open: boolean;
@@ -15,13 +15,7 @@ interface CustomDialogObj {
   handleClose?: () => void;
 }
 
-const CustomDialog = ({
-  open,
-  children,
-  title,
-  contentText,
-  handleContinue,
-}: CustomDialogObj) => {
+const CustomDialog = ({ open, children, title, contentText, handleContinue }: CustomDialogObj) => {
   return (
     <Dialog open={open}>
       <DialogTitle>{title}</DialogTitle>

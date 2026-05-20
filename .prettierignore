@@ -3,3 +3,5 @@ node_modules/
 coverage/
 package-lock.json
 *.svg
+# Leader-owned files — rotated via jq/workflow recipes, not formatter.
+progress/

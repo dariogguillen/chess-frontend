@@ -15,37 +15,38 @@ approves **and** the user gives explicit OK.
 ### Build and verification
 
 - [ ] `./init.sh` exits 0.
+- [ ] `npm run format:check` is part of `./init.sh` and exits 0.
 - [ ] No tests were skipped, ignored, or commented out to make the
-  build pass.
+      build pass.
 - [ ] No assertions were weakened from a previous version of the
-  code.
+      code.
 - [ ] No `npm` script was renamed or removed without an explicit
-  reason recorded in `progress/current.md`.
+      reason recorded in `progress/current.md`.
 
 ### Scope and state
 
 - [ ] The feature being closed is the one that was marked
-  `in_progress` in `feature_list.json`.
+      `in_progress` in `feature_list.json`.
 - [ ] Only one feature is `in_progress` at any time during the work.
 - [ ] All acceptance criteria for the feature (in
-  `feature_list.json`) are visibly satisfied.
+      `feature_list.json`) are visibly satisfied.
 
 ### Code
 
 - [ ] Functional components only. No class components introduced.
 - [ ] `react-hooks/exhaustive-deps` is not disabled anywhere new
-  without an inline comment explaining why and what the alternative
-  would cost.
+      without an inline comment explaining why and what the alternative
+      would cost.
 - [ ] No `any` types in production code without an inline comment
-  justifying the escape hatch. Tests may use `any` more liberally.
+      justifying the escape hatch. Tests may use `any` more liberally.
 - [ ] No wildcard imports (`import * as X`) in production code.
 - [ ] No new dependencies in `package.json` without a justification
-  recorded in the implementer's report (and later, the commit message
-  the user writes).
+      recorded in the implementer's report (and later, the commit message
+      the user writes).
 - [ ] Named imports from libraries that support them. Default imports
-  only where the library exports a default.
+      only where the library exports a default.
 - [ ] DTOs and shared types are immutable by default (`readonly` on
-  fields where mutation would be a bug, or `Readonly<T>` wrappers).
+      fields where mutation would be a bug, or `Readonly<T>` wrappers).
 
 ### Dependencies
 
@@ -55,24 +56,24 @@ surface. The full rationale lives in `docs/conventions.md`
 record). The checks below are what the reviewer verifies.
 
 - [ ] No new dependency in `package.json` without a one-sentence
-  justification in the implementer's report (audience, runtime cost,
-  size if heavy).
+      justification in the implementer's report (audience, runtime cost,
+      size if heavy).
 - [ ] `npm audit --audit-level=moderate` is green inside `./init.sh`.
-  No moderate-or-higher findings are present in the lockfile.
+      No moderate-or-higher findings are present in the lockfile.
 - [ ] `package-lock.json` was changed only by `npm` (install,
-  update, audit fix). No manual edits — the `.claude/settings.json`
-  hook blocks them on agent sessions; the reviewer spot-checks the
-  diff for hand-edited markers.
+      update, audit fix). No manual edits — the `.claude/settings.json`
+      hook blocks them on agent sessions; the reviewer spot-checks the
+      diff for hand-edited markers.
 - [ ] No new `postinstall` script in the tree without an explicit
-  `npm rebuild <pkg>` entry in `init.sh` and a paragraph in the
-  implementer's report explaining what the script does and why we
-  trust it.
+      `npm rebuild <pkg>` entry in `init.sh` and a paragraph in the
+      implementer's report explaining what the script does and why we
+      trust it.
 - [ ] `engines` in `package.json` matches the Node/npm floor the
-  feature actually requires. If the feature bumps the floor, the
-  bump is captured in the plan (`progress/current.md`).
+      feature actually requires. If the feature bumps the floor, the
+      bump is captured in the plan (`progress/current.md`).
 - [ ] `overrides` in `package.json` is used for transitive pins, not
-  for forking. Each entry exists because the upstream is vulnerable
-  or out of date; comments are welcome but not required.
+      for forking. Each entry exists because the upstream is vulnerable
+      or out of date; comments are welcome but not required.
 
 ### Tests
 
@@ -81,18 +82,18 @@ with the code they cover. End-to-end tests (Playwright, introduced in
 a later feature) live in a dedicated folder when they arrive.
 
 - [ ] New components with non-trivial logic have a test asserting at
-  least one user-visible behavior. Pure presentational components
-  (no state, no callbacks) do not require a test by themselves; they
-  are exercised through their parent's test.
+      least one user-visible behavior. Pure presentational components
+      (no state, no callbacks) do not require a test by themselves; they
+      are exercised through their parent's test.
 - [ ] New hooks have a test exercising their state transitions.
 - [ ] New utility functions have a test for the happy path and at
-  least one edge case.
+      least one edge case.
 - [ ] No snapshot-only tests. Snapshots are acceptable as a side
-  artifact, never as the sole assertion.
+      artifact, never as the sole assertion.
 - [ ] Mocked HTTP calls use a documented pattern (MSW, fetch mock,
-  or a typed test fixture) consistent with what is already in the
-  codebase. Inline `jest.fn()` style mocks are tolerated when
-  scoped tight.
+      or a typed test fixture) consistent with what is already in the
+      codebase. Inline `jest.fn()` style mocks are tolerated when
+      scoped tight.
 
 ### Performance discipline
 
@@ -100,24 +101,24 @@ These are the rules absorbed from the Vercel React best-practices
 skill, adapted to our SPA stack. They are checks, not aspirations.
 
 - [ ] No new sequential `await` chains inside `useEffect` where the
-  fetches are independent. Use `Promise.all` for parallel work.
+      fetches are independent. Use `Promise.all` for parallel work.
 - [ ] No new wildcard imports from MUI or other large libraries
-  (we lose tree-shaking).
+      (we lose tree-shaking).
 - [ ] No new inline object/array/function passed as a prop where the
-  consuming component memoizes by reference equality, unless the
-  prop is intentionally identity-stable (e.g. handlers via
-  `useCallback`).
+      consuming component memoizes by reference equality, unless the
+      prop is intentionally identity-stable (e.g. handlers via
+      `useCallback`).
 - [ ] If a new route-level page weighs more than ~50KB after
-  minification, it ships with `React.lazy()` + `<Suspense>`.
+      minification, it ships with `React.lazy()` + `<Suspense>`.
 
 ### Accessibility
 
 - [ ] Interactive elements have accessible names (`aria-label`,
-  visible text, or explicit `<label>` association).
+      visible text, or explicit `<label>` association).
 - [ ] Color is not the only signal for state. Status changes also
-  surface in text or icon.
+      surface in text or icon.
 - [ ] New keyboard-reachable flows have been spot-checked with Tab /
-  Enter / Space.
+      Enter / Space.
 
 ### Documentation (verified at review time)
 
@@ -125,15 +126,15 @@ These are implementer-scope items. They must be satisfied for the
 reviewer to approve.
 
 - [ ] If the feature changed any public-facing surface (URL,
-  environment variable, build output, deployment target),
-  `README.md` was updated.
+      environment variable, build output, deployment target),
+      `README.md` was updated.
 - [ ] If the feature introduced a new architectural decision,
-  `docs/architecture.md` was updated.
+      `docs/architecture.md` was updated.
 - [ ] If the feature changes the contract with `chess-backend-java`
-  (REST endpoint consumed, STOMP topic subscribed, DTO shape), the
-  change is documented in `docs/architecture.md` and the plan in
-  `progress/current.md` explicitly states whether the backend side
-  is already aligned or coordination is needed.
+      (REST endpoint consumed, STOMP topic subscribed, DTO shape), the
+      change is documented in `docs/architecture.md` and the plan in
+      `progress/current.md` explicitly states whether the backend side
+      is already aligned or coordination is needed.
 
 The plan in `progress/current.md` is expected to state explicitly
 whether each of these applies for the feature. If the plan says they
@@ -142,22 +143,22 @@ do not apply, the reviewer treats them as N/A.
 ### Feature note (mandatory)
 
 - [ ] A file exists at `notes/NN-<feature-id>.md`, where `NN` matches
-  the priority in `feature_list.json` (zero-padded for integers,
-  verbatim for decimals like `4.5`).
+      the priority in `feature_list.json` (zero-padded for integers,
+      verbatim for decimals like `4.5`).
 - [ ] The note follows the structure in `notes/_template.md`. Every
-  section from the template is present.
+      section from the template is present.
 - [ ] The "What we built" section describes the user-visible behavior
-  in 2-3 sentences.
+      in 2-3 sentences.
 - [ ] The "TS / React concepts that appear" section names at least
-  one concept and explains how it is used in *this* feature, not in
-  general terms.
+      one concept and explains how it is used in _this_ feature, not in
+      general terms.
 - [ ] The "Decisions taken" section covers at least one non-trivial
-  decision, with alternatives and reasoning.
+      decision, with alternatives and reasoning.
 - [ ] The "How this compares to what I know" section has at least one
-  concrete comparison with Scala/Typelevel (Cats Effect, http4s,
-  circe, etc.).
+      concrete comparison with Scala/Typelevel (Cats Effect, http4s,
+      circe, etc.).
 - [ ] The "File map" section lists the files added or modified, with
-  a one-line description each.
+      a one-line description each.
 
 ---
 

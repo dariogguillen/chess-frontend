@@ -1,7 +1,7 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { Chessboard } from "react-chessboard";
-import { Chess, Color, Square } from "chess.js";
-import CustomDialog from "./components/CustomDialog";
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { Chessboard } from 'react-chessboard';
+import { Chess, Color, Square } from 'chess.js';
+import CustomDialog from './components/CustomDialog';
 import {
   Card,
   CardContent,
@@ -12,10 +12,10 @@ import {
   Stack,
   Typography,
   Box,
-} from "@mui/material";
-import socket from "./socket";
-import { BoardOrientation } from "react-chessboard/dist/chessboard/types";
-import { PlayerObj } from "./InitGame";
+} from '@mui/material';
+import socket from './socket';
+import { BoardOrientation } from 'react-chessboard/dist/chessboard/types';
+import { PlayerObj } from './InitGame';
 
 interface GameObj {
   players: PlayerObj[];
@@ -34,7 +34,7 @@ interface MoveObj {
 const Game = ({ players, room, orientation, cleanup }: GameObj) => {
   const chess = useMemo(() => new Chess(), []);
   const [fen, setFen] = useState(chess.fen());
-  const [over, setOver] = useState("");
+  const [over, setOver] = useState('');
 
   const makeAMove = useCallback(
     (move: MoveObj) => {
@@ -42,22 +42,20 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
         const result = chess.move(move); // update Chess instance
         setFen(chess.fen()); // update fen state to trigger a re-render
 
-        console.log("over, checkmate", chess.isGameOver(), chess.isCheckmate());
+        console.log('over, checkmate', chess.isGameOver(), chess.isCheckmate());
 
         if (chess.isGameOver()) {
           // check if move led to "game over"
           if (chess.isCheckmate()) {
             // if reason for game over is a checkmate
             // Set message to checkmate.
-            setOver(
-              `Checkmate! ${chess.turn() === "w" ? "black" : "white"} wins!`,
-            );
+            setOver(`Checkmate! ${chess.turn() === 'w' ? 'black' : 'white'} wins!`);
             // The winner is determined by checking which side made the last move
           } else if (chess.isDraw()) {
             // if it is a draw
-            setOver("Draw"); // set message to "Draw"
+            setOver('Draw'); // set message to "Draw"
           } else {
-            setOver("Game over");
+            setOver('Game over');
           }
         }
 
@@ -85,7 +83,7 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
       from: sourceSquare,
       to: targetSquare,
       color: chess.turn(),
-      promotion: "q", // promote to queen where possible
+      promotion: 'q', // promote to queen where possible
     };
 
     const move = makeAMove(moveData);
@@ -93,7 +91,7 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
     // illegal move
     if (move === null) return false;
 
-    socket.emit("move", {
+    socket.emit('move', {
       // <- 3 emit a move event.
       move,
       room,
@@ -103,13 +101,13 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
   };
 
   useEffect(() => {
-    socket.on("move", (move: MoveObj) => {
+    socket.on('move', (move: MoveObj) => {
       makeAMove(move); //
     });
   }, [makeAMove]);
 
   useEffect(() => {
-    socket.on("playerDisconnected", (player: PlayerObj) => {
+    socket.on('playerDisconnected', (player: PlayerObj) => {
       console.log({ player });
       setOver(`${player.username} has disconnected`); // set game over
     });
@@ -132,11 +130,7 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
             flexGrow: 1,
           }}
         >
-          <Chessboard
-            position={fen}
-            onPieceDrop={onDrop}
-            boardOrientation={orientation}
-          />
+          <Chessboard position={fen} onPieceDrop={onDrop} boardOrientation={orientation} />
         </div>
         {players.length > 0 && (
           <Box>
@@ -156,7 +150,7 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
         title={over}
         contentText={over}
         handleContinue={() => {
-          socket.emit("closeRoom", { roomId: room });
+          socket.emit('closeRoom', { roomId: room });
           cleanup();
         }}
       />

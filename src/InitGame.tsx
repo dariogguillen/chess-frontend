@@ -1,8 +1,8 @@
-import { Button, Stack, TextField } from "@mui/material";
-import { Dispatch, useState } from "react";
-import CustomDialog from "./components/CustomDialog";
-import socket from "./socket";
-import { BoardOrientation } from "react-chessboard/dist/chessboard/types";
+import { Button, Stack, TextField } from '@mui/material';
+import { Dispatch, useState } from 'react';
+import CustomDialog from './components/CustomDialog';
+import socket from './socket';
+import { BoardOrientation } from 'react-chessboard/dist/chessboard/types';
 
 interface InitGameObj {
   setRoom: Dispatch<string>;
@@ -23,15 +23,11 @@ export interface RoomObj {
 
 const InitGame = ({ setRoom, setOrientation, setPlayers }: InitGameObj) => {
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
-  const [roomInput, setRoomInput] = useState(""); // input state
-  const [roomError, setRoomError] = useState("");
+  const [roomInput, setRoomInput] = useState(''); // input state
+  const [roomError, setRoomError] = useState('');
 
   return (
-    <Stack
-      justifyContent="center"
-      alignItems="center"
-      sx={{ py: 1, height: "100vh" }}
-    >
+    <Stack justifyContent="center" alignItems="center" sx={{ py: 1, height: '100vh' }}>
       <CustomDialog
         open={roomDialogOpen}
         handleClose={() => setRoomDialogOpen(false)}
@@ -40,14 +36,13 @@ const InitGame = ({ setRoom, setOrientation, setPlayers }: InitGameObj) => {
         handleContinue={() => {
           // join a room
           if (!roomInput) return; // if given room input is valid, do nothing.
-          socket.emit("joinRoom", { roomId: roomInput }, (r: RoomObj) => {
+          socket.emit('joinRoom', { roomId: roomInput }, (r: RoomObj) => {
             // r is the response from the server
-            if (r.error)
-              return setRoomError(r.message || "ERROR JOINING A ROOM"); // if an error is returned in the response set roomError to the error message and exit
-            console.log("response:", r);
+            if (r.error) return setRoomError(r.message || 'ERROR JOINING A ROOM'); // if an error is returned in the response set roomError to the error message and exit
+            console.log('response:', r);
             if (r.roomId) setRoom(r.roomId); // set room to the room ID
             if (r.players) setPlayers(r?.players); // set players array to the array of players in the room
-            setOrientation("black"); // set orientation as black
+            setOrientation('black'); // set orientation as black
             setRoomDialogOpen(false); // close dialog
           });
         }}
@@ -65,19 +60,17 @@ const InitGame = ({ setRoom, setOrientation, setPlayers }: InitGameObj) => {
           fullWidth
           variant="standard"
           error={Boolean(roomError)}
-          helperText={
-            !roomError ? "Enter a room ID" : `Invalid room ID: ${roomError}`
-          }
+          helperText={!roomError ? 'Enter a room ID' : `Invalid room ID: ${roomError}`}
         />
       </CustomDialog>
       {/* Button for starting a game */}
       <Button
         variant="contained"
         onClick={() => {
-          socket.emit("createRoom", (r: string) => {
+          socket.emit('createRoom', (r: string) => {
             console.log(r);
             setRoom(r);
-            setOrientation("white");
+            setOrientation('white');
           });
         }}
       >

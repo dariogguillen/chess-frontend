@@ -1,15 +1,7 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(npm *)",
-      "Bash(npx *)",
-      "Bash(./init.sh)",
-      "Bash(jq *)",
-      "Bash(git *)"
-    ],
-    "deny": [
-      "Bash(rm -rf *)"
-    ]
+    "allow": ["Bash(npm *)", "Bash(npx *)", "Bash(./init.sh)", "Bash(jq *)", "Bash(git *)"],
+    "deny": ["Bash(rm -rf *)"]
   },
   "hooks": {
     "PreToolUse": [

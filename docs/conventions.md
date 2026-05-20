@@ -95,14 +95,15 @@ export const JoinRoomButton = ({ roomId, onJoin }: Props) => {
 
   ```ts
   type RoomState =
-    | { status: "loading" }
-    | { status: "waiting"; roomId: string }
-    | { status: "playing"; roomId: string; gameId: string }
-    | { status: "error"; message: string };
+    | { status: 'loading' }
+    | { status: 'waiting'; roomId: string }
+    | { status: 'playing'; roomId: string; gameId: string }
+    | { status: 'error'; message: string };
   ```
 
   TypeScript narrows on `status` and the compiler enforces
   exhaustiveness in `switch` blocks.
+
 - Prefer `unknown` over `any` for untyped boundaries (parsed JSON,
   `catch` clauses). Narrow before use.
 - Use `Readonly<T>` and `ReadonlyArray<T>` for data that should not
@@ -121,7 +122,7 @@ the OpenAPI spec exposed by the backend at `/v3/api-docs`.
 export type RoomResponse = Readonly<{
   roomId: string;
   playerId: string;
-  role: "WHITE" | "BLACK";
+  role: 'WHITE' | 'BLACK';
   gameId: string | null;
 }>;
 ```
@@ -205,10 +206,7 @@ useEffect(() => {
   const load = async () => {
     const room = await fetchRoom(roomId);
     // game can fetch in parallel with whatever else you need from room
-    const [game, history] = await Promise.all([
-      fetchGame(room.gameId),
-      fetchHistory(room.gameId),
-    ]);
+    const [game, history] = await Promise.all([fetchGame(room.gameId), fetchHistory(room.gameId)]);
     setGame(game);
     setHistory(history);
   };

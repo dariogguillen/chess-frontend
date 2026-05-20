@@ -56,6 +56,22 @@
     ]
   },
   {
+    "id": "format-the-world",
+    "title": "Repo-wide Prettier cleanup + format:check gate",
+    "description": "Apply Prettier across the 22 files with formatting drift surfaced during the test-baseline review, then wire format:check into init.sh so drift fails the build from now on. Purely mechanical: no behavior changes, no API changes, no architectural decisions. Inserted at priority 1.5 before stomp-client-migration so every subsequent integration feature lands on a formatted baseline.",
+    "status": "done",
+    "priority": 1.5,
+    "acceptance": [
+      "`npm run format` was run repo-wide and committed any formatting changes.",
+      "`npm run format:check` exits 0 against the whole repo (no remaining drift).",
+      "`init.sh` includes a `format:check` step between `lint` and `typecheck`. The step fails the build on any drift.",
+      "`CHECKPOINTS.md` references the format:check gate under Build and verification (or an equivalent existing section).",
+      "`.prettierignore` is updated with any files that legitimately should not be formatted (e.g. .claude/settings.json if the hook command is too sensitive to reflow, or any generated artifacts not already listed).",
+      "No behavior changes: tests still pass, lint still passes, build still produces the same bundle (size sanity-check by the reviewer).",
+      "`./init.sh` exits 0."
+    ]
+  },
+  {
     "id": "stomp-client-migration",
     "title": "STOMP client and WebSocket abstraction",
     "description": "Replace the socket.io-client integration with a STOMP client (@stomp/stompjs, optionally with sockjs-client for fallback). Hide the WebSocket implementation behind a typed interface (open/subscribe/send/close) so the rest of the frontend never talks to the library directly. Stub server side until backend feature 6 (websocket-realtime) lands.",
