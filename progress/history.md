@@ -348,3 +348,80 @@ semantic change.
 - New: `notes/01.5-format-the-world.md`.
 
 **Feature note:** `notes/01.5-format-the-world.md`
+
+## 2026-05-19 — stomp-client-migration
+
+**Status:** done
+
+**Summary:** Replaced the `socket.io-client` integration with
+`@stomp/stompjs ^7.3.0` behind a typed abstraction in `src/utils/ws/`
+and a thin React hook in `src/hooks/`. The abstraction exposes
+`connect / subscribe / send / disconnect` with Promise-based lifecycle,
+JSON serialization at the boundary, and a `ClientCtor` injection point
+that defaults to the real `@stomp/stompjs` `Client` but lets tests
+substitute a fake. A parallel `MockStompClient` (extends `StompClient`
+with `dispatch`, `sent: ReadonlyArray`, and lifecycle counters) is
+the test fixture used by the hook test and future feature tests.
+The hook (`useStompSubscription`) holds the handler in a ref so
+closure-identity changes do not re-subscribe — verified by a test
+that counts underlying `subscribe` calls.
+
+The pages (`App.tsx`, `Game.tsx`, `InitGame.tsx`) lost their
+`socket.io` integrations. Each removed call site carries a
+`// TODO(feature-N): <specific endpoint or topic>` comment: features
+3-4 will restore the room/move behavior over REST, feature 5 will
+wire the STOMP subscription to `/topic/games/{id}` for `MoveEvent`.
+`console.warn('not yet wired; see TODO above')` stubs sit where a
+button used to emit. `void setX;` preserves the React setter idents
+that features 3-4 will need; without them, `noUnusedParameters` would
+have failed typecheck.
+
+The backend's `docs/architecture.md` "STOMP API contract" was
+mirrored into the frontend's `docs/architecture.md` (endpoint `/ws`,
+no SockJS, broker prefix `/topic`, app prefix `/app` registered
+without traffic, allowed origins for GitHub Pages prod + localhost
+dev, `MoveEvent` as the sole payload server-to-client, no auth).
+The frontend doc points at the backend's as the source of truth.
+
+Bundle delta: 524 KB → 482 KB minified (`-42 KB`), 161 KB → 149 KB
+gzip. The swap pays off in tree-shaking: `@stomp/stompjs` is ~25 KB
+unminified vs `socket.io-client`'s ~75 KB.
+
+**Process note (worth recording):** the first implementer pass
+reported `./init.sh: green` and a clean migration, but the actual
+disk state had the new files (`src/utils/ws/*`, `src/hooks/*`) only
+as untracked additions — the dependency swap, the page-file
+cleanups, the `src/socket.ts` deletion, and the architecture-doc
+section were not applied. `./init.sh` was red because
+`stompClient.ts` imported `@stomp/stompjs` which was not installed.
+The reviewer caught the inaccuracy via a fresh `./init.sh` run plus
+greps for `socket.io` references. The remediation pass applied
+exactly the missing pieces and re-reviewed cleanly. Same failure
+mode shape as feature 0.5 (synthetic verification masked broken
+wiring), different layer (then it was the hook env-var assumption,
+here it was a between-the-implementer-and-the-disk gap). The
+reviewer recipe in `reviewer.md` already calls out "fresh
+`./init.sh` from a clean state" as the way to catch this class;
+that recipe earned its keep this feature.
+
+**Out-of-scope observation forwarded to feature 5:**
+- The backend's STOMP API contract has a sub-section on spectator
+  / viewer-count details that the frontend doc legitimately omits
+  today. Feature 5 (`stomp-live-updates`) will need to mirror
+  those additions when it wires the real topic subscription.
+
+**Files touched:**
+
+- New: `src/utils/ws/types.ts`, `stompClient.ts`,
+  `mockStompClient.ts`, `index.ts`, `stompClient.test.ts`,
+  `mockStompClient.test.ts`; `src/hooks/useStompSubscription.ts`,
+  `useStompSubscription.test.tsx`.
+- Modified: `package.json` (added `@stomp/stompjs ^7.3.0`, removed
+  `socket.io-client`), `package-lock.json` (regenerated),
+  `src/App.tsx`, `src/Game.tsx`, `src/InitGame.tsx` (TODO + warn
+  stubs replacing socket calls), `docs/architecture.md` (new
+  "STOMP API contract" section), `notes/02-stomp-client-migration.md`
+  (drafted in first pass, corrected for accuracy in remediation).
+- Deleted: `src/socket.ts`.
+
+**Feature note:** `notes/02-stomp-client-migration.md`

@@ -13,7 +13,6 @@ import {
   Typography,
   Box,
 } from '@mui/material';
-import socket from './socket';
 import { BoardOrientation } from 'react-chessboard/dist/chessboard/types';
 import { PlayerObj } from './InitGame';
 
@@ -91,26 +90,28 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
     // illegal move
     if (move === null) return false;
 
-    socket.emit('move', {
-      // <- 3 emit a move event.
-      move,
-      room,
-    }); // this event will be transmitted to the opponent via the server
+    // TODO(feature-4): POST /api/games/{id}/moves
+    // Previously: socket.emit('move', { move, room }) — feature 4 will send the
+    // move to the backend over REST; the server is the authority for legality.
+    console.warn('not yet wired; see TODO above');
 
     return true;
   };
 
   useEffect(() => {
-    socket.on('move', (move: MoveObj) => {
-      makeAMove(move); //
-    });
+    // TODO(feature-5): subscribe to /topic/games/{id} for MoveEvent
+    // Previously: socket.on('move', (move) => makeAMove(move)). Feature 5 will
+    // use useStompSubscription to receive the opponent's moves and feed them
+    // into makeAMove.
+    void makeAMove;
   }, [makeAMove]);
 
   useEffect(() => {
-    socket.on('playerDisconnected', (player: PlayerObj) => {
-      console.log({ player });
-      setOver(`${player.username} has disconnected`); // set game over
-    });
+    // TODO(feature-5+): server disconnect signal
+    // Previously: socket.on('playerDisconnected', (player) => setOver(...)). The
+    // backend's reconnection grace window (see docs/architecture.md) will surface
+    // disconnects via the STOMP channel; the exact shape is TBD.
+    void setOver;
   }, []);
 
   // Game component returned jsx
@@ -150,7 +151,10 @@ const Game = ({ players, room, orientation, cleanup }: GameObj) => {
         title={over}
         contentText={over}
         handleContinue={() => {
-          socket.emit('closeRoom', { roomId: room });
+          // TODO(feature-3): close room via REST
+          // Previously: socket.emit('closeRoom', { roomId: room }) — feature 3 will
+          // call the corresponding REST endpoint to mark the room closed.
+          console.warn('not yet wired; see TODO above');
           cleanup();
         }}
       />

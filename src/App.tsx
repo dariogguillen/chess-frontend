@@ -1,9 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import Container from '@mui/material/Container';
 import Game from './Game';
-import InitGame, { PlayerObj, RoomObj } from './InitGame';
+import InitGame, { PlayerObj } from './InitGame';
 import CustomDialog from './components/CustomDialog';
-import socket from './socket';
 import { TextField } from '@mui/material';
 import { BoardOrientation } from 'react-chessboard/dist/chessboard/types';
 
@@ -23,10 +22,11 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    socket.on('opponentJoined', (roomData: RoomObj) => {
-      console.log({ roomData });
-      setPlayers(roomData.players || []);
-    });
+    // TODO(feature-3|5): receive opponent-joined notification
+    // Previously: socket.on('opponentJoined', (roomData) => setPlayers(roomData.players || []))
+    // Feature 3 will populate `players` from the POST /api/rooms/{id}/join REST response;
+    // feature 5 will refresh it from a STOMP topic when the opponent connects.
+    void setPlayers;
   }, []);
 
   return (
@@ -38,7 +38,8 @@ const App = () => {
         contentText="Please select a username"
         handleContinue={() => {
           if (!username) return;
-          socket.emit('username', username);
+          // TODO(feature-3): include username in room create/join payload
+          console.warn('not yet wired; see TODO above');
           setUsernameSubmitted(true);
         }}
       >

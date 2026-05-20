@@ -103,6 +103,74 @@ it client-side (in `UserContext`) and sends it as `X-Player-Id` on
 move requests. This is intentional for a portfolio project and not
 a production-grade design.
 
+## STOMP API contract
+
+This section mirrors the `chess-backend-java` repo's
+`docs/architecture.md` → "STOMP API contract" section. The backend
+is the **source of truth**; this copy exists so a frontend reader
+does not need to cross the repo boundary for everyday work. When
+the two diverge, the backend wins and this copy is updated.
+
+The contract below is currently consumed by the typed STOMP client
+in `src/utils/ws/` and the `useStompSubscription` hook in
+`src/hooks/`. **No page subscribes today.** The wire-up to a real
+game topic lands in feature 5 (`stomp-live-updates`).
+
+### Endpoint and broker
+
+- **WebSocket endpoint:** `/ws`. Clients perform a STOMP `CONNECT`
+  over native WebSocket.
+- **SockJS fallback:** explicitly **not** enabled. The backend
+  chose against it; the frontend's `@stomp/stompjs` client speaks
+  native WebSocket only.
+- **Broker prefix:** `/topic` for server-to-client broadcast.
+- **Application destination prefix:** `/app` for client-to-server.
+  Registered for future-proofing — no message uses it today, and
+  the frontend never publishes on `/app`.
+
+### Allowed origins (CORS for the WebSocket handshake)
+
+- `https://dariogguillen.github.io` — production frontend
+  (GitHub Pages).
+- `http://localhost:*` — development frontend on any localhost
+  port.
+
+The list mirrors the existing CORS strategy on the REST side.
+
+### Subscriptions and payload
+
+The only payload defined today is `MoveEvent`, published to
+**`/topic/games/{gameId}`** after the backend accepts a move via
+`POST /api/games/{id}/moves`. The event flows server-to-client
+only. The exact shape (field names, types, `playedAt` ISO-8601
+instant) is documented in the backend's `docs/architecture.md` →
+"STOMP API contract" → "`MoveEvent` shape". The frontend types
+this payload at the seam in `src/utils/ws/` when feature 5 wires
+the subscription.
+
+### Authentication
+
+There is **no authentication on the WebSocket handshake**. STOMP
+`CONNECT` does not carry credentials, mirroring the same posture
+the REST surface has today. Anyone who knows a `gameId` can
+subscribe to its topic and observe the live move stream. A
+production design would add a single auth layer that gates both
+surfaces together; that is deferred.
+
+The mutation surface (REST `POST /api/games/{id}/moves`) is still
+gated on `X-Player-Id` matching the side to move — a subscriber
+who is not one of the two players cannot inject moves into the
+game, only observe them.
+
+### Source of truth pointer
+
+The backend repo's `docs/architecture.md` "STOMP API contract"
+section is the authoritative description of the protocol,
+including the full `MoveEvent` field documentation, failure-mode
+policy (broadcasts are fire-and-forget; loss is recoverable via
+`GET /api/games/{id}` + resubscribe), and ordering/concurrency
+guarantees. Any change to the contract starts there.
+
 ## Cross-repo coordination
 
 When a feature in `chess-frontend` changes how it consumes the

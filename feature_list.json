@@ -75,7 +75,7 @@
     "id": "stomp-client-migration",
     "title": "STOMP client and WebSocket abstraction",
     "description": "Replace the socket.io-client integration with a STOMP client (@stomp/stompjs, optionally with sockjs-client for fallback). Hide the WebSocket implementation behind a typed interface (open/subscribe/send/close) so the rest of the frontend never talks to the library directly. Stub server side until backend feature 6 (websocket-realtime) lands.",
-    "status": "pending",
+    "status": "done",
     "priority": 2,
     "acceptance": [
       "socket.io-client removed from package.json.",
