@@ -2,7 +2,7 @@ import { Box, CircularProgress, Container, Grid2 as Grid, Stack, Typography } fr
 import { Chess } from 'chess.js';
 import type { Color, Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Chessboard } from 'react-chessboard';
+import { Chessboard, type PieceDropHandlerArgs } from 'react-chessboard';
 import { useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
 import { useUserContext } from '../../context';
@@ -72,15 +72,19 @@ const Play = () => {
     [chess],
   );
 
-  const onDrop = (sourceSquare: Square, targetSquare: Square) => {
+  const onDrop = ({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean => {
+    // v5 widens targetSquare to nullable; null means the piece was
+    // dropped off the board — reject silently.
+    if (targetSquare === null) return false;
+
     // `position` is "white" | "black"; chess.turn() returns "w" | "b". A
     // quick first-letter match keeps the local UX honest until the server
     // arbitrates legality in feature 5.
     if (chess.turn() !== position[0]) return false;
 
     const moveData: MoveObj = {
-      from: sourceSquare,
-      to: targetSquare,
+      from: sourceSquare as Square,
+      to: targetSquare as Square,
       color: chess.turn(),
       promotion: 'q',
     };
@@ -131,10 +135,12 @@ const Play = () => {
         <Grid size={12}>
           <Box flexGrow={1} sx={{ maxWidth: 600 }}>
             <Chessboard
-              position={fen}
-              onPieceDrop={onDrop}
-              boardOrientation={position === 'white' ? 'white' : 'black'}
-              areArrowsAllowed
+              options={{
+                position: fen,
+                onPieceDrop: onDrop,
+                boardOrientation: position === 'white' ? 'white' : 'black',
+                allowDrawingArrows: true,
+              }}
             />
           </Box>
         </Grid>

@@ -1,225 +1,108 @@
-# Current session — `code-splitting-routes` (priority 3.92)
+# Current session
 
-**Status:** plan drafted by leader, awaiting user approval before delegation
-to implementer.
+**Status:** session closed.
 
----
+The previous feature `react-chessboard-bump` (priority 3.94)
+was closed on 2026-05-21 and is recorded in `progress/history.md`.
+Bundle shrunk by 23.54 KB on the Play chunk (positive surprise
+— @dnd-kit is leaner than the old react-dnd).
 
-## Feature ID and title
+## Pending post-close verifications (leader-owned)
 
-`code-splitting-routes` — Code-split routes with React.lazy + Suspense.
+After the user pushes:
 
-## Why this feature, and why now
+1. **Deploy workflow runs green** — same pattern as prior pushes.
+2. **Dependabot PR #9** (`react-chessboard` 4.7 → 5.10) closes or
+   retargets. If still open after some hours, `@dependabot close`
+   comment per the established pattern.
+3. **User's manual drag-drop test** — the DnD backend swap means
+   the gesture model differs. Worth a check on:
+   - Desktop mouse: drag piece, drop on valid square.
+   - Mobile touch (if available): same.
 
-The bundle has grown from ~480 KB (post-`test-baseline`) to
-**680.84 KB** (post-`react-major-bump`) through the chain of
-major dep bumps. Vite's 500 KB warning fires on every build,
-explicitly recommending `dynamic import()` for code-splitting.
+## Dependabot queue final state
 
-The next planned dep work — `react-chessboard-bump` (v4 → v5) —
-adds ~50 KB of `@dnd-kit` internals to whatever chunk holds the
-chessboard. If we apply that bump first, the initial bundle
-climbs to ~730 KB. If we code-split first, the chessboard lives
-in `/play`'s lazy chunk and the initial bundle stays small.
+After this round, the open set should be:
 
-**Order: code-splitting first, then react-chessboard-bump as a
-separate mini-feature.** The reviewer for `react-major-bump`
-explicitly flagged this as the pressing follow-up. Promoted from
-carry-over.
+| # | Bump | Notes |
+| --- | --- | --- |
+| 10 | `@vitejs/plugin-react` 6.0.1 → 6.0.2 | Re-targeted; clears `min-release-age=7` 2026-05-22 |
+| 12 | `eslint` 10.3.0 → 10.4.0 | Re-targeted; clears 2026-05-22 |
 
-## Pre-validation done by leader
+Both are time-locked patches. Tomorrow's `min-release-age`
+clearance unlocks them naturally; they can be merged via the
+Dependabot UI or held until next dep round.
 
-Smaller than the dep-bump pre-validations because no new deps.
-React 19's `React.lazy` + `Suspense` are stable APIs. Areas
-worth checking up front:
+## Achievement of the dep-bump arc
 
-- `react-router-dom@7` supports lazy route elements natively
-  (`createBrowserRouter` accepts `Component: lazy(() => ...)`)
-  but the classic React `lazy(...)` + a top-level `Suspense`
-  also works. The implementer picks the cleaner approach.
-- Tests that render `NewGame` or `Play` directly will need to
-  resolve a Promise (the dynamic import). The minimum tweak is
-  to wrap the test render in `<Suspense fallback={null}>` and
-  use `await screen.findByX(...)` instead of `getByX(...)`.
+We started today's session with **13 open Dependabot PRs** and
+the deploy broken on `engine-strict` policy. We closed:
 
-## Approach
+- 13 dep features shipped (priority 3.5 through 3.94)
+- 11 Dependabot PRs cleared (#1-9 + #11 + #13, plus #8 force-closed)
+- **All majors landed**: TypeScript 6, ESLint 10, React 19, Vite 8,
+  @vitejs/plugin-react 6, react-chessboard 5, react-hooks 7
+- **Bundle shrunk** from 480 → 680 → split → 659 KB total
+- **Initial-load surface dropped below 500 KB** for the first time
+- 49 tests untouched throughout
+- Pre-validation recipe forged and applied 5 times consecutively
 
-### 1. Lazy-load the heavy routes in `src/routes/Public.tsx`
+The harness held up under sustained dep churn with one major
+process improvement validated: pre-validating the peer-dep
+matrix and `min-release-age` before drafting plans.
 
-Convert eager imports to `React.lazy`:
+## Feature candidates remaining
 
-```tsx
-import { lazy } from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
-import App from '../App';
-import ErrorPage from '../pages/Error';
-import WIP from '../pages/WIP';
+Not yet entries in `feature_list.json`:
 
-const NewGame = lazy(() => import('../pages/NewGame'));
-const Play = lazy(() => import('../pages/Play'));
+- **`init-sh-lockfile-sync-check`** — `./init.sh` could assert
+  `package.json`/`package-lock.json` consistency early, catching
+  the failure mode that took two implementer passes on
+  `react-chessboard-bump`. New candidate from this feature.
+- **`init-sh-stale-install-guard`** — sanity check for partial
+  `node_modules` (flagged twice in previous features).
+- **`route-titles`** — per-route `document.title` (carry-over).
+- **`pre-validation-recipe-codification`** — formalize the
+  peer-dep + min-release-age recipe into `leader.md`. Now used
+  successfully 5 times.
 
-// route definitions stay the same; just the imports above
-// become lazy.
-```
+## Next product feature (still blocked)
 
-`Error` and `WIP` stay eager — `WIP` is a trivial placeholder
-used by 3 routes (`/home`, `/login`, `/about`) and there's no
-payload benefit to splitting it; `Error` is the errorElement and
-should be available immediately if anything else fails.
+`rest-room-integration` (priority 4) remains paused waiting on
+`chess-backend-java` to enum-ize `ErrorResponse.error`.
 
-### 2. Add a `<Suspense>` boundary
+## Carry-over debt updated
 
-Place it around `<Outlet />` in `App.tsx` so any lazy route
-shares the same fallback. The fallback should be visual and
-small — a `<CircularProgress />` centered on the page is the
-canonical MUI shape and matches the "Waiting for opponent"
-spinner already in `Play.tsx`.
+- `index.html`: favicon + og:image URLs hardcode
+  `/chess-frontend/`; dev mode doubles the prefix and 404s
+  the favicon.
+- 6 `react-refresh/only-export-components` warnings
+  (non-blocking; was 4 pre-code-splitting, +2 from lazy()
+  exports).
+- ~~Bundle above Vite's 500 KB warning~~ **resolved by
+  code-splitting-routes (3.92).** Initial-load surface at
+  470.99 KB.
 
-End shape of the relevant `App.tsx` snippet:
+## Harness retrospective candidates (now 4 deep)
 
-```tsx
-<Box component="main" sx={{ flexGrow: 1, p: 0 }}>
-  <Toolbar />
-  <Suspense fallback={<CenteredSpinner />}>
-    <Outlet />
-  </Suspense>
-</Box>
-```
+- No `ci-reviewer` agent yet.
+- **Pre-validation recipe** — applied 5 times successfully, ready
+  to codify.
+- **Stale `node_modules` detection in `init.sh`** — flagged 2
+  features ago.
+- **Lockfile sync check in `init.sh`** — new from this feature.
 
-`CenteredSpinner` can be a tiny inline component, or just an
-inline `<Box sx={{...centered...}}><CircularProgress /></Box>`.
-Implementer's call — the simpler the better.
+The last three are all candidates for a single
+`init-sh-hardening` feature that adds defensive checks early
+in the script.
 
-### 3. Adjust tests that render lazy components
+## Older carry-over (unchanged)
 
-Tests in `src/pages/NewGame/NewGame.test.tsx` and
-`src/pages/Play/Play.test.tsx` import the component directly:
-
-```tsx
-import NewGame from './NewGame';
-```
-
-That import still works because the export from
-`src/pages/NewGame/index.tsx` is unchanged. The lazy boundary
-is only at the router level. **Tests should not need to change**
-because they import the page eagerly.
-
-BUT: if a test uses `<MemoryRouter>` with the actual `Public`
-router (rather than rendering the page directly), it now goes
-through the lazy boundary and needs `await findBy...`. Spot-check
-each test file to confirm whether this applies.
-
-### 4. Verify bundle is split
-
-After `./init.sh` build, check `dist/assets/`. Expected:
-- One initial chunk (App + Header + Drawer + theme + router +
-  WIP + Error) — should be well below 500 KB.
-- One chunk per lazy route: `NewGame-*.js`, `Play-*.js`.
-- The CSS chunk (`index-*.css`) stays as one.
-
-If the initial chunk is still above 500 KB, something we
-expected to be lazy is still eager. Trace via the import graph.
-
-### 5. Confirm dev server still works
-
-`npm run dev`, navigate to `/`, `/new`, `/play`. Each should
-load without the spinner being visible for more than a brief
-moment (in dev mode, the chunks are not pre-bundled so each
-nav fetches the module). HMR should still work as before.
-
-## Files that will be created or modified
-
-**Modified:**
-- `src/routes/Public.tsx` — lazy imports for NewGame and Play.
-- `src/App.tsx` — wrap `<Outlet />` in `<Suspense>` with a
-  fallback.
-
-**Possibly modified:**
-- Test files that exercise lazy routes via `MemoryRouter`. If
-  any need `findBy...` adjustments, apply the minimum tweak.
-
-**Not touched:**
-- `feature_list.json`, `progress/*` (leader-owned).
-- Any page source — the components themselves don't know
-  they're lazy.
-- Tests that import the page eagerly (default).
-- `vite.config.ts` / `vitest.config.ts` — Vite handles dynamic
-  imports natively, no config change needed.
-
-**Feature note:** N/A. Mini-feature convention.
-
-## Verification approach
-
-`./init.sh` is the local gate. Critical: read the build
-output's chunk listing. The initial chunk size is the metric
-we're optimizing.
-
-The reviewer additionally:
-- Opens `dist/assets/` after the build, lists chunks, confirms
-  three+ JS chunks.
-- Spot-checks the initial chunk is < 500 KB.
-- Runs `npm run dev` and navigates to `/new` and `/play` to
-  confirm the lazy loads land smoothly.
-
-## TS / React / Vite concepts to highlight in the feature note
-
-N/A — no feature note (mini-feature, but legitimately could
-have one since this is a real-world React pattern. Implementer
-can write a short one at `notes/03.92-code-splitting.md` if
-they want; not required.).
-
-## Public-facing surface changes
-
-- **User-visible behaviour:** brief loading spinner on first
-  navigation to `/new` or `/play`. Subsequent navigations in
-  the same session are instant (the chunk is cached). On
-  production this affects the very first visit; on second visits
-  the lazy chunks are HTTP-cached.
-- No URL / env / deployment change.
-
-## Architectural decision
-
-Marginal. Code-splitting at route boundaries is the canonical
-React pattern; the doc may or may not need updating. If
-`docs/architecture.md` describes the route shape, a one-line
-addition mentioning lazy boundaries is fine.
-
-## Cross-repo coordination
-
-None.
-
-## Risk and rollback
-
-- **Risk:** the fallback flickers visibly on a fast local
-  navigation. Mitigation: the fallback is small (single
-  `CircularProgress`); even visible flicker is acceptable
-  behaviour for a lazy load.
-- **Risk:** a test that renders via `MemoryRouter` hangs because
-  `findBy...` wasn't used. Mitigation: implementer fixes the
-  test mechanically when it surfaces.
-- **Risk:** Vite chunk-splitting heuristic doesn't produce
-  exactly the chunks we expect (e.g. lumps NewGame and Play
-  together). Mitigation: report what we actually got; if it's
-  not clean, we can add a `build.rolldownOptions.output.manualChunks`
-  hint, but that's escalation.
-- **Rollback:** revert the two file changes. The eager-imports
-  state was working.
-
-## Open questions for the user
-
-None.
-
-## Next steps
-
-1. **User reviews this plan.** Approve or request changes.
-2. On approval, implementer applies the lazy imports, adds the
-   Suspense boundary, fixes any test that breaks, runs
-   `./init.sh`, reports the chunk listing.
-3. Reviewer reads the diff, runs `./init.sh`, inspects
-   `dist/assets/`, spot-checks dev server.
-4. Leader rotates `done` via `jq`.
-5. **User pushes.** Leader verifies deploy.
-
-After this feature, `react-chessboard-bump` becomes the next
-candidate — the chessboard's ~50 KB v5 increase now falls into
-the `/play` lazy chunk, not the initial bundle.
+- `// TODO(feature-4): POST /api/rooms` etc. in
+  `pages/NewGame.tsx` / `pages/Play.tsx`.
+- `// TODO(feature-6): subscribe to /topic/games/{id}` in
+  `pages/Play.tsx`.
+- Backend's STOMP API contract has a viewer-count / spectator
+  sub-section the frontend doc omits; feature 6 mirrors it.
+- `@vitejs/plugin-react` referenced in both `vite.config.ts`
+  and `vitest.config.ts` (known cost).

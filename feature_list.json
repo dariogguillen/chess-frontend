@@ -219,7 +219,7 @@
     "id": "code-splitting-routes",
     "title": "Code-split routes with React.lazy + Suspense",
     "description": "The bundle has grown to 680.84 KB through the major dep bumps (vite/plugin-react, eslint, react). Vite's 500 KB warning fires on every build. This feature lazy-loads the heavy routes (`/new` NewGame and `/play` Play) with React.lazy + <Suspense>, dropping the initial bundle well below 500 KB and putting per-route chunks in dist/assets/. The WIP pages (/home, /login, /about) stay eager because they're trivial — splitting them would add chunk-loading overhead with no payload benefit. Inserted at priority 3.92 immediately after react-major-bump (3.9) — does bundle hygiene before any further code addition (especially the deferred react-chessboard 4→5 bump which would add ~50 KB to whatever chunk Play lives in).",
-    "status": "in_progress",
+    "status": "done",
     "priority": 3.92,
     "acceptance": [
       "src/routes/Public.tsx imports NewGame and Play via React.lazy(() => import(...)) instead of eager imports. Error and WIP stay eager.",
@@ -231,6 +231,25 @@
       "Dev server (`npm run dev`) and HMR still work end-to-end. Navigating between /home, /new, /play in the dev server triggers the lazy loads without stalls or crashes.",
       "./init.sh passes end-to-end.",
       "After merge, deploy workflow runs green. The deployed SPA's network tab should show the lazy chunks loading on route changes (post-push spot-check by the user)."
+    ]
+  },
+  {
+    "id": "react-chessboard-bump",
+    "title": "Bump react-chessboard 4 → 5 (semantic API migration)",
+    "description": "Apply Dependabot PR #9 (react-chessboard 4.7.3 → 5.10.0). Unlike the other dep bumps in this series, this one requires a real semantic migration in pages/Play.tsx because the v4 → v5 transition collapsed the individual props (position, onPieceDrop, boardOrientation, areArrowsAllowed) into a single `options` object, renamed `areArrowsAllowed` to `allowDrawingArrows`, and changed the `onPieceDrop` callback signature from `(source, target) => boolean` to `({ piece, sourceSquare, targetSquare }) => boolean` with `targetSquare` now nullable (drag-off-board). The underlying DnD backend was also swapped from react-dnd to `@dnd-kit/core` + `@dnd-kit/modifiers`, adding ~50-80 KB to whatever chunk the chessboard lives in. Thanks to code-splitting-routes (3.92), that growth falls into the `/play` lazy chunk (currently 144.72 KB) and does NOT affect the 470.99 KB initial-load surface. Coupled to react-major-bump (3.9) by peer (react-chessboard@5 peers `^19.0.0`). Inserted at priority 3.94.",
+    "status": "done",
+    "priority": 3.94,
+    "acceptance": [
+      "package.json: `react-chessboard` 4.7.3 → 5.10.0. No other dep changes.",
+      "npm audit clean at moderate+ after install. Resolve via overrides if needed.",
+      "pages/Play.tsx migrated to v5 API: <Chessboard options={...}/> with options carrying position, onPieceDrop, boardOrientation, allowDrawingArrows. The onPieceDrop callback updated to accept PieceDropHandlerArgs ({piece, sourceSquare, targetSquare}) and to handle targetSquare === null by returning false (drag-off-board case). Square types from chess.js cast or adapted as needed; the mechanical fix (`sourceSquare as Square`) is acceptable in scope.",
+      "Existing 49 tests pass. Play.test.tsx is a smoke test (renders the page inside MemoryRouter+context); it doesn't simulate drag-drop, so the DnD backend change should be invisible to tests. If it isn't — if a test actually exercises drag-drop and breaks because @dnd-kit's event model differs from react-dnd — STOP and report.",
+      "./init.sh green end-to-end: audit / format / lint / typecheck / tests / build all pass.",
+      "Initial-load surface stays at ~471 KB (unchanged — react-chessboard lives in the /play lazy chunk after code-splitting-routes).",
+      "/play chunk grows by ~50-80 KB (from ~145 KB to ~195-225 KB). Total bundle sum delta within +80 KB.",
+      "Dev server starts clean; navigating to /play renders the board; drag-and-drop is functionally verified by the user post-merge (the reviewer can spot-check that the page mounts and the board appears, but the actual gesture testing is the user's manual check).",
+      "After merge, deploy workflow runs green end-to-end.",
+      "Dependabot PR #9 auto-closes or auto-retargets on detection. Leader confirms via gh pr list; if it stays open, comment @dependabot close."
     ]
   },
   {

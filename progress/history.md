@@ -755,6 +755,220 @@ check**.
 
 **Feature note:** N/A (mini-feature, per convention).
 
+## 2026-05-21 — code-splitting-routes
+
+**Status:** done
+
+**Summary:** Promoted from carry-over after `react-major-bump`
+pushed the bundle to 680.84 KB and made Vite's 500 KB warning a
+nuisance every build. Lazy-loaded the two heavy routes (`/new`
+NewGame, `/play` Play) with `React.lazy()` + a top-level
+`<Suspense>` boundary in `App.tsx`. WIP and Error stay eager —
+hot-path fallbacks that would have no payload benefit from
+splitting.
+
+**Headline result: initial-load surface dropped to 470.99 KB**
+(`index-*.js` 244.57 KB + preloaded `context-*.js` 226.42 KB).
+First time in many features that the bundle clears the 500 KB
+Vite warning. Total bundle sum stayed essentially flat: 682.82
+KB across 5 chunks (delta +1.98 KB vs 680.84 KB baseline,
+overhead from chunk boundaries).
+
+**Chunk breakdown:**
+
+- `index-*.js` — 244.57 KB (initial entry: App shell, theme,
+  router, eager WIP+Error)
+- `context-*.js` — 226.42 KB (shared vendor; modulepreloaded
+  in `dist/index.html`, part of initial load)
+- `NewGame-*.js` — 55.69 KB (lazy, loads when navigating to
+  `/new`)
+- `Play-*.js` — 144.72 KB (lazy, loads when navigating to
+  `/play`; includes the chessboard surface)
+- `Stack-*.js` — 11.42 KB (auto-split MUI shared)
+
+**Tests:** zero changes required. All test files import their
+page directly (`import NewGame from './NewGame'`), bypassing
+the router-level lazy boundary. 49 tests unchanged.
+
+**Suspense fallback:** an inline
+`<Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>`
+above `<Outlet />`. Inherits MUI's default
+`role="progressbar"` + `aria-label="Loading..."` — accessible
+without explicit a11y plumbing. The `<Toolbar />` spacer and
+`<CssBaseline />` from the `ui-refresh` visual fix sit just
+above the new `<Suspense>` and were not disturbed.
+
+**Sets the ground for `react-chessboard-bump`:** the next
+deferred feature (react-chessboard 4→5) will add ~50 KB of
+`@dnd-kit` internals. With code-splitting in place, those land
+in the `/play` lazy chunk, not the initial bundle.
+
+**Post-close verifications:**
+
+- Deploy workflow ran green (36s) on the push
+  "chore: code-split heavy routes with React.lazy + Suspense".
+- PR #8 (`react-dom` + `@types/react-dom`) finally auto-closed
+  after Dependabot processed the `@dependabot close` comment
+  posted at the end of `react-major-bump`. No longer in the open
+  set.
+
+**Out-of-scope observations forwarded:**
+
+- **Per-route `document.title`** still missing (ui-reviewer
+  flagged under recipe 7). All routes share `<title>Chess
+  Room</title>` from `index.html`. Candidate for a future
+  `route-titles` mini-feature; not urgent.
+- **`react-refresh/only-export-components` warnings** went from
+  4 to 6. The 2 new ones are the `lazy()` exports in
+  `src/routes/Public.tsx`. Dev-only HMR fast-refresh
+  granularity warnings; no production impact, no fix required.
+- **Stale `node_modules` flakiness in init.sh** observed again
+  by the regular reviewer (two consecutive runs produced
+  partial install states until a clean `npm ci`). Pre-existing,
+  flagged in `react-major-bump`'s close too. Candidate for
+  hardening init.sh with an install-integrity recheck.
+
+**Files touched:**
+
+- `src/routes/Public.tsx` (modified — lazy imports for NewGame
+  and Play; ErrorPage and WIP stay eager)
+- `src/App.tsx` (modified — Suspense + CircularProgress
+  imports; inline centered spinner fallback wrapping `<Outlet />`)
+
+No test files needed adjustment. No other production code
+touched.
+
+**Feature note:** N/A (mini-feature; could have had one given
+the canonical React pattern involved, but the implementer
+opted to skip per the mini-feature convention).
+
+## 2026-05-21 — react-chessboard-bump
+
+**Status:** done (with post-merge CI + Dependabot #9 closure +
+user manual drag-drop test pending)
+
+**Summary:** Bumped `react-chessboard` 4.7.3 → 5.10.0. Unlike
+the other deps in this series, this required a real semantic
+migration in `src/pages/Play/Play.tsx` because v5 collapsed
+the chessboard's prop surface into a single `options` object
+and changed the `onPieceDrop` callback signature. The DnD
+backend was also swapped from `react-dnd` to `@dnd-kit/core` +
+`@dnd-kit/modifiers`.
+
+Coupled by peers to two precursor features that shipped this
+session:
+
+- `react-major-bump` (3.9) put us on React 19, which
+  react-chessboard@5 requires (peer `^19.0.0`).
+- `code-splitting-routes` (3.92) put `/play` in its own lazy
+  chunk, so any chessboard bundle growth would land off the
+  initial-load surface.
+
+**Migration applied in `pages/Play/Play.tsx`:**
+
+- `import { Chessboard, type PieceDropHandlerArgs } from 'react-chessboard';`
+- `onDrop` signature: `(src: Square, tgt: Square) => bool` →
+  `({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean`.
+- New guard at top of `onDrop`: `if (targetSquare === null) return false;`
+  (handles drag-off-board, which v5's nullable `targetSquare`
+  exposes).
+- Square casts via `as Square` (v5 widens to `string`; chess.js
+  needs the literal union). Mechanical, single-line.
+- JSX changed to `<Chessboard options={{ position: fen,
+  onPieceDrop: onDrop, boardOrientation: ..., allowDrawingArrows: true }}/>`.
+- `areArrowsAllowed` (v4) renamed to `allowDrawingArrows`
+  inside the `options` object.
+- `console.warn` TODO marker preserved.
+
+**Bundle delta — positive surprise: -23.54 KB.** The plan
+anticipated +50-80 KB growth from the @dnd-kit transitives.
+Actual measurements:
+
+- Initial chunk: 244.57 KB (unchanged)
+- Context chunk: 226.42 KB (unchanged)
+- Initial-load surface: **470.99 KB** (unchanged — under Vite's
+  500 KB warning, preserved by code-splitting-routes)
+- NewGame chunk: 55.69 KB (unchanged)
+- **Play chunk: 144.72 → 121.18 KB (-23.54 KB)**
+- Stack chunk: 11.42 KB (unchanged)
+- Bundle total: 682.82 → 659.28 KB
+
+`@dnd-kit/core` + `@dnd-kit/modifiers` turned out leaner than
+the old `react-dnd` + `react-dnd-html5-backend` they replaced
+on this code path. Net package count: -3 (5 added, 8 removed).
+
+**Two-pass close due to lockfile sync issue:**
+
+The first implementer pass landed Play.tsx and `package.json`
+correctly, but **`package-lock.json` was not staged/persisted**
+— `git status` showed only 2 implementer files modified
+instead of the expected 3. `node_modules/` was hand-mutated by
+`npm install` to match (which is why local `./init.sh` ran
+green), but a fresh clone would fail `npm ci` with:
+
+```
+Invalid: lock file's react-chessboard@4.7.3 does not satisfy
+react-chessboard@5.10.0
+Missing: @dnd-kit/core@6.3.1 from lock file
+Missing: @dnd-kit/modifiers@9.0.0 from lock file
+Missing: @dnd-kit/accessibility@3.1.1 from lock file
+Missing: @dnd-kit/utilities@3.2.2 from lock file
+```
+
+Both reviewers (regular + ui-reviewer) correctly caught this on
+re-validation and rejected. The implementer's second pass
+regenerated the lockfile cleanly (`npm install` from a clean
+state); `npm ci` then ran green. Re-review approved.
+
+**Process lesson recorded:** `./init.sh` runs `npm ci` which
+catches lockfile/package.json mismatch — but **only** when run
+locally from a state without overlap from a prior `npm install`.
+A developer who locally ran `npm install` and never re-ran
+`./init.sh` from a clean state could push a broken commit.
+Worth a follow-up check in `init.sh` — e.g., assert
+`package.json` and `package-lock.json` are in sync at the start
+of the script (before `npm ci`), even if `node_modules/` is
+present.
+
+**Post-close verifications:**
+
+- Deploy workflow ran green on the push.
+- **Dependabot PR #9** (`react-chessboard` 4.7 → 5.10) — leader
+  to verify auto-close/retarget after the push (same pattern as
+  prior bumps). If still open, `@dependabot close` comment.
+
+**Pending user manual verification:** drag-drop behavior on the
+deployed site. The DnD backend swap (react-dnd → @dnd-kit) means
+the gesture model changes from HTML5 DnD to Pointer events +
+DragOverlay. Desktop mouse should be equivalent; mobile touch
+worth checking separately.
+
+**Out-of-scope observations forwarded:**
+
+- **Lockfile sync check in `init.sh`** (new candidate from this
+  feature's two-pass): assert `package.json` and
+  `package-lock.json` consistency early in the script, catching
+  the failure mode that took two implementer passes to fix.
+- **Drag-drop accessibility**: `@dnd-kit/core` exposes keyboard
+  sensor + screen-reader live regions by default. We don't
+  configure them. If we ever want chessboard a11y to be
+  certifiable, this is the entrypoint.
+- **Per-route document titles** still missing (pre-existing
+  carry-over).
+
+**Files touched:**
+
+- `package.json` (modified — react-chessboard `^4.7.2` → `^5.10.0`)
+- `package-lock.json` (regenerated; @dnd-kit transitives in,
+  react-dnd transitives out)
+- `src/pages/Play/Play.tsx` (modified — v5 API migration: 7
+  edits per the plan, all mechanical)
+
+No test changes. No docs changes (architecture.md does not pin
+the chessboard library version).
+
+**Feature note:** N/A (mini-feature, per convention).
+
 ## 2026-05-21 — react-major-bump
 
 **Status:** done
