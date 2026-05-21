@@ -755,6 +755,88 @@ check**.
 
 **Feature note:** N/A (mini-feature, per convention).
 
+## 2026-05-21 — react-major-bump
+
+**Status:** done
+
+**Summary:** Largest blast-radius bump in the dep-bump series:
+`react` and `react-dom` 18.3.1 → 19.2.6, plus `@types/react`
+18.3.28 → 19.2.14 and `@types/react-dom` 18.3.7 → 19.2.3.
+Pre-validation (4th feature in a row) confirmed no other dep
+needs to bump in lockstep — MUI 6, MUI Icons 6, emotion,
+react-chessboard@4.7, react-router-dom@7, @testing-library/react@16
+all already peer-cover React 19. PR #9 (react-chessboard 4→5)
+was deliberately NOT acoupled: v5 requires React 19 but v4.7's
+peer is permissive (`>=16.14`) so it stays compatible across
+the bump, and v4→v5 deserves its own dedicated review for the
+chessboard API surface.
+
+**Mechanical fixes required (zero semantic changes):**
+
+- `src/components/Drawer/DrawerSection.tsx`: added a new line
+  `import type { JSX } from 'react'`.
+- `src/components/ToggleButton/ToggleButton.tsx`: extended the
+  existing `import type { MouseEvent } from 'react'` to
+  `import type { JSX, MouseEvent } from 'react'`.
+
+Reason: `@types/react@19` moved the `JSX` namespace from the
+global declaration to a named export of the `react` module.
+Code that referenced `JSX.Element` directly now needs the
+explicit import. Two files affected; both fixes are pure
+type-namespace adjustments — no runtime, JSX, or component
+contract change. Confirmed by both regular reviewer and
+ui-reviewer.
+
+**`React.FC<Props>` pattern**: not affected because we use the
+destructuring form (`({ ...props }: Props) => `) project-wide;
+React 19's removal of implicit `children` on `React.FC` would
+have required adding `children?: ReactNode` to many Props,
+but we sidestep it by construction.
+
+**MUI's internal `forwardRef` deprecation**: no warnings
+surfaced in the dev server log during the review pass. MUI 6's
+internal use of `forwardRef` doesn't trip React 19's deprecation
+notice in our view; if it did, it would be MUI's concern, not
+ours.
+
+**Bundle delta: +49.92 KB** (630.92 KB → 680.84 KB). Under the
++50 KB acceptance threshold by 0.08 KB — borderline but mechanically
+explained: React 19 ships new APIs (Activity, useEffectEvent,
+RSC scaffolding hardening, types) and the internal `scheduler`
+package bumped 0.23.2 → 0.27.0. No unexpected deps. The bundle
+is now well above Vite's 500 KB warning (firing on every build);
+**`React.lazy` at route boundaries is becoming a pressing
+follow-up**.
+
+**Post-close verifications:**
+
+- Deploy workflow ran green (44s) on the push
+  "chore: bump react to 19.2.6".
+- **Dependabot PR #8** (`react-dom` + `@types/react-dom`) did
+  not auto-close immediately. Leader commented
+  `@dependabot close` on the PR; the close command was posted
+  but the bot had not acknowledged at the time of writing this
+  entry. **Status flagged as pending Dependabot acknowledgement
+  — if #8 is still open in the next session, close it manually
+  via the GitHub UI.**
+
+**Out-of-scope observations forwarded (carry-over debt updates):**
+
+- **`React.lazy` follow-up is more pressing**: bundle at 680 KB
+  consistently above the 500 KB warning. Each major bump adds
+  to this. A dedicated `code-splitting` or `react-lazy-routes`
+  mini-feature should land before the bundle stops being
+  reviewable.
+- **Stale `node_modules` detection** in `init.sh`: the regular
+  reviewer hit a misleading "eslint: command not found" failure
+  on a stale partial install from an earlier session. A `npm ci`
+  resolved it. The harness has no detection for stale installs;
+  a sanity check at the start of `init.sh` could verify
+  `node_modules/.bin/eslint` (or similar) exists before
+  proceeding. Candidate for harness retrospective.
+
+**Feature note:** N/A (mini-feature, per convention).
+
 ## 2026-05-21 — eslint-major-bump
 
 **Status:** done

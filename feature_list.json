@@ -201,7 +201,7 @@
     "id": "react-major-bump",
     "title": "Bump React 18 → 19 (react + react-dom + types in lockstep)",
     "description": "Apply the React 19 major bump that Dependabot opened as PR #8 (react-dom + @types/react-dom group). Targets: react 18.3.1 → 19.2.6, react-dom 18.3.1 → 19.2.6, @types/react 18.x → 19.x, @types/react-dom 18.x → 19.x. Pre-validated by leader: MUI 6 (material + icons) already peer-supports `^17 || ^18 || ^19`, react-chessboard@4.7 has a permissive peer (`>=16.14`), react-router-dom@7 peers `>=18`, @testing-library/react@16 peers `^18 || ^19`, @emotion peers `>=16.8`. Conclusion: no other dep needs to bump in lockstep — React 19 lands alone. PR #9 (`react-chessboard` 4 → 5) is NOT in this feature: react-chessboard@5 requires React 19 (peer `^19.0.0`) but @4.7.3 still works with our current versions and our React 19; the v4→v5 bump is a separate high-risk feature for later. After this feature ships, Dependabot PR #8 auto-closes or auto-retargets. Inserted at priority 3.9.",
-    "status": "in_progress",
+    "status": "done",
     "priority": 3.9,
     "acceptance": [
       "package.json dependencies updated: react 18.3.1 → 19.2.6, react-dom 18.3.1 → 19.2.6. devDependencies updated: @types/react 18.x → latest 19.x patch (^19.0.0 or specific), @types/react-dom 18.x → latest 19.x patch. No other dep changes.",
@@ -213,6 +213,24 @@
       "Dev server starts cleanly under React 19 (no new deprecation warnings during HMR or initial render).",
       "After merge, deploy workflow runs green end-to-end. User's post-push manual verification.",
       "Dependabot PR #8 (react-dom + @types/react-dom) auto-closes or auto-retargets on detection. Leader confirms via gh pr list; if it stays open, comment @dependabot close."
+    ]
+  },
+  {
+    "id": "code-splitting-routes",
+    "title": "Code-split routes with React.lazy + Suspense",
+    "description": "The bundle has grown to 680.84 KB through the major dep bumps (vite/plugin-react, eslint, react). Vite's 500 KB warning fires on every build. This feature lazy-loads the heavy routes (`/new` NewGame and `/play` Play) with React.lazy + <Suspense>, dropping the initial bundle well below 500 KB and putting per-route chunks in dist/assets/. The WIP pages (/home, /login, /about) stay eager because they're trivial — splitting them would add chunk-loading overhead with no payload benefit. Inserted at priority 3.92 immediately after react-major-bump (3.9) — does bundle hygiene before any further code addition (especially the deferred react-chessboard 4→5 bump which would add ~50 KB to whatever chunk Play lives in).",
+    "status": "in_progress",
+    "priority": 3.92,
+    "acceptance": [
+      "src/routes/Public.tsx imports NewGame and Play via React.lazy(() => import(...)) instead of eager imports. Error and WIP stay eager.",
+      "A <Suspense fallback={...}/> boundary wraps the lazy outlet. Fallback uses MUI components consistent with the rest of the app (likely a centered <CircularProgress />). Lives either in App.tsx around <Outlet /> or in Public.tsx as the route element wrapper — implementer picks the cleaner spot.",
+      "Existing tests still pass (49 expected). Tests that render NewGame or Play directly (via MemoryRouter etc.) may need an outer <Suspense> wrapper or await-style queries (findBy...) — implementer applies the minimum tweak needed. No tests removed or skipped.",
+      "dist/assets/ now contains at least 3 JS chunks: an initial chunk (App shell + theme + router + WIP page), a NewGame chunk, a Play chunk. Implementer reports the sizes.",
+      "Initial chunk drops well below 500 KB (no Vite chunk-size warning on the initial). Per-route chunks may individually be above their own thresholds but that's the point — they only load on navigation.",
+      "Total bundle size (sum of all JS chunks) should be roughly the same as before, possibly slightly larger due to chunk boundaries (small overhead). ±20 KB tolerance on the sum.",
+      "Dev server (`npm run dev`) and HMR still work end-to-end. Navigating between /home, /new, /play in the dev server triggers the lazy loads without stalls or crashes.",
+      "./init.sh passes end-to-end.",
+      "After merge, deploy workflow runs green. The deployed SPA's network tab should show the lazy chunks loading on route changes (post-push spot-check by the user)."
     ]
   },
   {

@@ -1,4 +1,4 @@
-# Current session — `react-major-bump` (priority 3.9)
+# Current session — `code-splitting-routes` (priority 3.92)
 
 **Status:** plan drafted by leader, awaiting user approval before delegation
 to implementer.
@@ -7,192 +7,203 @@ to implementer.
 
 ## Feature ID and title
 
-`react-major-bump` — Bump React 18 → 19 (react + react-dom + types
-in lockstep).
+`code-splitting-routes` — Code-split routes with React.lazy + Suspense.
 
 ## Why this feature, and why now
 
-Dependabot opened PR #8 grouping `react-dom` and
-`@types/react-dom` for the React 18 → 19 bump. React 19 is the
-largest blast-radius bump remaining in the queue — it touches
-every component implicitly via the React + ReactDOM runtime and
-the `@types/react` shape. Pre-validation confirms the ecosystem
-around it is ready, so we land it now while the harness has
-momentum on dep bumps.
+The bundle has grown from ~480 KB (post-`test-baseline`) to
+**680.84 KB** (post-`react-major-bump`) through the chain of
+major dep bumps. Vite's 500 KB warning fires on every build,
+explicitly recommending `dynamic import()` for code-splitting.
 
-After this lands, Dependabot PR #8 auto-closes or
-auto-retargets (same pattern as #10, #12 in the prior rounds).
+The next planned dep work — `react-chessboard-bump` (v4 → v5) —
+adds ~50 KB of `@dnd-kit` internals to whatever chunk holds the
+chessboard. If we apply that bump first, the initial bundle
+climbs to ~730 KB. If we code-split first, the chessboard lives
+in `/play`'s lazy chunk and the initial bundle stays small.
 
-## Pre-validation done by leader (peer-dep matrix)
+**Order: code-splitting first, then react-chessboard-bump as a
+separate mini-feature.** The reviewer for `react-major-bump`
+explicitly flagged this as the pressing follow-up. Promoted from
+carry-over.
 
-Recipe applied for the fourth time. Walked every dep that peers
-React across the entire `node_modules` tree:
+## Pre-validation done by leader
 
-| Package | Peer on react | Status |
-| --- | --- | --- |
-| `@mui/material@6.x` | `^17 \|\| ^18 \|\| ^19` | ✓ Already supports React 19 |
-| `@mui/icons-material@6.x` | `^17 \|\| ^18 \|\| ^19` | ✓ |
-| `@emotion/react@11.x` | `>=16.8.0` | ✓ Laxo, covers v19 |
-| `@emotion/styled@11.x` | `>=16.8.0` | ✓ |
-| `react-chessboard@4.7.x` | `>=16.14.0` | ✓ Laxo — current version stays compatible |
-| `react-router-dom@7.x` | `>=18` | ✓ |
-| `@testing-library/react@16.x` | `^18 \|\| ^19` | ✓ |
+Smaller than the dep-bump pre-validations because no new deps.
+React 19's `React.lazy` + `Suspense` are stable APIs. Areas
+worth checking up front:
 
-Conclusion: **no other dep needs to bump in lockstep**. React 19
-lands alone.
-
-Publish-date check:
-- `react@19.2.6` published 2026-05-06 (15 days, OK).
-- `react-dom@19.2.6` same.
-- `@types/react@19.x` and `@types/react-dom@19.x` last stable — implementer to confirm exact patch at install time.
-
-## Why react-chessboard 4 → 5 is NOT in this feature
-
-`react-chessboard@5.10.0` (the target of Dependabot PR #9)
-peers `^19.0.0` on react, so it only becomes installable AFTER
-React 19 lands. But our current `react-chessboard@4.7.x` has a
-permissive peer (`>=16.14.0`), so it stays compatible across the
-React 18→19 bump. We don't have to take v5 yet.
-
-Keeping the two separate:
-- React 19 has its own large surface (types, JSX runtime, removed
-  legacy features) and deserves an isolated review pass.
-- react-chessboard v5 has its own API surface that touches
-  `pages/Play.tsx`. Worth its own dedicated review.
-
-PR #9 stays open after this feature lands; we take it on as a
-later mini-feature.
+- `react-router-dom@7` supports lazy route elements natively
+  (`createBrowserRouter` accepts `Component: lazy(() => ...)`)
+  but the classic React `lazy(...)` + a top-level `Suspense`
+  also works. The implementer picks the cleaner approach.
+- Tests that render `NewGame` or `Play` directly will need to
+  resolve a Promise (the dynamic import). The minimum tweak is
+  to wrap the test render in `<Suspense fallback={null}>` and
+  use `await screen.findByX(...)` instead of `getByX(...)`.
 
 ## Approach
 
-### 1. Apply the bumps
+### 1. Lazy-load the heavy routes in `src/routes/Public.tsx`
 
-```bash
-npm install --save react@19.2.6 react-dom@19.2.6
-npm install --save-dev @types/react@19 @types/react-dom@19
+Convert eager imports to `React.lazy`:
+
+```tsx
+import { lazy } from 'react';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
+import App from '../App';
+import ErrorPage from '../pages/Error';
+import WIP from '../pages/WIP';
+
+const NewGame = lazy(() => import('../pages/NewGame'));
+const Play = lazy(() => import('../pages/Play'));
+
+// route definitions stay the same; just the imports above
+// become lazy.
 ```
 
-(Or one combined call; the implementer picks.)
+`Error` and `WIP` stay eager — `WIP` is a trivial placeholder
+used by 3 routes (`/home`, `/login`, `/about`) and there's no
+payload benefit to splitting it; `Error` is the errorElement and
+should be available immediately if anything else fails.
 
-The `@types/react@19` shorthand will resolve to the latest
-patch of 19.x at install time. The implementer reports the
-exact resolved versions.
+### 2. Add a `<Suspense>` boundary
 
-### 2. Audit gate
+Place it around `<Outlet />` in `App.tsx` so any lazy route
+shares the same fallback. The fallback should be visual and
+small — a `<CircularProgress />` centered on the page is the
+canonical MUI shape and matches the "Waiting for opponent"
+spinner already in `Play.tsx`.
 
-`npm audit --audit-level=moderate` must be 0.
+End shape of the relevant `App.tsx` snippet:
 
-### 3. Read the React 19 migration notes
+```tsx
+<Box component="main" sx={{ flexGrow: 1, p: 0 }}>
+  <Toolbar />
+  <Suspense fallback={<CenteredSpinner />}>
+    <Outlet />
+  </Suspense>
+</Box>
+```
 
-Areas to watch in our codebase:
+`CenteredSpinner` can be a tiny inline component, or just an
+inline `<Box sx={{...centered...}}><CircularProgress /></Box>`.
+Implementer's call — the simpler the better.
 
-- **`Props.children` no longer implicit in `React.FC`**: any
-  function component typed as `React.FC<Props>` (vs `(props: Props) =>`)
-  needs an explicit `children?: ReactNode` in `Props` if it
-  accepts children. We mostly use the destructuring form, but
-  spot-check.
-- **`JSX.Element` vs `React.JSX.Element`**: types from
-  `react-chessboard` and other libs may emit one form; `@types/react@19`
-  may have moved the global. Mechanical fix if surfaced.
-- **`forwardRef` deprecated**: ref is now a regular prop. Not
-  breaking — only warning. We don't use `forwardRef` in our own
-  code; MUI internally does but that's their internal concern.
-- **`defaultProps` on FCs deprecated**: not used by us.
-- **String refs removed**: not used.
-- **`createRoot` from `react-dom/client`**: we already use this
-  in `main.tsx:5`. No change.
-- **JSX runtime**: vite + @vitejs/plugin-react handles this; no
-  config change expected.
+### 3. Adjust tests that render lazy components
 
-### 4. Iterate `./init.sh`
+Tests in `src/pages/NewGame/NewGame.test.tsx` and
+`src/pages/Play/Play.test.tsx` import the component directly:
 
-Per the mechanical-vs-semantic rule (now well-established):
-- Add explicit `children?: ReactNode` to a Props type that
-  needs it → mechanical, in scope.
-- Rename a type reference (e.g. `JSX.Element` → `React.JSX.Element`)
-  → mechanical.
-- Restructure a component to accommodate a removed API →
-  semantic, STOP and report. (Unlikely — we don't use the
-  removed APIs.)
+```tsx
+import NewGame from './NewGame';
+```
 
-### 5. Dev server check
+That import still works because the export from
+`src/pages/NewGame/index.tsx` is unchanged. The lazy boundary
+is only at the router level. **Tests should not need to change**
+because they import the page eagerly.
 
-After `./init.sh` is green, the implementer briefly starts
-`npm run dev`, hits the SPA root with `curl`, and reports any
-new console warnings or HMR notices.
+BUT: if a test uses `<MemoryRouter>` with the actual `Public`
+router (rather than rendering the page directly), it now goes
+through the lazy boundary and needs `await findBy...`. Spot-check
+each test file to confirm whether this applies.
 
-### 6. docs/architecture.md
+### 4. Verify bundle is split
 
-The Stack section mentions "React 18". Single-line update to
-"React 19".
+After `./init.sh` build, check `dist/assets/`. Expected:
+- One initial chunk (App + Header + Drawer + theme + router +
+  WIP + Error) — should be well below 500 KB.
+- One chunk per lazy route: `NewGame-*.js`, `Play-*.js`.
+- The CSS chunk (`index-*.css`) stays as one.
+
+If the initial chunk is still above 500 KB, something we
+expected to be lazy is still eager. Trace via the import graph.
+
+### 5. Confirm dev server still works
+
+`npm run dev`, navigate to `/`, `/new`, `/play`. Each should
+load without the spinner being visible for more than a brief
+moment (in dev mode, the chunks are not pre-bundled so each
+nav fetches the module). HMR should still work as before.
 
 ## Files that will be created or modified
 
 **Modified:**
-- `package.json` — react, react-dom, @types/react, @types/react-dom.
-- `package-lock.json` — regenerated.
-- `docs/architecture.md` — single line, React 18 → 19.
+- `src/routes/Public.tsx` — lazy imports for NewGame and Play.
+- `src/App.tsx` — wrap `<Outlet />` in `<Suspense>` with a
+  fallback.
 
-**Possibly modified (only if @types/react@19 surfaces mechanical
-issues):**
-- A few `src/` files — type annotations on Props that need
-  explicit children, etc.
+**Possibly modified:**
+- Test files that exercise lazy routes via `MemoryRouter`. If
+  any need `findBy...` adjustments, apply the minimum tweak.
 
 **Not touched:**
 - `feature_list.json`, `progress/*` (leader-owned).
-- Tests (testing-library@16 supports both React versions).
-- Other deps.
+- Any page source — the components themselves don't know
+  they're lazy.
+- Tests that import the page eagerly (default).
+- `vite.config.ts` / `vitest.config.ts` — Vite handles dynamic
+  imports natively, no config change needed.
 
 **Feature note:** N/A. Mini-feature convention.
 
 ## Verification approach
 
-`./init.sh` is the local gate. End-to-end gate is the user's
-post-merge push and the post-close Dependabot check.
+`./init.sh` is the local gate. Critical: read the build
+output's chunk listing. The initial chunk size is the metric
+we're optimizing.
 
 The reviewer additionally:
-- Reads any `src/` diff carefully (this is where React 19's type
-  changes would surface).
-- Confirms bundle delta is reasonable (±50 KB).
-- Spot-checks `npm run dev` starts and the SPA renders without
-  console errors.
-- Verifies the dev server's HMR still works (briefly).
+- Opens `dist/assets/` after the build, lists chunks, confirms
+  three+ JS chunks.
+- Spot-checks the initial chunk is < 500 KB.
+- Runs `npm run dev` and navigates to `/new` and `/play` to
+  confirm the lazy loads land smoothly.
 
 ## TS / React / Vite concepts to highlight in the feature note
 
-N/A — no feature note.
+N/A — no feature note (mini-feature, but legitimately could
+have one since this is a real-world React pattern. Implementer
+can write a short one at `notes/03.92-code-splitting.md` if
+they want; not required.).
 
 ## Public-facing surface changes
 
+- **User-visible behaviour:** brief loading spinner on first
+  navigation to `/new` or `/play`. Subsequent navigations in
+  the same session are instant (the chunk is cached). On
+  production this affects the very first visit; on second visits
+  the lazy chunks are HTTP-cached.
 - No URL / env / deployment change.
-- `docs/architecture.md` Stack section "React 18" → "React 19".
 
 ## Architectural decision
 
-Marginal. The major React version is a tooling choice; the doc
-captures it. No new decision-of-substance recorded.
+Marginal. Code-splitting at route boundaries is the canonical
+React pattern; the doc may or may not need updating. If
+`docs/architecture.md` describes the route shape, a one-line
+addition mentioning lazy boundaries is fine.
 
 ## Cross-repo coordination
 
-None. The backend has no React concerns.
+None.
 
 ## Risk and rollback
 
-- **Risk:** `@types/react@19` surfaces many type errors that
-  require non-mechanical fixes. Mitigation: STOP-and-report rule.
-  Leader decides to raise scope or roll back.
-- **Risk:** React 19's `forwardRef` deprecation warning floods
-  the console (MUI uses it internally everywhere). Mitigation:
-  these are warnings, not errors; the build is green and tests
-  pass. The warnings are MUI's to silence in their own
-  versioning, not ours. Note in the report.
-- **Risk:** HMR or dev server behavior changes break the
-  iterative-dev workflow. Mitigation: implementer's dev server
-  spot-check during the pass.
-- **Risk:** Dependabot doesn't close/retarget #8. Mitigation:
-  `@dependabot close` comment.
-- **Rollback:** revert the commit; React 18 + 18-typed types
-  worked fine before.
+- **Risk:** the fallback flickers visibly on a fast local
+  navigation. Mitigation: the fallback is small (single
+  `CircularProgress`); even visible flicker is acceptable
+  behaviour for a lazy load.
+- **Risk:** a test that renders via `MemoryRouter` hangs because
+  `findBy...` wasn't used. Mitigation: implementer fixes the
+  test mechanically when it surfaces.
+- **Risk:** Vite chunk-splitting heuristic doesn't produce
+  exactly the chunks we expect (e.g. lumps NewGame and Play
+  together). Mitigation: report what we actually got; if it's
+  not clean, we can add a `build.rolldownOptions.output.manualChunks`
+  hint, but that's escalation.
+- **Rollback:** revert the two file changes. The eager-imports
+  state was working.
 
 ## Open questions for the user
 
@@ -201,17 +212,14 @@ None.
 ## Next steps
 
 1. **User reviews this plan.** Approve or request changes.
-2. On approval, implementer applies the bumps, reads migration
-   notes, applies mechanical fixes if any, runs `./init.sh`,
-   reports back.
-3. Reviewer reads the diff carefully (especially any `src/`
-   changes), runs `./init.sh`, spot-checks dev server.
+2. On approval, implementer applies the lazy imports, adds the
+   Suspense boundary, fixes any test that breaks, runs
+   `./init.sh`, reports the chunk listing.
+3. Reviewer reads the diff, runs `./init.sh`, inspects
+   `dist/assets/`, spot-checks dev server.
 4. Leader rotates `done` via `jq`.
-5. **User pushes.** Leader verifies deploy + Dependabot #8
-   auto-close via `gh pr list`.
+5. **User pushes.** Leader verifies deploy.
 
-After this feature, the remaining Dependabot open set should
-be just #9 (`react-chessboard` 4 → 5), now naturally enabled by
-the React 19 bump. That can be the next mini-feature if we want
-to keep paying down deps; otherwise we pause and wait for the
-backend to unblock `rest-room-integration`.
+After this feature, `react-chessboard-bump` becomes the next
+candidate — the chessboard's ~50 KB v5 increase now falls into
+the `/play` lazy chunk, not the initial bundle.

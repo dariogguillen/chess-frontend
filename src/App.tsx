@@ -1,6 +1,6 @@
-import { Box, CssBaseline, Toolbar } from '@mui/material';
+import { Box, CircularProgress, CssBaseline, Toolbar } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Drawer from './components/Drawer';
 import Header from './components/Header';
@@ -45,7 +45,15 @@ const App = () => {
           <Drawer open={open} setOpen={setOpen} />
           <Box component="main" sx={{ flexGrow: 1, p: 0 }}>
             <Toolbar />
-            <Outlet />
+            <Suspense
+              fallback={
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
+                  <CircularProgress />
+                </Box>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </Box>
         </Box>
       </ThemeProvider>

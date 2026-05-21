@@ -1,9 +1,11 @@
+import { lazy } from 'react';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import App from '../App';
 import ErrorPage from '../pages/Error';
-import NewGame from '../pages/NewGame';
-import Play from '../pages/Play';
 import WIP from '../pages/WIP';
+
+const NewGame = lazy(() => import('../pages/NewGame'));
+const Play = lazy(() => import('../pages/Play'));
 
 /**
  * Strip a single trailing slash from a basename so that
