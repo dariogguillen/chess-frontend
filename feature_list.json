@@ -183,7 +183,7 @@
     "id": "eslint-major-bump",
     "title": "Bump ESLint 9 → 10 with @eslint/js + react-hooks in lockstep",
     "description": "Apply the coupled major bump of eslint (9.39.4 → 10.3.0), @eslint/js (9.x → 10.0.1), and eslint-plugin-react-hooks (5.2.0 → 7.1.1). The three are tied: react-hooks v5 peers eslint up to v9 only, so an ESLint 10 bump requires bumping the plugin to v7 (which peers ESLint 10). @eslint/js bumps in lockstep with eslint by convention. Deferred during deps-bump-medium (3.8) when the implementer correctly surfaced that ESLint 10 requires react-hooks v7 (then explicitly out-of-scope). Pre-validated by leader before drafting: typescript-eslint@8.59.4, eslint-config-prettier@10.1.8, and eslint-plugin-react-refresh@0.5.2 all already peer-support ESLint 10 (no further bumps needed). Versions chosen below latest where min-release-age=7 would reject: eslint@10.3.0 (20 days old) instead of 10.4.0 (6 days). After this feature lands, Dependabot PRs #7 (react-hooks 7.1.1) and #12 (eslint 10.4.0) will auto-close or auto-retarget. Inserted at priority 3.87.",
-    "status": "in_progress",
+    "status": "done",
     "priority": 3.87,
     "acceptance": [
       "package.json devDependencies updated: eslint 9.39.4 → 10.3.0, @eslint/js 9.x → 10.0.1, eslint-plugin-react-hooks 5.2.0 → 7.1.1. No other dep changes.",
@@ -195,6 +195,24 @@
       "Bundle delta within ±10 KB of the 630.92 KB baseline (ESLint is build-time; bundle should be essentially unchanged).",
       "After merge, deploy workflow runs green end-to-end. User's post-push manual verification.",
       "Dependabot PRs #7 and #12 auto-close or auto-retarget on detection. Leader confirms via gh pr list; if any stays open, comment @dependabot close."
+    ]
+  },
+  {
+    "id": "react-major-bump",
+    "title": "Bump React 18 → 19 (react + react-dom + types in lockstep)",
+    "description": "Apply the React 19 major bump that Dependabot opened as PR #8 (react-dom + @types/react-dom group). Targets: react 18.3.1 → 19.2.6, react-dom 18.3.1 → 19.2.6, @types/react 18.x → 19.x, @types/react-dom 18.x → 19.x. Pre-validated by leader: MUI 6 (material + icons) already peer-supports `^17 || ^18 || ^19`, react-chessboard@4.7 has a permissive peer (`>=16.14`), react-router-dom@7 peers `>=18`, @testing-library/react@16 peers `^18 || ^19`, @emotion peers `>=16.8`. Conclusion: no other dep needs to bump in lockstep — React 19 lands alone. PR #9 (`react-chessboard` 4 → 5) is NOT in this feature: react-chessboard@5 requires React 19 (peer `^19.0.0`) but @4.7.3 still works with our current versions and our React 19; the v4→v5 bump is a separate high-risk feature for later. After this feature ships, Dependabot PR #8 auto-closes or auto-retargets. Inserted at priority 3.9.",
+    "status": "in_progress",
+    "priority": 3.9,
+    "acceptance": [
+      "package.json dependencies updated: react 18.3.1 → 19.2.6, react-dom 18.3.1 → 19.2.6. devDependencies updated: @types/react 18.x → latest 19.x patch (^19.0.0 or specific), @types/react-dom 18.x → latest 19.x patch. No other dep changes.",
+      "npm audit clean at moderate+ after the install. Resolve via overrides if a new CVE surfaces; do NOT silence.",
+      "Typecheck passes under @types/react 19. Expected surface for new errors: implicit `children` on Props (React.FC no longer auto-includes children), JSX.Element vs React.JSX.Element renames, signature changes on specific MUI overloads. Mechanical fixes only — semantic refactors STOP and report.",
+      "Lint passes. ESLint 10 + react-hooks 7 stay green; no new lint errors introduced by React 19's removal of legacy features (string refs, defaultProps on FCs, etc. — we don't use those, but the linter check is the gate).",
+      "All 49 tests still pass. React 19's StrictMode behavior is unchanged for our usage; if tests start failing because the testing-library/react version we have now uses React 19's internal APIs differently, STOP and report (likely needs a testing-library bump which would expand scope).",
+      "Bundle delta within ±50 KB of the 630.92 KB baseline. React 19 includes some new APIs (Activity, useEffectEvent, etc.) but most are tree-shaken if unused. Reasonable upper bound to allow for the new JSX runtime variant.",
+      "Dev server starts cleanly under React 19 (no new deprecation warnings during HMR or initial render).",
+      "After merge, deploy workflow runs green end-to-end. User's post-push manual verification.",
+      "Dependabot PR #8 (react-dom + @types/react-dom) auto-closes or auto-retargets on detection. Leader confirms via gh pr list; if it stays open, comment @dependabot close."
     ]
   },
   {

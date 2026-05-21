@@ -755,6 +755,100 @@ check**.
 
 **Feature note:** N/A (mini-feature, per convention).
 
+## 2026-05-21 — eslint-major-bump
+
+**Status:** done
+
+**Summary:** Coupled major bump of `eslint` 9.39.4 → 10.3.0,
+`@eslint/js` 9.11.1 → 10.0.1, and `eslint-plugin-react-hooks`
+5.2.0 → 7.1.1. The three are tied: react-hooks v5 peers ESLint
+up to v9 only, so ESLint 10 requires the plugin to v7 (which
+peers `^3 || ... || ^9 || ^10`). `@eslint/js` bumps in lockstep
+with `eslint` by convention.
+
+Deferred from `deps-bump-medium` (3.8) when react-hooks v7 was
+flagged as the high-risk PR #7. Now lands here as its own
+feature with the full ecosystem in scope and Pre-validated.
+
+**Pre-validation paid off (third feature in a row):** leader
+walked the peer-dep matrix and publish dates before drafting.
+Found `typescript-eslint@8.59.4`, `eslint-plugin-react-refresh@0.5.2`,
+and `eslint-config-prettier@10.1.8` all already peer-support
+ESLint 10 — no further bumps needed. Selected `eslint@10.3.0`
+(20 days old, clear) over the strict-latest `10.4.0` (6 days,
+inside min-release-age=7 window). One pass to green, no
+BLOCKED. The recipe is now reliable.
+
+**Migration notes consulted:**
+
+- **ESLint 10 release notes**:
+  - `@eslint/js` exports shape unchanged (`name` property
+    restored on configs); `js.configs.recommended` still an
+    object with `rules`.
+  - `eslint:recommended` got three new rules promoted
+    (`no-unassigned-vars`, `no-useless-assignment`,
+    `preserve-caught-error`). **None fired on our codebase.**
+  - `v10_config_lookup_from_file` now default; not used by us.
+  - Flat-config API stable v9 → v10.
+
+- **eslint-plugin-react-hooks 6 + 7 release notes**:
+  - v6.1.0: Flat config became the default `recommended` preset
+    — our existing `reactHooks.configs.recommended.rules`
+    spread is already in flat-config shape.
+  - v7.0.0: `recommended` slimmed to two presets, all compiler
+    rules enabled by default. The expanded ruleset now contains
+    **16 rules** (vs ~2 in v5):
+    `rules-of-hooks`, `exhaustive-deps`, `static-components`,
+    `use-memo`, `preserve-manual-memoization`,
+    `incompatible-library`, `immutability`, `globals`, `refs`,
+    `set-state-in-effect`, `error-boundaries`, `purity`,
+    `set-state-in-render`, `unsupported-syntax`, `config`,
+    `gating`. **None fired on our codebase** — the frontend's
+    structure was already well-formed.
+  - v7.1.0: `set-state-in-effect` got improved false-negative
+    coverage; `exhaustive-deps` default severities unchanged
+    (still `warn`).
+
+**Zero changes required to `eslint.config.js`.** The imports,
+the `extends` spread, the `rules` spread, the explicit
+`react-refresh/only-export-components` config — all intact.
+The flat-config API stability across both upgrades is a
+genuine asset.
+
+**`eslint:recommended` and `react-hooks/recommended` rule
+deltas:** +3 new ESLint rules + 14 new react-hooks rules ≈ +17
+rules effectively, and the codebase had zero hits across all
+of them. Implicit positive signal about the codebase quality
+that the ui-refresh feature shipped (priority 3).
+
+**Files touched:**
+
+- `package.json` (modified — three devDep version bumps)
+- `package-lock.json` (regenerated)
+- `docs/architecture.md` (modified — single line, "ESLint 9" → "ESLint 10")
+
+`eslint.config.js` unchanged. No `src/` changes.
+
+**Bundle delta:** **0 KB** (ESLint is build-time tooling). Tests
+49 unchanged. Lint output: 0 errors, 4 warnings (the
+pre-existing react-refresh/only-export-components, retained at
+`warn`).
+
+**Post-close verifications:**
+
+- Deploy workflow ran green (45s) on the push
+  "chore: bump eslint to 10.3.0".
+- **Dependabot PR #7** (`eslint-plugin-react-hooks` 5 → 7) —
+  **auto-closed** on detection; out of the open set.
+- **Dependabot PR #12** (`eslint` 9 → 10) — **auto-retargeted**
+  to propose `10.3.0 → 10.4.0`, same Dependabot behaviour we
+  saw with PR #10 (`@vitejs/plugin-react` 6.0.1 → 6.0.2) in
+  vite-major-bump. The retargeted PR will land once 10.4.0
+  clears `min-release-age=7` (2026-05-22). We accept the
+  retargeted PR as a satisfaction of acceptance criterion 9.
+
+**Feature note:** N/A (mini-feature, per convention).
+
 ## 2026-05-21 — vite-major-bump
 
 **Status:** done

@@ -1,4 +1,4 @@
-# Current session — `eslint-major-bump` (priority 3.87)
+# Current session — `react-major-bump` (priority 3.9)
 
 **Status:** plan drafted by leader, awaiting user approval before delegation
 to implementer.
@@ -7,126 +7,141 @@ to implementer.
 
 ## Feature ID and title
 
-`eslint-major-bump` — Bump ESLint 9 → 10 with `@eslint/js` and
-`eslint-plugin-react-hooks` in lockstep.
+`react-major-bump` — Bump React 18 → 19 (react + react-dom + types
+in lockstep).
 
 ## Why this feature, and why now
 
-`eslint-plugin-react-hooks@5.2.0` (current) peers ESLint up to
-v9 only. ESLint 10 was the target of Dependabot PR #12, but
-applying it requires bumping the plugin to v7 (which peers
-ESLint 10). This coupling was surfaced and deferred during
-`deps-bump-medium` (priority 3.8). Now it ships as its own
-dedicated feature with the full ecosystem in scope.
+Dependabot opened PR #8 grouping `react-dom` and
+`@types/react-dom` for the React 18 → 19 bump. React 19 is the
+largest blast-radius bump remaining in the queue — it touches
+every component implicitly via the React + ReactDOM runtime and
+the `@types/react` shape. Pre-validation confirms the ecosystem
+around it is ready, so we land it now while the harness has
+momentum on dep bumps.
 
-Once this lands, Dependabot PRs #7 (`eslint-plugin-react-hooks`
-5 → 7.1.1) and #12 (`eslint` 9.39 → 10.4) will both
-auto-close or auto-retarget — same Dependabot behaviour we saw
-with `vite-major-bump` for PR #10.
+After this lands, Dependabot PR #8 auto-closes or
+auto-retargets (same pattern as #10, #12 in the prior rounds).
 
-## Pre-validation done by leader (before drafting)
+## Pre-validation done by leader (peer-dep matrix)
 
-Same recipe as `vite-major-bump`. Walked every dep in the tree
-that peers ESLint; checked publish dates for `min-release-age=7`
-clearance.
+Recipe applied for the fourth time. Walked every dep that peers
+React across the entire `node_modules` tree:
 
-| Package (current) | Peer on eslint | Status |
+| Package | Peer on react | Status |
 | --- | --- | --- |
-| `eslint-plugin-react-hooks@5.2.0` | `^3 \|\| ... \|\| ^9` | ✗ Doesn't cover v10 — bumping to 7.1.1 in lockstep |
-| `eslint-plugin-react-hooks@7.1.1` (target) | `^3 \|\| ... \|\| ^9 \|\| ^10` | ✓ Supports ESLint 10 |
-| `typescript-eslint@8.59.4` | `^8.57 \|\| ^9 \|\| ^10` | ✓ |
-| `eslint-plugin-react-refresh@0.5.2` | `^9 \|\| ^10` | ✓ |
-| `eslint-config-prettier@10.1.8` | `>=7.0.0` | ✓ |
+| `@mui/material@6.x` | `^17 \|\| ^18 \|\| ^19` | ✓ Already supports React 19 |
+| `@mui/icons-material@6.x` | `^17 \|\| ^18 \|\| ^19` | ✓ |
+| `@emotion/react@11.x` | `>=16.8.0` | ✓ Laxo, covers v19 |
+| `@emotion/styled@11.x` | `>=16.8.0` | ✓ |
+| `react-chessboard@4.7.x` | `>=16.14.0` | ✓ Laxo — current version stays compatible |
+| `react-router-dom@7.x` | `>=18` | ✓ |
+| `@testing-library/react@16.x` | `^18 \|\| ^19` | ✓ |
+
+Conclusion: **no other dep needs to bump in lockstep**. React 19
+lands alone.
 
 Publish-date check:
-- `eslint@10.4.0` published 2026-05-15 (6 days, **fails 7-day floor**) — skip.
-- `eslint@10.3.0` published 2026-05-01 (20 days) — **use this**.
-- `eslint-plugin-react-hooks@7.1.1` published 2026-04-17 (34 days) — ✓.
-- `@eslint/js@10.0.1` published 2026-02-06 (well over 7 days) — ✓.
+- `react@19.2.6` published 2026-05-06 (15 days, OK).
+- `react-dom@19.2.6` same.
+- `@types/react@19.x` and `@types/react-dom@19.x` last stable — implementer to confirm exact patch at install time.
+
+## Why react-chessboard 4 → 5 is NOT in this feature
+
+`react-chessboard@5.10.0` (the target of Dependabot PR #9)
+peers `^19.0.0` on react, so it only becomes installable AFTER
+React 19 lands. But our current `react-chessboard@4.7.x` has a
+permissive peer (`>=16.14.0`), so it stays compatible across the
+React 18→19 bump. We don't have to take v5 yet.
+
+Keeping the two separate:
+- React 19 has its own large surface (types, JSX runtime, removed
+  legacy features) and deserves an isolated review pass.
+- react-chessboard v5 has its own API surface that touches
+  `pages/Play.tsx`. Worth its own dedicated review.
+
+PR #9 stays open after this feature lands; we take it on as a
+later mini-feature.
 
 ## Approach
 
-### 1. Apply all three bumps in a single install
+### 1. Apply the bumps
 
 ```bash
-npm install --save-dev eslint@10.3.0 @eslint/js@10.0.1 eslint-plugin-react-hooks@7.1.1
+npm install --save react@19.2.6 react-dom@19.2.6
+npm install --save-dev @types/react@19 @types/react-dom@19
 ```
 
-All three together — partial installs would leave broken peer
-state.
+(Or one combined call; the implementer picks.)
+
+The `@types/react@19` shorthand will resolve to the latest
+patch of 19.x at install time. The implementer reports the
+exact resolved versions.
 
 ### 2. Audit gate
 
 `npm audit --audit-level=moderate` must be 0.
 
-### 3. Read ESLint 10 + react-hooks 7 migration notes
+### 3. Read the React 19 migration notes
 
-Areas to watch in `eslint.config.js`:
+Areas to watch in our codebase:
 
-- The current config imports `js` from `@eslint/js`, spreads
-  `js.configs.recommended` into extends, spreads
-  `reactHooks.configs.recommended.rules` into rules. If ESLint
-  10 or react-hooks 7 changed the shape of these exports
-  (e.g. `configs` now returns a function, or the `rules` path
-  moved), the config breaks.
-- ESLint 10 may have new default rule severities or new
-  recommended rules. New `error`-level rules surfaced in
-  `js.configs.recommended` or `tseslint.configs.recommended`
-  may now flag previously-fine code.
-- react-hooks 7 likely added or modified rules (the project
-  jumped two majors, v5 → v7, skipping v6). Possible new
-  flags on existing code: `react-hooks/exhaustive-deps`
-  severity, new rules around custom hooks, etc.
+- **`Props.children` no longer implicit in `React.FC`**: any
+  function component typed as `React.FC<Props>` (vs `(props: Props) =>`)
+  needs an explicit `children?: ReactNode` in `Props` if it
+  accepts children. We mostly use the destructuring form, but
+  spot-check.
+- **`JSX.Element` vs `React.JSX.Element`**: types from
+  `react-chessboard` and other libs may emit one form; `@types/react@19`
+  may have moved the global. Mechanical fix if surfaced.
+- **`forwardRef` deprecated**: ref is now a regular prop. Not
+  breaking — only warning. We don't use `forwardRef` in our own
+  code; MUI internally does but that's their internal concern.
+- **`defaultProps` on FCs deprecated**: not used by us.
+- **String refs removed**: not used.
+- **`createRoot` from `react-dom/client`**: we already use this
+  in `main.tsx:5`. No change.
+- **JSX runtime**: vite + @vitejs/plugin-react handles this; no
+  config change expected.
 
 ### 4. Iterate `./init.sh`
 
-Per the established mechanical-vs-semantic rule:
+Per the mechanical-vs-semantic rule (now well-established):
+- Add explicit `children?: ReactNode` to a Props type that
+  needs it → mechanical, in scope.
+- Rename a type reference (e.g. `JSX.Element` → `React.JSX.Element`)
+  → mechanical.
+- Restructure a component to accommodate a removed API →
+  semantic, STOP and report. (Unlikely — we don't use the
+  removed APIs.)
 
-- Rename in eslint.config.js because an export path moved →
-  in scope.
-- Add a `?` or annotation to satisfy a new ESLint 10 rule →
-  in scope (only if the fix is local and obvious).
-- Restructure a `useEffect` to satisfy react-hooks 7's stricter
-  `exhaustive-deps` → STOP and report. That's semantic.
-- Silence a rule globally (e.g. add `"react-hooks/x": "off"`)
-  → STOP and report. Silencing is not a fix.
+### 5. Dev server check
 
-The 4 existing `react-refresh/only-export-components` warnings
-should stay warnings. If ESLint 10 changes the rule's default
-to `error`, configure it explicitly in `eslint.config.js` to
-keep `warn`. Same approach as before.
+After `./init.sh` is green, the implementer briefly starts
+`npm run dev`, hits the SPA root with `curl`, and reports any
+new console warnings or HMR notices.
 
-### 5. Verify bundle is unchanged
+### 6. docs/architecture.md
 
-ESLint is build-time tooling; the output bundle should be
-identical. Bundle delta expected within ±10 KB of 630.92 KB.
-If it shifts more, something else changed — flag, don't
-auto-decide.
-
-### 6. Update docs/architecture.md (if applicable)
-
-The Stack section may mention "ESLint 9". If so, single-line
-update to "ESLint 10". If the section doesn't pin a version,
-skip.
+The Stack section mentions "React 18". Single-line update to
+"React 19".
 
 ## Files that will be created or modified
 
 **Modified:**
-- `package.json` — three devDep versions.
+- `package.json` — react, react-dom, @types/react, @types/react-dom.
 - `package-lock.json` — regenerated.
-- `eslint.config.js` — only if ESLint 10 / react-hooks 7 require
-  mechanical migration.
-- `docs/architecture.md` — only if the Stack section mentions
-  ESLint version.
+- `docs/architecture.md` — single line, React 18 → 19.
 
-**Possibly modified (only if rules surface mechanical issues):**
-- A few `src/` files — only for mechanical fixes per the rule
-  above. Most likely nothing.
+**Possibly modified (only if @types/react@19 surfaces mechanical
+issues):**
+- A few `src/` files — type annotations on Props that need
+  explicit children, etc.
 
 **Not touched:**
 - `feature_list.json`, `progress/*` (leader-owned).
+- Tests (testing-library@16 supports both React versions).
 - Other deps.
-- Tests (linting is build-time; tests don't change).
 
 **Feature note:** N/A. Mini-feature convention.
 
@@ -136,11 +151,12 @@ skip.
 post-merge push and the post-close Dependabot check.
 
 The reviewer additionally:
-- Reads `eslint.config.js` diff carefully (this is the
-  highest-risk file).
-- Cross-references the implementer's migration-guide claims.
-- Confirms warnings stay as warnings (not errors).
-- Spot-checks bundle delta (expected near-zero).
+- Reads any `src/` diff carefully (this is where React 19's type
+  changes would surface).
+- Confirms bundle delta is reasonable (±50 KB).
+- Spot-checks `npm run dev` starts and the SPA renders without
+  console errors.
+- Verifies the dev server's HMR still works (briefly).
 
 ## TS / React / Vite concepts to highlight in the feature note
 
@@ -149,33 +165,34 @@ N/A — no feature note.
 ## Public-facing surface changes
 
 - No URL / env / deployment change.
-- `docs/architecture.md` Stack section update if applicable
-  (single line).
+- `docs/architecture.md` Stack section "React 18" → "React 19".
 
 ## Architectural decision
 
-Minor. ESLint major version is a tooling choice; the doc entry
-captures it.
+Marginal. The major React version is a tooling choice; the doc
+captures it. No new decision-of-substance recorded.
 
 ## Cross-repo coordination
 
-None.
+None. The backend has no React concerns.
 
 ## Risk and rollback
 
-- **Risk:** ESLint 10 / react-hooks 7 surface non-mechanical
-  errors in `src/`. Mitigation: implementer's STOP-and-report
-  rule.
-- **Risk:** `eslint.config.js` shape changes beyond mechanical
-  migration. Mitigation: same.
-- **Risk:** react-hooks 7's stricter `exhaustive-deps` flags
-  many existing `useEffect` calls. Mitigation: STOP and report;
-  we evaluate scope expansion.
-- **Risk:** Dependabot doesn't close #7 / #12 after the bump.
-  Mitigation: `@dependabot close` comment, same pattern as
-  before.
-- **Rollback:** revert the commit; ESLint 9 + react-hooks 5
-  worked fine before this bump.
+- **Risk:** `@types/react@19` surfaces many type errors that
+  require non-mechanical fixes. Mitigation: STOP-and-report rule.
+  Leader decides to raise scope or roll back.
+- **Risk:** React 19's `forwardRef` deprecation warning floods
+  the console (MUI uses it internally everywhere). Mitigation:
+  these are warnings, not errors; the build is green and tests
+  pass. The warnings are MUI's to silence in their own
+  versioning, not ours. Note in the report.
+- **Risk:** HMR or dev server behavior changes break the
+  iterative-dev workflow. Mitigation: implementer's dev server
+  spot-check during the pass.
+- **Risk:** Dependabot doesn't close/retarget #8. Mitigation:
+  `@dependabot close` comment.
+- **Rollback:** revert the commit; React 18 + 18-typed types
+  worked fine before.
 
 ## Open questions for the user
 
@@ -184,21 +201,17 @@ None.
 ## Next steps
 
 1. **User reviews this plan.** Approve or request changes.
-2. On approval, implementer applies the three bumps, reads
-   migration notes, applies mechanical fixes, runs `./init.sh`,
+2. On approval, implementer applies the bumps, reads migration
+   notes, applies mechanical fixes if any, runs `./init.sh`,
    reports back.
-3. Reviewer reads the diff (especially `eslint.config.js`),
-   runs `./init.sh`, cross-references migration claims.
+3. Reviewer reads the diff carefully (especially any `src/`
+   changes), runs `./init.sh`, spot-checks dev server.
 4. Leader rotates `done` via `jq`.
-5. **User pushes.** Leader verifies deploy + Dependabot
-   auto-close of #7 / #12 via `gh pr list`.
+5. **User pushes.** Leader verifies deploy + Dependabot #8
+   auto-close via `gh pr list`.
 
-After this feature, the open Dependabot PRs are:
-- #8 (`react-dom` + `@types/react-dom`, probable React 18→19)
-- #9 (`react-chessboard` 4 → 5)
-- Possibly #10 (`@vitejs/plugin-react` 6.0.1 → 6.0.2) if it
-  hasn't cleared min-release-age yet
-- Possibly #12 (`eslint` 9.39 → 10.4) if Dependabot re-targets
-  rather than closes
-
-The first two are the remaining high-risk standalone candidates.
+After this feature, the remaining Dependabot open set should
+be just #9 (`react-chessboard` 4 → 5), now naturally enabled by
+the React 19 bump. That can be the next mini-feature if we want
+to keep paying down deps; otherwise we pause and wait for the
+backend to unblock `rest-room-integration`.

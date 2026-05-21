@@ -1,5 +1,6 @@
 import { ListItem, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
 import List from '@mui/material/List';
+import type { JSX } from 'react';
 import { NavLink } from 'react-router-dom';
 
 export interface DrawerSectionElement {

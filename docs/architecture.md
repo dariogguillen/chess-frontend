@@ -10,7 +10,7 @@ be invisible to a reader of the code.
 ## Stack
 
 - **TypeScript 5.5** with `strict: true`.
-- **React 18** functional components and hooks. No class components.
+- **React 19** functional components and hooks. No class components.
 - **Vite 8** as build tool and dev server. Output is a static SPA.
 - **MUI 6** (Material UI) for components and theming, with Emotion as
   the styling engine.
