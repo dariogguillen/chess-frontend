@@ -1,90 +1,210 @@
-# Current session
+# Current session — `deps-bump-medium` (priority 3.8)
 
-**Status:** session closed.
+**Status:** plan drafted by leader, awaiting user approval before delegation
+to implementer.
 
-The previous feature `actions-bump` (priority 3.7) was closed on
-2026-05-20 and is recorded in `progress/history.md`. The five
-GitHub Actions in the deploy workflow are now on their latest
-majors.
+---
 
-## Pending post-close verifications
+## Feature ID and title
 
-Two deferred checks for the leader to close once the user pushes:
+`deps-bump-medium` — Bump TypeScript 6, ESLint 10, and
+@vitejs/plugin-react 6.
 
-1. **Deploy workflow green end-to-end.** Watch the GitHub Actions
-   run after push. If red, re-open with the CI log.
-2. **Dependabot auto-closes PRs #1-5.** Run `gh pr list` after
-   the workflow run completes; expected: #1, #2, #3, #4, #5 no
-   longer in the open set. If any remain, comment
-   `@dependabot close` on the holdout(s).
+## Why this feature, and why now
 
-Two Dependabot PRs were already merged from main earlier in this
-session:
+Three medium-risk Dependabot PRs (#10, #11, #12) remain open
+after the actions-bump cleanup. All three are majors of build/lint
+tooling — they can introduce new errors but don't touch runtime
+code. Bundling them in a single local commit:
 
-- #6 — dev-dependencies group (`eslint-plugin-react-refresh`
-  `0.4.26` → `0.5.2`, `typescript-eslint` `8.7.0` → `8.59.4`)
-- #13 — `globals` `15.15.0` → `17.6.0`
+- Avoids the same conflict pattern that blocked #1-5 (each PR
+  touches `package.json`, which we already changed in
+  `ci-engine-strict-fix`).
+- Lets us validate the three together locally before pushing
+  (each bump may interact with the others — e.g. ESLint 10 +
+  typescript-eslint + TypeScript 6).
+- Dependabot auto-closes #10-12 once it detects the bumps in
+  main (same proven pattern as `actions-bump`).
 
-Both clean merges, `./init.sh` green after each.
+## Decisions already made
 
-## Remaining open Dependabot PRs (post-#1-5 cleanup)
+- **Bump targets:** the exact versions Dependabot proposed.
+  TypeScript 6.0.3, ESLint 10.4.0, @vitejs/plugin-react 6.0.2.
+- **Validated compatibility upfront:** `typescript-eslint@8.59.4`
+  (already in main from #6) declares peer support for
+  `eslint: ^8.57 || ^9 || ^10` and
+  `typescript: >=4.8.4 <6.1.0`. Both targets fit.
+  `eslint-plugin-react-refresh@0.5` (also from #6) explicitly
+  marks ESLint v10 as supported.
+- **Scope of allowed fixes:** if TS 6 / ESLint 10 surface new
+  errors in `src/`, the implementer fixes them in scope ONLY if
+  the fix is mechanical (rename, type annotation, satisfy
+  exhaustiveness). Semantic refactors are out of scope — STOP
+  and report.
 
-After the `actions-bump` cleanup leaves the open set:
+## Approach
 
-- #7 `eslint-plugin-react-hooks` `5.2.0` → `7.1.1` (high risk —
-  skips two majors)
-- #8 `react-dom` + `@types/react-dom` group (probable React 18 →
-  19; major ecosystem move)
-- #9 `react-chessboard` `4.7.3` → `5.10.0` (high risk — major
-  on a core component used in `pages/Play.tsx`)
-- #10 `@vitejs/plugin-react` `4.7.0` → `6.0.2` (medium risk —
-  skips a major)
-- #11 `typescript` `5.9.3` → `6.0.3` (medium risk — new TS
-  major, may surface new type errors)
-- #12 `eslint` `9.39.4` → `10.4.0` (medium risk — flat-config
-  API may shift)
+### 1. Apply the single bump
 
-Each of these is a candidate for its own mini-feature when we
-get there. None block `rest-room-integration` directly.
+```bash
+npm install --save-dev typescript@6.0.3
+```
 
-## Next product feature (still blocked)
+**Three scope changes from the original plan (all surfaced by
+implementer passes):**
 
-`rest-room-integration` (priority 4) remains paused waiting on
-`chess-backend-java` to enum-ize `ErrorResponse.error` via
-`@Schema(allowableValues = {...})`. Nine codes documented in
-`stomp-client-migration`'s close note. The frontend will resume
-once the backend ships the change and we regenerate
-`src/types/api.d.ts` via `npm run gen:api` (to be introduced by
-that feature).
+1. `eslint@10.4.0` failed `min-release-age=7` (5 days old);
+   substituted `eslint@10.3.0` (19 days). Same minor.
 
-## Carry-over debt (unchanged)
+2. `@vitejs/plugin-react` **dropped**. The 6.x line peers on
+   `vite@^8`, and we are on `vite@7`. Bumping vite 7→8 is a
+   separate major; deferred to a future `vite-major-bump`
+   feature.
 
-- `index.html`: favicon + og:image URLs hardcode
-  `/chess-frontend/`; dev mode doubles the prefix and 404s the
-  favicon. Trivial fix for a housekeeping pass.
-- 4 `react-refresh/only-export-components` warnings on
-  `src/components/Drawer/index.tsx`,
-  `src/context/UserContext.tsx`, `src/context/index.tsx`,
-  `src/pages/NewGame/index.tsx`. ESLint rule is `warn`;
-  non-blocking.
-- Bundle is a single 635 KB chunk above Vite's 500 KB warning.
-  `React.lazy` at route boundaries is the natural follow-up.
+3. **ESLint also dropped.** `eslint@10.3.0` requires
+   `eslint-plugin-react-hooks@7`, which is the explicitly
+   high-risk PR #7 we set aside earlier. The two bumps are
+   coupled; deferred to a future `eslint-major-bump` feature
+   that handles ESLint 10 + react-hooks 7 together.
 
-## Harness retrospective candidates
+Net result: this feature now ships **one bump**, TypeScript
+6.0.3. The medium-batch concept turned out to be unviable for
+JS tooling majors — each one drags ecosystem peers that need
+attention of their own. Documented as a process note in the
+close entry.
 
-- No `ci-reviewer` agent yet — flagged in `ci-engine-strict-fix`
-  retrospective. The gap that produced this feature
-  (`actions-bump`'s non-rebaseable conflicts) is the same family
-  of "CI workflow concerns not surfaced at agent time" that
-  `ci-reviewer` would address. Not yet urgent enough to build.
+`npm install` regenerates `package-lock.json` through `Bash`,
+which is not blocked by the `Edit|Write` hook.
 
-## Older carry-over (unchanged)
+### 2. Run audit gate
 
-- `// TODO(feature-4): POST /api/rooms` etc. in
-  `pages/NewGame.tsx` / `pages/Play.tsx`.
-- `// TODO(feature-6): subscribe to /topic/games/{id} for
-  MoveEvent` in `pages/Play.tsx`.
-- Backend's STOMP API contract has a viewer-count / spectator
-  sub-section the frontend doc omits; feature 6 mirrors it.
-- `@vitejs/plugin-react` referenced in both `vite.config.ts` and
-  `vitest.config.ts` (known cost).
+`npm audit --audit-level=moderate` must stay clean. The three
+bumps are mainstream packages; if any new CVE surfaces, resolve
+via `overrides` per the supply-chain hygiene policy.
+
+### 3. Run typecheck
+
+`npm run typecheck` will surface any new TS 6 errors. Expected
+classes of TS 6 changes:
+- Stricter type inference around `null`/`undefined` in some
+  control-flow positions.
+- New error codes for previously-silent patterns.
+- Deprecation of some `lib.es*.d.ts` shims.
+
+If the diff is mechanical (e.g. add a `?` or `!`, or annotate a
+type that was previously inferred), fix it. If it requires
+restructuring a function or changing a type's semantics, STOP
+and report.
+
+### 4. Run lint
+
+`npm run lint` will surface any new ESLint 10 errors. The flat
+config we have should still work (ESLint 10 builds on the v9
+flat config), but the rule set defaults may shift. Same
+mechanical-vs-semantic rule applies.
+
+The 4 pre-existing `react-refresh/only-export-components`
+warnings should stay as `warn` (not become errors). If they
+do, that's a regression to flag.
+
+### 5. Run tests
+
+`npm run test`: 49 tests. None should regress. The bumps don't
+touch runtime code; if a test breaks, it's a real signal — STOP
+and report.
+
+### 6. Run build
+
+`npm run build`: the bundle should stay roughly the same.
+@vitejs/plugin-react 6 may emit slightly different JSX runtime
+output, but the bundle size delta should be < 5 KB. Report the
+actual delta.
+
+## Files that will be created or modified
+
+**Modified:**
+- `package.json` — three devDependency version strings.
+- `package-lock.json` — regenerated by npm.
+
+**Possibly modified (only if TS 6 / ESLint 10 require it):**
+- `src/**/*.ts`, `src/**/*.tsx` — mechanical fixes only.
+- `eslint.config.js` — only if ESLint 10 deprecated an option
+  we use. Implementer reads the v10 migration guide if needed.
+
+**Not touched (by intent):**
+- `feature_list.json`, `progress/*` (leader-owned).
+- Any production logic.
+- Tests (the bumps shouldn't affect them).
+
+**Feature note:** N/A — mini-feature convention.
+
+## Verification approach
+
+`./init.sh` is the local gate. The order matters:
+
+1. After `npm install`: re-run `npm audit --audit-level=moderate`
+   to catch any new CVEs.
+2. After the bumps: full `./init.sh` from sanity through build.
+   All steps must pass.
+
+The end-to-end gate is the user's post-merge push and the
+post-close Dependabot auto-close check (same as `actions-bump`).
+
+## TS / React / Vite concepts to highlight in the feature note
+
+N/A — no feature note.
+
+## Public-facing surface changes
+
+- No URL, env var, deployment target, or run procedure change.
+- README and architecture.md untouched.
+
+## Architectural decision
+
+None. Build/lint tooling bumps.
+
+## Cross-repo coordination
+
+None.
+
+## Risk and rollback
+
+- **Risk:** TS 6 surfaces a non-mechanical type error that
+  requires real refactoring. Mitigation: the implementer's
+  "stop and report" rule. The leader then decides whether to
+  raise scope or roll back the TS bump (apply only the other
+  two).
+- **Risk:** ESLint 10 deprecates an option we use in
+  `eslint.config.js`. Mitigation: read v10 migration guide,
+  apply the new option name, document in the report.
+- **Risk:** @vitejs/plugin-react 6 changes the JSX runtime
+  output enough to break a test. Unlikely (it's a build-side
+  bump), but possible. Mitigation: tests cover the rendered
+  output; if any breaks, the issue is visible.
+- **Risk:** Dependabot doesn't auto-close one of #10-12 after
+  the bump lands in main. Mitigation: leader's
+  `gh pr list` + `@dependabot close` comment if needed.
+- **Rollback:** revert the commit; main goes back to TS 5.9,
+  ESLint 9, @vitejs/plugin-react 4.7. Independent of the other
+  recent commits, so the revert is clean.
+
+## Open questions for the user
+
+None.
+
+## Next steps
+
+1. **User reviews this plan.** Approve or request changes.
+2. On approval, implementer applies the three bumps with
+   `npm install --save-dev`, runs `./init.sh`, reports back.
+3. Reviewer reads the diff (package.json + package-lock + any
+   src/ tweaks), runs `./init.sh`.
+4. Leader rotates `done` via `jq`.
+5. **User pushes.** Leader verifies the deploy run + Dependabot
+   auto-close of #10-12 via `gh pr list`.
+
+After this feature, the remaining open PRs are the three high-
+risk ones: #7 (eslint-plugin-react-hooks 5→7), #8 (react-dom +
+@types/react-dom — probable React 18→19), #9 (react-chessboard
+4→5). Those will need individual mini-features with careful
+planning.

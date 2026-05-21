@@ -755,6 +755,15 @@ check**.
 
 **Feature note:** N/A (mini-feature, per convention).
 
+> **POST-CLOSE UPDATE 2026-05-20** — After the user pushed
+> "chore: bump GitHub Actions to latest majors", the deploy
+> workflow ran end-to-end green (42s). Dependabot auto-closed
+> PRs #1, #2, #3, #4, #5 within the same minute — no
+> `@dependabot close` comment needed. `gh pr list` confirms the
+> five are out of the open set; remaining open PRs are #7-12 (the
+> medium and high risk bumps). Acceptance criteria 5 and 6 both
+> satisfied.
+
 > **POST-CLOSE UPDATE 2026-05-20** — After the corrected close, the
 > user pushed and the deploy workflow completed end-to-end green.
 > The live site at `https://dariogguillen.github.io/chess-frontend/`
