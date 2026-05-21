@@ -149,7 +149,7 @@
     "id": "deps-bump-medium",
     "title": "Bump TypeScript 6, ESLint 10, and @vitejs/plugin-react 6",
     "description": "Apply the single medium-risk npm major bump that survived three rounds of peer-dep scoping: typescript 5.9.3 → 6.0.3 (Dependabot PR #11). Originally planned as a batch of three (TypeScript + ESLint + @vitejs/plugin-react), but the implementer surfaced two peer-dep constraints that each merit their own dedicated feature: (1) @vitejs/plugin-react@6 peers on vite@^8, dropped in favor of a future `vite-major-bump` feature; (2) eslint@10 requires eslint-plugin-react-hooks@7 (the high-risk PR #7), dropped in favor of a future `eslint-major-bump` feature that handles ESLint 10 + react-hooks 7 together. TypeScript 6 stands alone with verified compatibility: typescript-eslint@8.59.4 (already in main from #6) supports TypeScript >=4.8.4 <6.1.0; no other peer in our tree requires TS <6. Inserted at priority 3.8 between actions-bump (3.7) and rest-room-integration (4).",
-    "status": "in_progress",
+    "status": "done",
     "priority": 3.8,
     "acceptance": [
       "package.json devDependencies updated exactly: typescript 5.9.3→6.0.3. No other dep version changes. ESLint 10 and @vitejs/plugin-react were dropped from scope per leader decisions during implementation (peer-dep constraints making each a feature in its own right).",
@@ -160,6 +160,23 @@
       "Bundle delta vs current main reported in the implementer's report; we expect roughly neutral (~+/- 5 KB) — the bumps are mostly compiler / linter upgrades, not runtime payload.",
       "After merge, the deploy workflow runs green end-to-end. Verification is the user's post-push manual check.",
       "After the deploy is confirmed green, Dependabot auto-closes PRs #10, #11, #12 (immediately on webhook or in the next scheduled run). Leader confirms via `gh pr list`."
+    ]
+  },
+  {
+    "id": "vite-major-bump",
+    "title": "Bump Vite 7 → 8 and @vitejs/plugin-react 4 → 6 in lockstep",
+    "description": "Apply the coupled major bump of vite (7.3.3 → 8.0.12) and @vitejs/plugin-react (4.7.0 → 6.0.1). The two are pinned to each other: @vitejs/plugin-react@6.x peers on vite@^8, and vite@7.x is below that peer. This was surfaced and deferred during deps-bump-medium (priority 3.8); now ships as its own dedicated feature with the full ecosystem in scope. Pre-validated peers: vitest@4.1.6 already supports vite ^6 || ^7 || ^8 (no bump needed); no other dep in the tree peers vite. Versions chosen one patch below latest to clear our `min-release-age=7` policy with a comfortable margin (8.0.13 and 6.0.2 are exactly 7 days old today; 8.0.12 is 10 days and 6.0.1 is 2+ months). After this feature closes, Dependabot PR #10 will auto-close on detection. Inserted at priority 3.85.",
+    "status": "in_progress",
+    "priority": 3.85,
+    "acceptance": [
+      "package.json devDependencies: vite 7.3.3 → 8.0.12 and @vitejs/plugin-react 4.7.0 → 6.0.1 in a single npm install. No other dep changes.",
+      "npm audit clean at moderate+ after the install. Resolve via overrides if a new CVE surfaces (do NOT silence).",
+      "vite.config.ts migrated to vite 8 API if any of the options we use changed (mechanical migration only — option renames, deprecated-flag removal, etc.). Semantic changes (build pipeline restructure) STOP and report.",
+      "vitest.config.ts reviewed for the same — vitest@4.1.6 already supports vite 8 so its own surface should be intact, but vite 8 may have changed how plugins are registered or how `defineConfig` handles the test config block. Mechanical fixes only.",
+      "./init.sh green end-to-end: audit / format / lint / typecheck / tests / build all pass; 49 tests unchanged.",
+      "Bundle delta within ±30 KB of the 634.81 KB baseline. Vite is build-time but may emit slightly different chunk boundaries; report the actual delta.",
+      "After merge, deploy workflow runs green end-to-end. User's post-push manual verification.",
+      "Dependabot PR #10 (@vitejs/plugin-react 4.7→6.0.2) auto-closes on detection. Leader confirms via gh pr list; if it stays open, comment @dependabot close."
     ]
   },
   {

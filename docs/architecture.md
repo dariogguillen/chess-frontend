@@ -11,7 +11,7 @@ be invisible to a reader of the code.
 
 - **TypeScript 5.5** with `strict: true`.
 - **React 18** functional components and hooks. No class components.
-- **Vite 7** as build tool and dev server. Output is a static SPA.
+- **Vite 8** as build tool and dev server. Output is a static SPA.
 - **MUI 6** (Material UI) for components and theming, with Emotion as
   the styling engine.
 - **React Router 7** for client-side routing (data router API,
