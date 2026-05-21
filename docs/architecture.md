@@ -21,7 +21,7 @@ be invisible to a reader of the code.
   legality.
 - **Vitest** + **React Testing Library** for unit and component tests.
 - **Playwright** (planned, not in baseline) for end-to-end tests.
-- **ESLint 9** + **typescript-eslint 8** + **Prettier** (planned) for
+- **ESLint 10** + **typescript-eslint 8** + **Prettier** (planned) for
   linting and formatting.
 
 ## Deployment

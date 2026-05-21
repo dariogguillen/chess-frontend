@@ -166,7 +166,7 @@
     "id": "vite-major-bump",
     "title": "Bump Vite 7 → 8 and @vitejs/plugin-react 4 → 6 in lockstep",
     "description": "Apply the coupled major bump of vite (7.3.3 → 8.0.12) and @vitejs/plugin-react (4.7.0 → 6.0.1). The two are pinned to each other: @vitejs/plugin-react@6.x peers on vite@^8, and vite@7.x is below that peer. This was surfaced and deferred during deps-bump-medium (priority 3.8); now ships as its own dedicated feature with the full ecosystem in scope. Pre-validated peers: vitest@4.1.6 already supports vite ^6 || ^7 || ^8 (no bump needed); no other dep in the tree peers vite. Versions chosen one patch below latest to clear our `min-release-age=7` policy with a comfortable margin (8.0.13 and 6.0.2 are exactly 7 days old today; 8.0.12 is 10 days and 6.0.1 is 2+ months). After this feature closes, Dependabot PR #10 will auto-close on detection. Inserted at priority 3.85.",
-    "status": "in_progress",
+    "status": "done",
     "priority": 3.85,
     "acceptance": [
       "package.json devDependencies: vite 7.3.3 → 8.0.12 and @vitejs/plugin-react 4.7.0 → 6.0.1 in a single npm install. No other dep changes.",
@@ -177,6 +177,24 @@
       "Bundle delta within ±30 KB of the 634.81 KB baseline. Vite is build-time but may emit slightly different chunk boundaries; report the actual delta.",
       "After merge, deploy workflow runs green end-to-end. User's post-push manual verification.",
       "Dependabot PR #10 (@vitejs/plugin-react 4.7→6.0.2) auto-closes on detection. Leader confirms via gh pr list; if it stays open, comment @dependabot close."
+    ]
+  },
+  {
+    "id": "eslint-major-bump",
+    "title": "Bump ESLint 9 → 10 with @eslint/js + react-hooks in lockstep",
+    "description": "Apply the coupled major bump of eslint (9.39.4 → 10.3.0), @eslint/js (9.x → 10.0.1), and eslint-plugin-react-hooks (5.2.0 → 7.1.1). The three are tied: react-hooks v5 peers eslint up to v9 only, so an ESLint 10 bump requires bumping the plugin to v7 (which peers ESLint 10). @eslint/js bumps in lockstep with eslint by convention. Deferred during deps-bump-medium (3.8) when the implementer correctly surfaced that ESLint 10 requires react-hooks v7 (then explicitly out-of-scope). Pre-validated by leader before drafting: typescript-eslint@8.59.4, eslint-config-prettier@10.1.8, and eslint-plugin-react-refresh@0.5.2 all already peer-support ESLint 10 (no further bumps needed). Versions chosen below latest where min-release-age=7 would reject: eslint@10.3.0 (20 days old) instead of 10.4.0 (6 days). After this feature lands, Dependabot PRs #7 (react-hooks 7.1.1) and #12 (eslint 10.4.0) will auto-close or auto-retarget. Inserted at priority 3.87.",
+    "status": "in_progress",
+    "priority": 3.87,
+    "acceptance": [
+      "package.json devDependencies updated: eslint 9.39.4 → 10.3.0, @eslint/js 9.x → 10.0.1, eslint-plugin-react-hooks 5.2.0 → 7.1.1. No other dep changes.",
+      "npm audit clean at moderate+ after the install. Resolve via overrides if a new CVE surfaces (do NOT silence).",
+      "eslint.config.js migrated if ESLint 10 / react-hooks 7 changed the config-time API we use (e.g. how `reactHooks.configs.recommended.rules` is exposed, or any rule-name renames). Mechanical migration only — semantic restructure STOP and report.",
+      "./init.sh green: audit / format / lint / typecheck / tests / build all pass; 49 tests unchanged.",
+      "Lint output handled per the mechanical-vs-semantic rule: rule-rename / option-rename / new severity defaults that surface mechanically-fixable issues in src/ are in scope; semantic refactors (silencing a new rule, restructuring a function to satisfy a new check) STOP and report.",
+      "The 4 existing react-refresh/only-export-components warnings should remain warnings (not errors). If ESLint 10 changes the rule's default severity, configure it explicitly in eslint.config.js to keep `warn`.",
+      "Bundle delta within ±10 KB of the 630.92 KB baseline (ESLint is build-time; bundle should be essentially unchanged).",
+      "After merge, deploy workflow runs green end-to-end. User's post-push manual verification.",
+      "Dependabot PRs #7 and #12 auto-close or auto-retarget on detection. Leader confirms via gh pr list; if any stays open, comment @dependabot close."
     ]
   },
   {

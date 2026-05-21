@@ -755,6 +755,82 @@ check**.
 
 **Feature note:** N/A (mini-feature, per convention).
 
+## 2026-05-21 — vite-major-bump
+
+**Status:** done
+
+**Summary:** Coupled major bump of `vite` 7.3.3 → 8.0.12 and
+`@vitejs/plugin-react` 4.7.0 → 6.0.1 — the two are pinned to
+each other because plugin-react 6.x peers `vite@^8`. Deferred
+out of `deps-bump-medium` (3.8) when the medium-batch concept
+proved unviable for tooling majors; ships here as a dedicated
+feature with the full ecosystem in scope.
+
+**Pre-validation paid off:** leader walked the peer-dep matrix
+before drafting the plan, after the four implementer passes of
+deps-bump-medium taught us not to skip that step. Found:
+`vitest@4.1.6` already peers `vite ^6 || ^7 || ^8` (no bump
+needed); no other peer in the tree ties vite. Versions chosen
+one patch below latest (8.0.12 instead of 8.0.13, 6.0.1
+instead of 6.0.2) to clear `min-release-age=7` with margin.
+Result: implementer landed clean in one pass, no BLOCKED.
+
+**Migration notes for vite 8** (consulted, all N/A for our use):
+- Rolldown + Oxc replace esbuild/Rollup under the hood;
+  `build.rollupOptions` → `build.rolldownOptions`. We set
+  neither.
+- Default `build.target` baseline updated (Chrome 111 / Firefox
+  114 / Safari 16.4). We don't override target.
+- `build.commonjsOptions` is now a no-op;
+  `optimizeDeps.esbuildOptions` → `optimizeDeps.rolldownOptions`.
+  We use neither.
+- Output formats `system`/`amd` removed (we default to `es`);
+  object-form `manualChunks` removed (we don't define chunks).
+- Plugin hooks `shouldTransformCachedModule`, `resolveImportMeta`,
+  `renderDynamicImport`, `resolveFileUrl` no longer supported.
+  We author no custom plugins.
+- `import.meta.env` substitution unchanged; HMR API unchanged
+  for our usage.
+
+Our `vite.config.ts` and `vitest.config.ts` are byte-for-byte
+unchanged after the bump — they only use `plugins`, `base`, and
+a minimal `test` block, none of which intersect the breaking
+surfaces.
+
+**Bundle delta: -3.89 KB** (634.81 KB → 630.92 KB). Rolldown +
+Oxc are more efficient than the esbuild/Rollup pair, slightly
+smaller output. Test count unchanged at 49.
+
+**Dev server sanity:** `npm run dev` starts clean under vite 8;
+HTTP 200 from the SPA root; new startup banner reads
+`VITE v8.0.12 ready in 710 ms`. No deprecation notices, no
+Rolldown migration warnings, no HMR/peer complaints.
+
+**Post-close verifications:**
+
+- Deploy workflow ran green (35s) on the push
+  "chore: bump vite to 8.0.12".
+- **Dependabot PR #10 did NOT auto-close — it auto-retargeted**
+  instead. Before the bump, #10 proposed `4.7.0 → 6.0.2`. After
+  the bump landed (we shipped 6.0.1), Dependabot detected the
+  progress and updated #10 to propose `6.0.1 → 6.0.2`. This is
+  Dependabot's standard behaviour when it detects partial
+  progress on a major; it follows the head of the upgrade rather
+  than closing. Functionally equivalent for our purposes — the
+  PR is now an accurate small-delta bump that will land once
+  6.0.2 clears `min-release-age=7` (2026-05-22). We accept the
+  re-targeted PR as a satisfaction of acceptance criterion 8.
+
+**Files touched:**
+
+- `package.json` (modified — vite + @vitejs/plugin-react bumps)
+- `package-lock.json` (regenerated; +7/-34 packages)
+- `docs/architecture.md` (modified — single line, "Vite 7" → "Vite 8")
+
+`vite.config.ts` and `vitest.config.ts` unchanged.
+
+**Feature note:** N/A (mini-feature, per convention).
+
 > **POST-CLOSE UPDATE 2026-05-20** — After the user pushed
 > "chore: bump GitHub Actions to latest majors", the deploy
 > workflow ran end-to-end green (42s). Dependabot auto-closed

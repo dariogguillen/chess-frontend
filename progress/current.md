@@ -1,4 +1,4 @@
-# Current session — `vite-major-bump` (priority 3.85)
+# Current session — `eslint-major-bump` (priority 3.87)
 
 **Status:** plan drafted by leader, awaiting user approval before delegation
 to implementer.
@@ -7,138 +7,140 @@ to implementer.
 
 ## Feature ID and title
 
-`vite-major-bump` — Bump Vite 7 → 8 and @vitejs/plugin-react 4 → 6
-in lockstep.
+`eslint-major-bump` — Bump ESLint 9 → 10 with `@eslint/js` and
+`eslint-plugin-react-hooks` in lockstep.
 
 ## Why this feature, and why now
 
-`@vitejs/plugin-react@6.x` peers `vite@^8`. We are on `vite@7.3.3`
-and `@vitejs/plugin-react@4.7.0`. The two are pinned to each
-other — bumping the plugin requires bumping vite, and the
-opposite (staying on plugin v4 with vite 8) is not supported.
-
-This was surfaced and deferred during `deps-bump-medium`
-(priority 3.8) when the original three-bump batch shrank to a
-single TypeScript bump. The deferred pair lands here as its own
+`eslint-plugin-react-hooks@5.2.0` (current) peers ESLint up to
+v9 only. ESLint 10 was the target of Dependabot PR #12, but
+applying it requires bumping the plugin to v7 (which peers
+ESLint 10). This coupling was surfaced and deferred during
+`deps-bump-medium` (priority 3.8). Now it ships as its own
 dedicated feature with the full ecosystem in scope.
 
-After this closes, Dependabot PR #10 (which proposes
-plugin-react 4.7 → 6.0.2) auto-closes as superseded by the
-versions we land.
+Once this lands, Dependabot PRs #7 (`eslint-plugin-react-hooks`
+5 → 7.1.1) and #12 (`eslint` 9.39 → 10.4) will both
+auto-close or auto-retarget — same Dependabot behaviour we saw
+with `vite-major-bump` for PR #10.
 
-## Pre-validation done by leader (avoid surprises mid-implementation)
+## Pre-validation done by leader (before drafting)
 
-Peer-dep matrix walked before drafting the plan:
+Same recipe as `vite-major-bump`. Walked every dep in the tree
+that peers ESLint; checked publish dates for `min-release-age=7`
+clearance.
 
-| Package (current) | Peer on vite | Status |
+| Package (current) | Peer on eslint | Status |
 | --- | --- | --- |
-| `vitest@4.1.6` | `^6 \|\| ^7 \|\| ^8` | ✓ Vite 8 supported already; no bump needed |
-| `@vitejs/plugin-react@4.7.0` | `^4 \|\| ^5 \|\| ^6 \|\| ^7` | ✗ Doesn't cover vite 8 — bumping in lockstep |
-| Other deps in `node_modules/**/peerDependencies` | None peer vite | ✓ |
+| `eslint-plugin-react-hooks@5.2.0` | `^3 \|\| ... \|\| ^9` | ✗ Doesn't cover v10 — bumping to 7.1.1 in lockstep |
+| `eslint-plugin-react-hooks@7.1.1` (target) | `^3 \|\| ... \|\| ^9 \|\| ^10` | ✓ Supports ESLint 10 |
+| `typescript-eslint@8.59.4` | `^8.57 \|\| ^9 \|\| ^10` | ✓ |
+| `eslint-plugin-react-refresh@0.5.2` | `^9 \|\| ^10` | ✓ |
+| `eslint-config-prettier@10.1.8` | `>=7.0.0` | ✓ |
 
-Conclusion: only **two** package.json lines change. vitest stays
-at 4.1.6.
-
-`min-release-age=7` clearance check:
-- `vite@8.0.13` published 2026-05-14 (7 days exact today) — borderline; skip.
-- `vite@8.0.12` published 2026-05-11 (10 days) — comfortable margin, **use this**.
-- `@vitejs/plugin-react@6.0.2` published 2026-05-14 (7 days exact) — borderline; skip.
-- `@vitejs/plugin-react@6.0.1` published 2026-03-13 (2+ months) — **use this**.
-
-The patch differences (8.0.12 vs 8.0.13, 6.0.1 vs 6.0.2) are
-typically minor bugfixes. We accept the slight version gap;
-Dependabot will re-propose the strict-latest in its next
-scheduled run and we apply it naturally.
+Publish-date check:
+- `eslint@10.4.0` published 2026-05-15 (6 days, **fails 7-day floor**) — skip.
+- `eslint@10.3.0` published 2026-05-01 (20 days) — **use this**.
+- `eslint-plugin-react-hooks@7.1.1` published 2026-04-17 (34 days) — ✓.
+- `@eslint/js@10.0.1` published 2026-02-06 (well over 7 days) — ✓.
 
 ## Approach
 
-### 1. Apply both bumps in a single install
+### 1. Apply all three bumps in a single install
 
 ```bash
-npm install --save-dev vite@8.0.12 @vitejs/plugin-react@6.0.1
+npm install --save-dev eslint@10.3.0 @eslint/js@10.0.1 eslint-plugin-react-hooks@7.1.1
 ```
 
-The two go together — installing only one would leave a broken
-peer state.
+All three together — partial installs would leave broken peer
+state.
 
 ### 2. Audit gate
 
-`npm audit --audit-level=moderate` must be 0. If a CVE surfaces
-in the new versions or their transitives, resolve via
-`overrides`.
+`npm audit --audit-level=moderate` must be 0.
 
-### 3. Read the Vite 8 migration notes
+### 3. Read ESLint 10 + react-hooks 7 migration notes
 
-Implementer reads https://vite.dev/blog/announcing-vite8 (or the
-equivalent migration guide URL) for breaking changes. Areas to
-watch in our codebase:
+Areas to watch in `eslint.config.js`:
 
-- **`vite.config.ts`**: any `defineConfig` option we use that
-  was renamed or removed. We currently use only `plugins`,
-  `base`, `server` (if any). Compact config; small surface.
-- **`vitest.config.ts`**: how the `test` block is exposed.
-  `vitest@4.1.6` supports vite 8 in its peer, so the integration
-  is intact, but the `defineConfig` import path or shape may have
-  shifted between vite 7 and 8.
-- **Plugin API**: only relevant if we wrote a custom plugin (we
-  don't).
-- **`import.meta.env` substitution**: should be stable; if it
-  changed, the existing test of `config.default` would catch it.
+- The current config imports `js` from `@eslint/js`, spreads
+  `js.configs.recommended` into extends, spreads
+  `reactHooks.configs.recommended.rules` into rules. If ESLint
+  10 or react-hooks 7 changed the shape of these exports
+  (e.g. `configs` now returns a function, or the `rules` path
+  moved), the config breaks.
+- ESLint 10 may have new default rule severities or new
+  recommended rules. New `error`-level rules surfaced in
+  `js.configs.recommended` or `tseslint.configs.recommended`
+  may now flag previously-fine code.
+- react-hooks 7 likely added or modified rules (the project
+  jumped two majors, v5 → v7, skipping v6). Possible new
+  flags on existing code: `react-hooks/exhaustive-deps`
+  severity, new rules around custom hooks, etc.
 
 ### 4. Iterate `./init.sh`
 
-Mechanical fixes only:
-- Rename an option that got renamed in vite 8 — in scope.
-- Remove a deprecated flag that was promoted/dropped — in scope.
-- Restructure `vite.config.ts` because vite 8 expects a different
-  shape — **STOP and report** if the restructure is non-trivial.
+Per the established mechanical-vs-semantic rule:
 
-Tests must not regress (49 tests). Bundle within ±30 KB of the
-634.81 KB baseline (vite is build-time; bundle should be close
-to neutral but may shift due to JSX runtime output differences
-from plugin-react 6).
+- Rename in eslint.config.js because an export path moved →
+  in scope.
+- Add a `?` or annotation to satisfy a new ESLint 10 rule →
+  in scope (only if the fix is local and obvious).
+- Restructure a `useEffect` to satisfy react-hooks 7's stricter
+  `exhaustive-deps` → STOP and report. That's semantic.
+- Silence a rule globally (e.g. add `"react-hooks/x": "off"`)
+  → STOP and report. Silencing is not a fix.
 
-### 5. Update docs/architecture.md if needed
+The 4 existing `react-refresh/only-export-components` warnings
+should stay warnings. If ESLint 10 changes the rule's default
+to `error`, configure it explicitly in `eslint.config.js` to
+keep `warn`. Same approach as before.
 
-The "Stack" section currently says "Vite 7". If we bump to 8,
-the section needs the version update. Same as the analogous
-update during `ui-refresh`.
+### 5. Verify bundle is unchanged
+
+ESLint is build-time tooling; the output bundle should be
+identical. Bundle delta expected within ±10 KB of 630.92 KB.
+If it shifts more, something else changed — flag, don't
+auto-decide.
+
+### 6. Update docs/architecture.md (if applicable)
+
+The Stack section may mention "ESLint 9". If so, single-line
+update to "ESLint 10". If the section doesn't pin a version,
+skip.
 
 ## Files that will be created or modified
 
 **Modified:**
-- `package.json` — two devDep version strings.
-- `package-lock.json` — regenerated by npm.
+- `package.json` — three devDep versions.
+- `package-lock.json` — regenerated.
+- `eslint.config.js` — only if ESLint 10 / react-hooks 7 require
+  mechanical migration.
+- `docs/architecture.md` — only if the Stack section mentions
+  ESLint version.
 
-**Possibly modified (only if vite 8 / plugin-react 6 require it):**
-- `vite.config.ts` — config migration.
-- `vitest.config.ts` — config alignment if shape changed.
-- `docs/architecture.md` — "Vite 7" → "Vite 8" in the stack
-  section.
+**Possibly modified (only if rules surface mechanical issues):**
+- A few `src/` files — only for mechanical fixes per the rule
+  above. Most likely nothing.
 
 **Not touched:**
 - `feature_list.json`, `progress/*` (leader-owned).
-- Source code under `src/` unless typecheck or runtime forces
-  a mechanical change (unlikely — vite is build/dev tooling).
-- Tests (vitest's surface is stable across this bump).
+- Other deps.
+- Tests (linting is build-time; tests don't change).
 
 **Feature note:** N/A. Mini-feature convention.
 
 ## Verification approach
 
-`./init.sh` is the local gate. The end-to-end gate is the user's
-post-merge push, same as `actions-bump` and `ci-engine-strict-fix`.
+`./init.sh` is the local gate. End-to-end gate is the user's
+post-merge push and the post-close Dependabot check.
 
 The reviewer additionally:
-
-- Reads the vite.config.ts / vitest.config.ts diff carefully.
-- Confirms the migration-guide notes the implementer cites match
-  the changes applied (avoid blind-faith trust in the
-  implementer's reading of upstream docs).
-- Spot-checks dev server (`npm run dev`) starts and serves
-  http://localhost:5173/chess-frontend/ — vite 8 startup behavior
-  is occasionally noisier than 7, and the reviewer should flag
-  anything that looks like a new warning class.
+- Reads `eslint.config.js` diff carefully (this is the
+  highest-risk file).
+- Cross-references the implementer's migration-guide claims.
+- Confirms warnings stay as warnings (not errors).
+- Spot-checks bundle delta (expected near-zero).
 
 ## TS / React / Vite concepts to highlight in the feature note
 
@@ -146,39 +148,34 @@ N/A — no feature note.
 
 ## Public-facing surface changes
 
-- No URL / env var / deployment target change.
-- `docs/architecture.md` "Stack" section updated to reflect
-  Vite 8.
-- `README.md` typically doesn't mention vite version; no change
-  expected.
+- No URL / env / deployment change.
+- `docs/architecture.md` Stack section update if applicable
+  (single line).
 
 ## Architectural decision
 
-Minor. The "Stack" doc entry updates; that's the only
-recorded artifact.
+Minor. ESLint major version is a tooling choice; the doc entry
+captures it.
 
 ## Cross-repo coordination
 
-None. The backend has its own build stack.
+None.
 
 ## Risk and rollback
 
-- **Risk:** vite 8 changed an option we use in `vite.config.ts`
-  beyond mechanical migration. Mitigation: implementer's
-  STOP-and-report rule. Leader decides whether to raise scope
-  or roll back.
-- **Risk:** bundle delta exceeds ±30 KB because plugin-react 6
-  changed JSX runtime output. Mitigation: report the delta;
-  the leader evaluates if it's acceptable.
-- **Risk:** vite 8's dev server changed default behaviors that
-  break our existing dev workflow (e.g. HMR semantics, base
-  path handling at sub-path `/chess-frontend/`). Mitigation:
-  reviewer runs `npm run dev` and spot-checks.
-- **Risk:** Dependabot doesn't auto-close #10 after the bump.
-  Mitigation: `@dependabot close` comment, same as we did for
-  #11 in deps-bump-medium.
-- **Rollback:** revert the commit; the prior vite 7 + plugin
-  4.7 state was working.
+- **Risk:** ESLint 10 / react-hooks 7 surface non-mechanical
+  errors in `src/`. Mitigation: implementer's STOP-and-report
+  rule.
+- **Risk:** `eslint.config.js` shape changes beyond mechanical
+  migration. Mitigation: same.
+- **Risk:** react-hooks 7's stricter `exhaustive-deps` flags
+  many existing `useEffect` calls. Mitigation: STOP and report;
+  we evaluate scope expansion.
+- **Risk:** Dependabot doesn't close #7 / #12 after the bump.
+  Mitigation: `@dependabot close` comment, same pattern as
+  before.
+- **Rollback:** revert the commit; ESLint 9 + react-hooks 5
+  worked fine before this bump.
 
 ## Open questions for the user
 
@@ -187,18 +184,21 @@ None.
 ## Next steps
 
 1. **User reviews this plan.** Approve or request changes.
-2. On approval, implementer applies the two bumps with
-   `npm install --save-dev`, reads the vite 8 migration guide,
-   applies mechanical config changes if any, runs `./init.sh`,
+2. On approval, implementer applies the three bumps, reads
+   migration notes, applies mechanical fixes, runs `./init.sh`,
    reports back.
-3. Reviewer reads the diff, runs `./init.sh`, spot-checks
-   `npm run dev`, cross-references the implementer's
-   migration-guide claims.
+3. Reviewer reads the diff (especially `eslint.config.js`),
+   runs `./init.sh`, cross-references migration claims.
 4. Leader rotates `done` via `jq`.
-5. **User pushes.** Leader verifies deploy + Dependabot #10
-   auto-close.
+5. **User pushes.** Leader verifies deploy + Dependabot
+   auto-close of #7 / #12 via `gh pr list`.
 
-After this feature, the next candidates are `eslint-major-bump`
-(ESLint 10 + react-hooks 7), `react-major-bump` (React 18→19),
-or the high-risk #9 (react-chessboard). All independent of
-`rest-room-integration` which remains blocked on backend.
+After this feature, the open Dependabot PRs are:
+- #8 (`react-dom` + `@types/react-dom`, probable React 18→19)
+- #9 (`react-chessboard` 4 → 5)
+- Possibly #10 (`@vitejs/plugin-react` 6.0.1 → 6.0.2) if it
+  hasn't cleared min-release-age yet
+- Possibly #12 (`eslint` 9.39 → 10.4) if Dependabot re-targets
+  rather than closes
+
+The first two are the remaining high-risk standalone candidates.
