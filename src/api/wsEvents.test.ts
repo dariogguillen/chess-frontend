@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
 import { GameStatus, PromotionPiece, Side } from './games';
-import { ConnectionState } from './wsEvents';
-import type { MoveEvent, ViewerCountEvent } from './wsEvents';
+import { ConnectionState, DiscoveryState, RoomEventType } from './wsEvents';
+import type { MoveEvent, RoomEvent, RoomJoinedEvent, ViewerCountEvent } from './wsEvents';
 
 // `wsEvents` is mostly a type module — the runtime export is the
 // `ConnectionState` const object. The tests below are construction
@@ -76,6 +76,55 @@ describe('wsEvents', () => {
     it('accepts zero as a valid count', () => {
       const event: ViewerCountEvent = { gameId: 'abc', count: 0 };
       expect(event.count).toBe(0);
+    });
+  });
+
+  describe('RoomEventType', () => {
+    it('exposes the ROOM_JOINED discriminator constant', () => {
+      expect(RoomEventType.RoomJoined).toBe('ROOM_JOINED');
+    });
+  });
+
+  describe('RoomJoinedEvent', () => {
+    it('constructs a sample with the type-narrow discriminator', () => {
+      const event: RoomJoinedEvent = {
+        type: RoomEventType.RoomJoined,
+        roomId: 'K7M3X9',
+        gameId: '11111111-2222-3333-4444-555555555555',
+        blackPlayer: {
+          id: '66666666-7777-8888-9999-aaaaaaaaaaaa',
+          displayName: 'Bob',
+        },
+      };
+
+      expect(event.type).toBe('ROOM_JOINED');
+      const roundTripped = JSON.parse(JSON.stringify(event)) as RoomJoinedEvent;
+      expect(roundTripped).toEqual(event);
+    });
+
+    it('is assignable to the RoomEvent discriminated union', () => {
+      const event: RoomEvent = {
+        type: RoomEventType.RoomJoined,
+        roomId: 'K7M3X9',
+        gameId: 'game-uuid-1',
+        blackPlayer: { id: 'p-2', displayName: 'Bob' },
+      };
+
+      // Narrowing on the discriminator surfaces the gameId branch.
+      if (event.type === RoomEventType.RoomJoined) {
+        expect(event.gameId).toBe('game-uuid-1');
+      } else {
+        throw new Error('expected ROOM_JOINED variant');
+      }
+    });
+  });
+
+  describe('DiscoveryState', () => {
+    it('exposes the four expected literal states', () => {
+      expect(DiscoveryState.Idle).toBe('idle');
+      expect(DiscoveryState.Discovering).toBe('discovering');
+      expect(DiscoveryState.Discovered).toBe('discovered');
+      expect(DiscoveryState.Error).toBe('error');
     });
   });
 });

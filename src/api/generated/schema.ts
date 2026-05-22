@@ -64,6 +64,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/rooms/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get room state by id
+         * @description Reads the current state of a room: the players (with roles derived from join order), the associated gameId if the room is ACTIVE, and the lifecycle status. The frontend uses this either as the primary discovery mechanism for Player A (poll until gameId is non-null) or as a fallback to STOMP /topic/rooms/{roomId} for late subscribers, which cannot replay events. Path {id} is case-insensitive; the canonical uppercase form is returned in the body.
+         */
+        get: operations["getRoom"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/players/{id}/games": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a player's game history
+         * @description Returns archived (terminal-status) games for the given player, newest first, capped at 50 entries. An unknown player id returns 200 with an empty array — guests have no registry, so 404 is not used.
+         */
+        get: operations["getPlayerGames"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -119,6 +159,7 @@ export interface components {
              */
             roomId?: string;
             /**
+             * Format: uuid
              * @description Server-generated UUID identifying the caller as a player in the room.
              * @example 8b3c1f04-1234-5678-9abc-def012345678
              */
@@ -129,6 +170,7 @@ export interface components {
              */
             role?: string;
             /**
+             * Format: uuid
              * @description UUID of the chess game associated with the room. Null on the create response (no game exists yet); non-null on the join response.
              * @example 0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000
              */
@@ -168,6 +210,7 @@ export interface components {
             promotion?: string;
         };
         GameStateResponse: {
+            /** Format: uuid */
             id?: string;
             roomId?: string;
             white?: components["schemas"]["Player"];
@@ -206,8 +249,80 @@ export interface components {
             promotion?: string;
         };
         Player: {
+            /** Format: uuid */
             id?: string;
             displayName?: string;
+        };
+        PlayerInRoom: {
+            /**
+             * Format: uuid
+             * @description Server-generated UUID identifying the player.
+             * @example 8b3c1f04-1234-5678-9abc-def012345678
+             */
+            id?: string;
+            /**
+             * @description Human-readable label provided at join time.
+             * @example Alice
+             */
+            displayName?: string;
+            /**
+             * @description Side assigned to the player. WHITE for the creator (players[0]), BLACK for the joiner (players[1]).
+             * @example WHITE
+             * @enum {string}
+             */
+            role?: "WHITE" | "BLACK";
+        };
+        /** @description Current state of a room: members, derived roles, game association, status. */
+        RoomDetailsResponse: {
+            /**
+             * @description 6-char short code from the alphabet ABCDEFGHJKMNPQRSTUVWXYZ23456789. Case-insensitive in URLs; canonical uppercase form returned here.
+             * @example K7M3X9
+             */
+            roomId?: string;
+            /** @description Players in the room. Index 0 is the creator (WHITE); index 1 (when present) is the joiner (BLACK). The array has 1 element while WAITING_FOR_PLAYER and 2 while ACTIVE. */
+            players?: components["schemas"]["PlayerInRoom"][];
+            /**
+             * Format: uuid
+             * @description UUID of the chess game associated with the room. Null while the room is WAITING_FOR_PLAYER (no game has been created yet); non-null once ACTIVE.
+             * @example 0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000
+             */
+            gameId?: string;
+            /**
+             * @description Lifecycle status. WAITING_FOR_PLAYER: one player, no game. ACTIVE: two players, game in progress. CLOSED: room no longer accepts activity.
+             * @example ACTIVE
+             * @enum {string}
+             */
+            status?: "WAITING_FOR_PLAYER" | "ACTIVE" | "CLOSED";
+        };
+        PlayerGameSummary: {
+            /** Format: uuid */
+            gameId?: string;
+            roomId?: string;
+            opponentDisplayName?: string;
+            /**
+             * @description Side the queried player was on.
+             * @example WHITE
+             * @enum {string}
+             */
+            selfRole?: "WHITE" | "BLACK";
+            /**
+             * @description Terminal status of the game.
+             * @example CHECKMATE
+             * @enum {string}
+             */
+            status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED";
+            /**
+             * Format: date-time
+             * @description Instant the game was archived.
+             * @example 2026-05-19T10:23:11.123Z
+             */
+            endedAt?: string;
+            /**
+             * Format: int32
+             * @description Number of moves played in the game.
+             * @example 42
+             */
+            moveCount?: number;
         };
         HealthResponse: {
             /**
@@ -348,7 +463,7 @@ export interface operations {
                     "application/json": components["schemas"]["GameStateResponse"];
                 };
             };
-            /** @description Invalid request (validation failure on body fields, malformed JSON body, or missing X-Player-Id header) */
+            /** @description Invalid request (validation failure on body fields, malformed JSON body, malformed UUID in path or header, or missing X-Player-Id header) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -377,6 +492,68 @@ export interface operations {
             };
             /** @description Move is illegal or not the caller's turn */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Room exists; returns its current state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomDetailsResponse"];
+                };
+            };
+            /** @description Room does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getPlayerGames: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Player game history (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayerGameSummary"][];
+                };
+            };
+            /** @description Invalid request (malformed UUID in path). */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -424,6 +601,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GameStateResponse"];
+                };
+            };
+            /** @description Invalid request (malformed UUID in path) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Game does not exist */

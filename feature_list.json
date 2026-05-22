@@ -299,6 +299,26 @@
     ]
   },
   {
+    "id": "creator-game-discovery",
+    "title": "Player A game discovery via GET /api/rooms/{id} and STOMP /topic/rooms/{id}",
+    "description": "Backend shipped (commit c6de3d3 fix: room lifecycle) both REST and STOMP companions to unblock Player A discovery: GET /api/rooms/{id} returns RoomDetailsResponse with gameId (null while WAITING_FOR_PLAYER, non-null while ACTIVE), and /topic/rooms/{roomId} broadcasts a RoomJoinedEvent (discriminated union via type field, sealed for future variants) when the second player joins. Frontend wires both: GET-once on mount handles the late-subscriber case (race already resolved); STOMP subscribe handles the still-waiting case (push notification). First path to deliver a non-null gameId wins; the other handler is dropped. Adds getRoomState to src/api/rooms.ts, RoomJoinedEvent + RoomEventType to src/api/wsEvents.ts, new useRoomDiscovery hook, RoomStatus const object, UserContext setGameId operation, and Play.tsx wiring to mount the discovery flow while room.gameId === null. Independent of CORS (still pending on backend) — local tests via MSW + mockStompClient.",
+    "status": "done",
+    "priority": 6.5,
+    "acceptance": [
+      "src/api/rooms.ts exposes typed getRoomState(roomId) wrapper using the existing openapi-fetch client.",
+      "RoomStatus const object (WAITING_FOR_PLAYER | ACTIVE | CLOSED) with derived type and satisfies clause against the generated schema.",
+      "src/api/wsEvents.ts adds RoomJoinedEvent type (hand-typed, mirrors backend record) and a RoomEventType const object for the type discriminator (RoomJoined: ROOM_JOINED).",
+      "src/hooks/useRoomDiscovery(roomId, playerId, onGameDiscovered) hook: GET on mount + STOMP subscribe in parallel; first non-null gameId fires onGameDiscovered then cleans up both paths; cleanup on unmount.",
+      "src/context/UserContext.tsx adds setGameId(gameId) operation that updates room.gameId when phase is in-room.",
+      "src/pages/Play/Play.tsx mounts useRoomDiscovery while room.phase === InRoom && room.gameId === null; on discovery, setGameId triggers the existing GET game state + useGameStomp flow.",
+      "Tests with MSW + mockStompClient cover: GET returns gameId on mount, GET returns null then STOMP delivers RoomJoinedEvent, STOMP delivers first (GET ignored), 404 on GET surfaces error, unmount cleans up both paths.",
+      "narrowRole shim in src/api/rooms.ts stays — backend did NOT add allowableValues to RoomResponse.role; only PlayerInRoom.role (in the new RoomDetailsResponse) has it. Document the asymmetry in the feature note.",
+      "openapi.json re-snapshotted to include the new GET /api/rooms/{id} endpoint and the RoomDetailsResponse + PlayerInRoom shapes. schema.ts regenerated. Codegen idempotency preserved.",
+      "Bundle delta minimal; no new deps.",
+      "./init.sh green end-to-end."
+    ]
+  },
+  {
     "id": "e2e-playwright",
     "title": "Playwright end-to-end test suite",
     "description": "Introduce Playwright for end-to-end tests covering critical user journeys (create room, share, join, play a few moves, see live updates). Add a CI job that runs Playwright against a built dev server. Reference the anthropics/skills/webapp-testing skill for patterns where applicable.",

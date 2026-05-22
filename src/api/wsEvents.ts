@@ -13,6 +13,7 @@
 // feature could introduce AsyncAPI or an equivalent WS schema codegen;
 // out of scope today.
 
+import type { components } from './generated/schema';
 import { GameStatus, PromotionPiece, Side } from './games';
 
 /**
@@ -106,3 +107,110 @@ export const ConnectionState = {
   Error: 'error',
 } as const;
 export type ConnectionState = (typeof ConnectionState)[keyof typeof ConnectionState];
+
+/**
+ * STOMP event discriminator constants for `/topic/rooms/{roomId}`.
+ *
+ * The backend's `RoomEvent` is a sealed interface (today only one
+ * variant: `RoomJoinedEvent`) — every variant carries an explicit
+ * `type` field rather than relying on Jackson's polymorphic
+ * `@JsonTypeInfo`. The const-object captures the discriminator
+ * literals at one source-of-truth so client code branches via
+ * `event.type === RoomEventType.RoomJoined` instead of magic strings.
+ *
+ * Future variants on the sealed interface (e.g. `RoomClosedEvent`,
+ * `PlayerLeftEvent`) extend both this object and the `RoomEvent` union
+ * below, in lockstep with the backend record they mirror.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/RoomEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/RoomJoinedEvent.java`
+ */
+export const RoomEventType = {
+  RoomJoined: 'ROOM_JOINED',
+} as const;
+export type RoomEventType = (typeof RoomEventType)[keyof typeof RoomEventType];
+
+/**
+ * Backend `Player` record — reuses the generated schema component so
+ * any field rename on the backend surfaces at the TS boundary. The
+ * generated shape types each field as optional `string`; this alias
+ * preserves that — `narrowPlayer` (in `games.ts`) is the canonical
+ * narrowing path for REST consumers, but the WS surface keeps the
+ * looser shape here because `RoomJoinedEvent` consumers (the
+ * discovery flow) only need `id` and treat the rest defensively.
+ */
+type Player = components['schemas']['Player'];
+
+/**
+ * Mirror of the backend's `RoomJoinedEvent.java` record (Spring
+ * messaging payload for `/topic/rooms/{roomId}`).
+ *
+ * Broadcast the moment a second player joins a room and the chess
+ * game is created — i.e. immediately after the room transitions from
+ * `WAITING_FOR_PLAYER` to `ACTIVE`. The creator (Player A) is the
+ * canonical subscriber: subscribing right after `POST /api/rooms`
+ * returns and waiting for this event is how A learns the `gameId` so
+ * it can transition to `/topic/games/{gameId}`.
+ *
+ * Late subscribers miss the event entirely (STOMP fire-and-forget,
+ * no replay). The fallback is `GET /api/rooms/{id}` (the REST
+ * companion); the frontend pairs both paths in `useRoomDiscovery`.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/RoomJoinedEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/RoomEvent.java`
+ *
+ * Fields:
+ * - `type`        — discriminator constant `'ROOM_JOINED'`. Typed as
+ *                   `typeof RoomEventType.RoomJoined` so the literal
+ *                   string and the const object cannot drift.
+ * - `roomId`      — the room the join happened on; matches the topic
+ *                   path's `{roomId}` segment.
+ * - `gameId`      — UUID of the freshly created game. This is the
+ *                   value Player A is waiting for.
+ * - `blackPlayer` — the joiner (became BLACK). The generated `Player`
+ *                   record types `id` / `displayName` as optional; the
+ *                   discovery flow only consumes `gameId` today and
+ *                   keeps the player record on the type for future use.
+ */
+export type RoomJoinedEvent = Readonly<{
+  type: typeof RoomEventType.RoomJoined;
+  roomId: string;
+  gameId: string;
+  blackPlayer: Player;
+}>;
+
+/**
+ * Discriminated union of every variant on `/topic/rooms/{roomId}`. A
+ * single variant today; the union shape exists so consumers
+ * pattern-match on `event.type` and a future variant extends without
+ * touching call sites that already gate on the known constant.
+ */
+export type RoomEvent = RoomJoinedEvent;
+
+/**
+ * Room-discovery lifecycle discriminant for {@link useRoomDiscovery}.
+ *
+ * The hook spins up a GET + STOMP-subscribe pair in parallel and
+ * reports its lifecycle through this sum so the page can render an
+ * affordance (spinner while `Discovering`, Snackbar on `Error`) and
+ * stop rendering it once the gameId resolves (`Discovered`).
+ *
+ * States:
+ * - `Idle`        — preconditions not met (null roomId or playerId).
+ * - `Discovering` — at least one of GET / STOMP is in flight.
+ * - `Discovered`  — a `gameId` was found and dispatched to the
+ *                   caller; the hook is fire-and-forget from here.
+ * - `Error`       — both paths failed (or the GET failed with a fatal
+ *                   404). The discriminant is the tag; the error
+ *                   message rides on a sibling state cell in the
+ *                   hook, mirroring `ConnectionState`'s pattern.
+ */
+export const DiscoveryState = {
+  Idle: 'idle',
+  Discovering: 'discovering',
+  Discovered: 'discovered',
+  Error: 'error',
+} as const;
+export type DiscoveryState = (typeof DiscoveryState)[keyof typeof DiscoveryState];

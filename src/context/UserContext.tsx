@@ -92,6 +92,13 @@ export type UserContextValue = Readonly<{
   enterRoom: (response: RoomResponse) => void;
   /** Demote `room` back to the `none` arm. */
   leaveRoom: () => void;
+  /**
+   * Update only `room.gameId` once the discovery flow learns it
+   * (`useRoomDiscovery` → REST or STOMP). Defensive: a no-op when
+   * `room.phase` is not `InRoom` (the field doesn't exist on the
+   * `None` arm, so writing it would be incoherent).
+   */
+  setGameId: (gameId: string) => void;
 }>;
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
@@ -144,6 +151,10 @@ export const UserContextProvider = ({
     setRoomState({ phase: RoomPhase.None });
   }, []);
 
+  const setGameId = useCallback((gameId: string) => {
+    setRoomState((prev) => (prev.phase === RoomPhase.InRoom ? { ...prev, gameId } : prev));
+  }, []);
+
   const value = useMemo<UserContextValue>(
     () => ({
       identity,
@@ -153,8 +164,9 @@ export const UserContextProvider = ({
       setOpponent,
       enterRoom,
       leaveRoom,
+      setGameId,
     }),
-    [identity, opponent, room, setIdentity, setOpponent, enterRoom, leaveRoom],
+    [identity, opponent, room, setIdentity, setOpponent, enterRoom, leaveRoom, setGameId],
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

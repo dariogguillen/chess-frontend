@@ -76,12 +76,24 @@ The frontend is a client of the backend's API. The contract is:
   - `POST /api/rooms` — create a room.
   - `POST /api/rooms/{id}/join` — join as the second player; also
     creates the `Game`.
+  - `GET /api/rooms/{id}` — read current room state (`RoomDetailsResponse`).
+    The companion to `/topic/rooms/{roomId}`: STOMP topics in Spring
+    have no replay, so late subscribers miss the `RoomJoinedEvent`.
+    The GET is the reconcile path — same `gameId` (and the rest of
+    the room state) for anyone who arrived after the broadcast.
   - `POST /api/games/{id}/moves` — submit a move (caller identified
     by `X-Player-Id` header).
   - `GET /api/games/{id}` — read current game state.
 - **STOMP over WebSocket**: real-time updates.
   - Subscribe to `/topic/games/{gameId}` to receive move events
     broadcast after a successful move on the REST endpoint.
+  - Subscribe to `/topic/rooms/{roomId}` to receive room lifecycle
+    events. Today only one variant: `RoomJoinedEvent`, broadcast
+    once when the second player joins and the chess game is
+    created. The variant is identified by an explicit
+    `type: "ROOM_JOINED"` discriminator so future variants
+    (`RoomClosedEvent`, `PlayerLeftEvent`) extend the union
+    without breaking subscribers that gate on the constant.
   - Exact topic shape and message schema are documented in the
     backend's `docs/architecture.md`. When the frontend implements
     against them, the contract is captured here as well.
@@ -333,6 +345,42 @@ reconnecting) explicit.
 covers transient failures with a 5-second flat retry. Custom
 exponential backoff is out of scope; the reconnect UI surfaces the
 state and the user can refresh if attempts run long.
+
+**Room discovery (`useRoomDiscovery`).** The Play page also owns a
+second, short-lived STOMP client while Player A is waiting for an
+opponent. When `room.phase === InRoom && room.gameId === null`, the
+`useRoomDiscovery` hook mounts and pairs two paths in parallel:
+
+- `GET /api/rooms/{roomId}` once — handles the "second player joined
+  before we subscribed" race. If the response carries a non-null
+  `gameId`, dispatch immediately.
+- STOMP subscribe to `/topic/rooms/{roomId}` — handles the "we
+  subscribed first, second player joins later" race. The backend
+  broadcasts `RoomJoinedEvent` exactly once on
+  `WAITING_FOR_PLAYER → ACTIVE`; the handler dispatches with
+  `event.gameId`.
+
+A single closure-scoped `discovered` flag is the first-of-N completion
+guard: the first path to set it wins, the second is dropped. This is
+NOT `Promise.race` — that would short-circuit on the first rejection,
+and one path failing is fine here as long as the other succeeds. The
+GET 404 (`ROOM_NOT_FOUND`) is the only fatal failure mode; other GET
+errors are soft (STOMP may still deliver) and surface only the
+error message without forcing the hook out of `Discovering`.
+
+The subscribe to `/topic/rooms/{roomId}` carries NO `playerId` header
+(unlike the moves topic). The backend's `ViewerCountTracker`
+self-exclusion logic only applies to the games topic; the rooms topic
+has no spectator dimension.
+
+**Two STOMP clients per Play mount, deliberately.** `useRoomDiscovery`
+and `useGameStomp` do NOT share a client. The two hooks have
+disjoint lifetimes (discovery while `gameId` is null; game stomp once
+it resolves) and sharing would mean coordinating two hooks' connect /
+subscribe / disconnect lifecycles. Each hook owns its own
+`createStompClient` + `connect()` + `disconnect()` instead. STOMP
+handshakes are cheap and one-client-per-hook keeps the lifetime
+semantics local.
 
 ## Cross-repo coordination
 

@@ -102,6 +102,46 @@ describe('UserContext', () => {
     expect(result.current.room).toEqual({ phase: 'none' });
   });
 
+  it('setGameId updates room.gameId when phase is in-room', () => {
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    act(() => {
+      result.current.enterRoom({
+        roomId: 'K7M3X9',
+        playerId: 'player-1',
+        role: 'WHITE',
+        gameId: null,
+      });
+    });
+    act(() => {
+      result.current.setGameId('game-uuid-1');
+    });
+
+    expect(result.current.room.phase).toBe('in-room');
+    if (result.current.room.phase === 'in-room') {
+      expect(result.current.room.gameId).toBe('game-uuid-1');
+      expect(result.current.room.roomId).toBe('K7M3X9');
+      expect(result.current.room.playerId).toBe('player-1');
+      expect(result.current.room.role).toBe('WHITE');
+    } else {
+      throw new Error('expected in-room state');
+    }
+  });
+
+  it('setGameId is a no-op when phase is none', () => {
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    act(() => {
+      result.current.setGameId('game-uuid-1');
+    });
+
+    expect(result.current.room).toEqual({ phase: 'none' });
+  });
+
   it('seals the discriminated union — wrong-shape access is rejected by TS', () => {
     // Type-level test: assigning a third arm to `Identity` should fail.
     // We can't assert at runtime, so this is a compile-time check via

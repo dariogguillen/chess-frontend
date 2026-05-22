@@ -29,10 +29,11 @@ import {
 } from '../../api/games';
 import type { GameState, MoveSummary } from '../../api/games';
 import { Role } from '../../api/rooms';
-import { ConnectionState } from '../../api/wsEvents';
+import { ConnectionState, DiscoveryState } from '../../api/wsEvents';
 import type { MoveEvent } from '../../api/wsEvents';
 import { RoomPhase, useUserContext } from '../../context';
 import { useGameStomp } from '../../hooks/useGameStomp';
+import { useRoomDiscovery } from '../../hooks/useRoomDiscovery';
 
 /** The optimistic-state snapshot we keep so we can revert on POST failure. */
 type PendingSnapshot = Readonly<{
@@ -94,7 +95,7 @@ const terminalMessage = (status: GameStatus, turn: Side): string => {
  * pre-move snapshot and surfaces the mapped error in a Snackbar.
  */
 const Play = () => {
-  const { identity, room } = useUserContext();
+  const { identity, room, setGameId } = useUserContext();
   const [searchParams] = useSearchParams();
   const roomIdFromUrl = searchParams.get('roomId') || undefined;
 
@@ -200,6 +201,20 @@ const Play = () => {
     viewerCount,
     errorMessage: stompError,
   } = useGameStomp(gameId ?? null, playerId, applyOpponentMove);
+
+  // Discovery flow for Player A. Active only while we are in a room
+  // but the gameId has not yet resolved. Once `setGameId` updates the
+  // context, the `discoveryRoomId` argument flips to `null` and the
+  // hook tears itself down — the existing `getGameState` + `useGameStomp`
+  // chain takes over from there.
+  const discoveryActive = room.phase === RoomPhase.InRoom && room.gameId === null;
+  const discoveryRoomId = discoveryActive ? room.roomId : null;
+  const discoveryPlayerId = discoveryActive ? room.playerId : null;
+  const { discoveryState, errorMessage: discoveryError } = useRoomDiscovery(
+    discoveryRoomId,
+    discoveryPlayerId,
+    setGameId,
+  );
 
   /** Revert the chess.js position + rendered FEN to a pre-move snapshot. */
   const revertTo = useCallback(
@@ -472,6 +487,22 @@ const Play = () => {
       >
         <Alert severity="error" sx={{ width: '100%' }} variant="filled">
           {stompError ?? 'Live updates unavailable'}
+        </Alert>
+      </Snackbar>
+      {/*
+        Discovery error surface. Fires only when the hook's combined
+        REST + STOMP attempt terminated in an error state — typically a
+        404 on `GET /api/rooms/{roomId}`. Soft-failures (transient
+        network blips that did not promote `discoveryState` to `Error`)
+        ride on `errorMessage` alone and stay invisible until the hook
+        commits to giving up.
+      */}
+      <Snackbar
+        open={discoveryState === DiscoveryState.Error && discoveryError !== null}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" sx={{ width: '100%' }} variant="filled">
+          {discoveryError ?? 'Could not discover the game.'}
         </Alert>
       </Snackbar>
     </Container>

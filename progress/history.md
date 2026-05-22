@@ -1942,3 +1942,156 @@ in flight:
 - `notes/04-rest-room-integration.md` still references
   `VITE_API_BASE_URL` in its file map — correctly left as
   immutable historical snapshot.
+
+## 2026-05-22 — creator-game-discovery
+
+**Status:** done
+
+**Summary:** Resolved Player A's discovery gap that was
+identified at the end of feature 5. Wired the two backend
+mechanisms shipped together in `chess-backend-java` commit
+`c6de3d3 fix: room lifecycle`: REST `GET /api/rooms/{id}`
+(returns `RoomDetailsResponse` with `gameId` null while
+WAITING_FOR_PLAYER, non-null while ACTIVE) and STOMP
+`/topic/rooms/{roomId}` (broadcasts `RoomJoinedEvent` with
+`type: "ROOM_JOINED"` discriminator, sealed for future
+variants). New `useRoomDiscovery(roomId, playerId,
+onGameDiscovered)` hook mounts BOTH in parallel; closure-scoped
+`discovered` ref guards against double-fire; first non-null
+gameId wins, the other path is cleaned up. Once the gameId
+arrives, the new `setGameId` operation on UserContext updates
+`room.gameId` and the existing chain (`getGameState` +
+`useGameStomp` from features 5 and 6) takes over.
+
+The hook spins up a separate STOMP client from `useGameStomp` —
+disjoint hook lifetimes, no shared client. Cheap, simpler than
+coordinating shared lifetime.
+
+This feature is the LAST piece the frontend needs to ship a
+complete two-player flow. Once backend CORS lands (currently
+in working dir on backend, not committed), all gates open.
+
+**Verification limit:** identical posture to features 4, 5, 6 —
+local tests via MSW + mockStompClient; production end-to-end
+deferred until backend CORS commits.
+
+**Round structure (1 implementer-reviewer cycle):**
+
+Single round. Both reviewers approved on first pass.
+ui-reviewer cleared all 10 checks; regular reviewer accepted
+the implementer's race-protection scheme, two-clients
+decision, and `RoomStatus`-without-exhaustiveness trade-off as
+sound. No rework needed.
+
+**Notable decisions:**
+
+- **REST + STOMP companion pattern.** Backend explicitly
+  designed the two as complementary — STOMP for "I'm subscribed
+  when it happens", GET for "I arrived after it happened".
+  Frontend mounts both in parallel; first to deliver wins. This
+  is the standard mitigation for STOMP's fire-and-forget /
+  no-replay semantics.
+- **`discovered` ref guard (not `Promise.race`).** `Promise.race`
+  has wrong rejection semantics — it rejects on the first
+  rejection, which would mean a transient GET failure cancels
+  the STOMP path. The closure-scoped boolean ref does
+  first-WRITE-wins instead of first-resolve-wins.
+- **Two short-lived STOMP clients** (one for `useRoomDiscovery`,
+  one for `useGameStomp`). Disjoint hook lifetimes mean disjoint
+  connection lifetimes; sharing introduces coordination
+  complexity for no gain. Connections are cheap. Document this
+  trade-off in the feature note.
+- **No `playerId` STOMP header on `/topic/rooms/{roomId}`.** The
+  `ViewerCountTracker` pattern that uses the header only applies
+  to game topics (`/topic/games/{gameId}` + `/viewers`). Room
+  topics don't have the spectator concept; subscribers are by
+  definition either the creator or the new joiner.
+- **GET 404 is fatal; transient GET errors are soft.** A 404 on
+  `getRoomState` means the room doesn't exist — fail loudly with
+  a Snackbar. Anything transient (network blip, 5xx if any)
+  stays in `Discovering` so STOMP can still deliver the
+  RoomJoinedEvent. Pragmatic UX trade-off.
+- **`RoomStatus` const object without the inverse exhaustiveness
+  assertion.** Three values is low-risk; the `narrowRoomStatus`
+  switch's `default` clause throws on unknown, surfacing any
+  future drift at runtime. `GameStatus` and `ApiErrorCode` kept
+  the assertion because their value-set growth probability is
+  higher.
+- **`narrowRole` shim stays.** Backend added `@Schema(allowableValues)`
+  on `PlayerInRoom.role` (the new endpoint's player shape) but
+  NOT on `RoomResponse.role` (the POST create/join from
+  feature 4). The new `getRoomState` flow uses the literal-union
+  type directly; the create/join flows keep the runtime narrow.
+  Asymmetry documented in the feature note as known carry-over.
+- **`servers[0].url` in `openapi.json` restored to the duckdns
+  URL.** The implementer's local backend (docker compose + the
+  prebuilt jar — the live duckdns backend was unreachable from
+  the implementer's network) emits the snapshot with
+  `localhost:8080` in `servers`. Restoring to duckdns keeps
+  the committed snapshot stable across environments. Codegen
+  ignores `servers` entirely; only documentation tooling cares.
+- **`Play.tsx` hook called unconditionally with maybe-null
+  args.** React's rules of hooks forbid conditional `useXxx`
+  calls; the standard pattern is to pass `null` for "do
+  nothing" and let the hook short-circuit internally. The
+  pattern matches `useGameStomp`'s `gameId: string | null`
+  contract.
+
+**Files touched (16 files, all in 1 round):**
+
+New:
+- `src/hooks/useRoomDiscovery.ts`
+- `src/hooks/useRoomDiscovery.test.tsx` (9 tests)
+- `notes/06.5-creator-game-discovery.md`
+
+Modified:
+- `openapi.json` (re-snapshot; new path + RoomDetailsResponse + PlayerInRoom)
+- `src/api/generated/schema.ts` (regenerated)
+- `src/api/rooms.ts` (getRoomState + RoomStatus + narrowers)
+- `src/api/rooms.test.ts` (+4 tests)
+- `src/api/wsEvents.ts` (RoomJoinedEvent + RoomEventType + DiscoveryState)
+- `src/api/wsEvents.test.ts` (+4 tests)
+- `src/context/UserContext.tsx` (setGameId)
+- `src/context/UserContext.test.tsx` (+2 tests)
+- `src/pages/Play/Play.tsx` (mount useRoomDiscovery while gameId null; discovery Snackbar)
+- `src/pages/Play/Play.test.tsx` (+2 integration tests)
+- `docs/architecture.md` (REST + STOMP sections extended; new "Room discovery" subsection)
+- `CHECKPOINTS.md` (WS wire-shapes guard extended for RoomJoinedEvent)
+
+**Metrics:**
+
+- Tests: **128** (was 107; +21).
+- Initial-load surface: unchanged from feature 6.
+- Play lazy chunk: 194.34 KB (+1.48 KB vs feature 6).
+- rooms chunk: 33.70 KB (+0.91 KB).
+- No new deps.
+
+**Feature note:** `notes/06.5-creator-game-discovery.md`.
+
+**Pending post-close (deferred verifications):**
+
+Only ONE item remains gating production E2E:
+
+1. **Backend CORS** — still in working dir on
+   `chess-backend-java`, not yet committed (`CorsConfig.java`,
+   `CorsProperties.java`, `CorsConfigIT.java` untracked +
+   `WebSocketConfig.java` / `application.yml` modified). The
+   default `allowed-origin-patterns` is
+   `https://dariogguillen.github.io,http://localhost:*` —
+   exactly what the frontend needs. When the user finishes the
+   backend work and pushes, the deploy chain unlocks
+   end-to-end.
+
+The other previously-pending cross-repo item (`GET /api/rooms/{id}`)
+was resolved THIS session by backend commit `c6de3d3`.
+
+**Out-of-scope observations forwarded:**
+
+- `RoomResponse.role` (POST create/join) still lacks
+  `allowableValues`. Could become a tiny coordinated cleanup:
+  backend annotates; frontend drops `narrowRole`. Defer to a
+  future feature only if cleanup pressure justifies it.
+- ui-reviewer's pre-existing observations still standing
+  (route-titles carry-over; `ToggleButton.tsx:54` raw `style`
+  on MUI component; "Connecting to live updates" tooltip
+  polish). All pre-existing or polish-grade.
