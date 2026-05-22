@@ -189,24 +189,77 @@ describe('useRoomDiscovery', () => {
     expect(result.current.discoveryState).toBe(DiscoveryState.Discovering);
   });
 
-  it('transitions to Error on 404 ROOM_NOT_FOUND from GET', async () => {
+  it('stays in Discovering on 404 ROOM_NOT_FOUND from GET; STOMP keeps listening', async () => {
+    // Round-2 fix: a GET 404 must NOT abort the STOMP path. The
+    // backend's `RoomService.findById` was observed to 404 for rooms
+    // that demonstrably exist (the STOMP join event later fires on
+    // the same roomId). The hook must log a warning and let STOMP
+    // drive the final state.
     server.use(
       http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
         HttpResponse.json({ error: 'ROOM_NOT_FOUND', message: 'no such room' }, { status: 404 }),
       ),
     );
-    const { factory } = withMockClient();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { mock, factory } = withMockClient();
     const onDiscovered = vi.fn();
 
     const { result } = renderHook(() =>
       useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
     );
 
+    // STOMP subscription must register despite the GET 404.
     await waitFor(() => {
-      expect(result.current.discoveryState).toBe(DiscoveryState.Error);
+      expect(mock.subscriptions).toHaveLength(1);
     });
-    expect(result.current.errorMessage).toMatch(/that room does not exist/i);
+    // The warning is observable for diagnostics.
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalled();
+    });
+    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/useRoomDiscovery.*GET/);
+
+    // State stays Discovering — NOT Error — and onGameDiscovered has
+    // not fired yet.
+    expect(result.current.discoveryState).toBe(DiscoveryState.Discovering);
     expect(onDiscovered).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it('fires onGameDiscovered when GET 404s and STOMP later delivers RoomJoinedEvent', async () => {
+    // The exact scenario the user hit in manual smoke: backend GET
+    // returns 404 (backend bug, tracked separately) but STOMP later
+    // delivers the room-joined event. The hook must still fire
+    // onGameDiscovered with the event's gameId.
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
+        HttpResponse.json({ error: 'ROOM_NOT_FOUND', message: 'no such room' }, { status: 404 }),
+      ),
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { mock, factory } = withMockClient();
+    const onDiscovered = vi.fn();
+
+    renderHook(() =>
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+    );
+
+    await waitFor(() => {
+      expect(mock.subscriptions).toHaveLength(1);
+    });
+    // Wait for the GET warning to register so the 404 path has
+    // actually executed (and demonstrably did not poison STOMP).
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalled();
+    });
+
+    act(() => {
+      mock.dispatch<RoomEvent>(`/topic/rooms/${ROOM_ID}`, sampleRoomJoinedEvent());
+    });
+
+    expect(onDiscovered).toHaveBeenCalledWith(GAME_ID);
+
+    warnSpy.mockRestore();
   });
 
   it('cleans up both paths on unmount (disconnect, no late dispatches)', async () => {

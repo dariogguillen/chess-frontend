@@ -2,6 +2,13 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Local end-to-end testing
+
+For end-to-end local testing against the live backend (two browsers, real
+STOMP), see [`docs/local-e2e.md`](./docs/local-e2e.md). The Vite dev server
+proxies `/api/*` and `/ws` to `http://localhost:8080` so the frontend talks
+same-origin and CORS is out of the picture during local testing.
+
 ## Supply chain hygiene
 
 The npm dependency surface in this repo is hardened by policy. The

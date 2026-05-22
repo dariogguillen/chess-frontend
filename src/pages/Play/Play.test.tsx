@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Play from './Play';
 import { UserContextProvider } from '../../context';
@@ -12,6 +13,46 @@ import type { MockStompClient } from '../../utils/ws';
 import type { MoveEvent, RoomEvent, ViewerCountEvent } from '../../api/wsEvents';
 import { RoomEventType } from '../../api/wsEvents';
 import { GameStatus, Side } from '../../api/games';
+
+// Capture the options object passed to <Chessboard /> on each render so
+// the new Bug A/B/C tests can drive the `onPieceDrop` and `canDragPiece`
+// callbacks directly. The real board is replaced with a thin stub that
+// still renders something in the DOM tree (existing tests rely on the
+// rest of the page mounting cleanly around it).
+type ChessboardCaptureOptions = {
+  position: string;
+  onPieceDrop: (args: {
+    sourceSquare: string;
+    targetSquare: string | null;
+    piece: { isSparePiece: boolean; position: string; pieceType: string };
+  }) => boolean;
+  canDragPiece?: (args: {
+    isSparePiece: boolean;
+    piece: { pieceType: string };
+    square: string | null;
+  }) => boolean;
+  boardOrientation?: 'white' | 'black';
+};
+let lastChessboardOptions: ChessboardCaptureOptions | null = null;
+
+vi.mock('react-chessboard', () => ({
+  Chessboard: ({ options }: { options: ChessboardCaptureOptions }) => {
+    lastChessboardOptions = options;
+    return <div data-testid="chessboard-mock" />;
+  },
+}));
+
+// `useNavigate` is mocked so Bug D's test can assert the navigation
+// target without setting up a full route tree. `MemoryRouter` is still
+// used so other react-router hooks behave normally.
+const navigateMock = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
 
 // Chronological holder of every mock STOMP client built during a test.
 // Test bodies pick the one they need by inspecting `subscriptions[0].topic`
@@ -95,6 +136,8 @@ const renderWithProviders = (initialEntry: string = '/play', initialRoom?: RoomS
 beforeEach(() => {
   currentMockClient = null;
   mockClients = [];
+  lastChessboardOptions = null;
+  navigateMock.mockReset();
 });
 
 afterEach(() => {
@@ -102,6 +145,7 @@ afterEach(() => {
   // path threw before completing.
   currentMockClient = null;
   mockClients = [];
+  lastChessboardOptions = null;
 });
 
 describe('Play page', () => {
@@ -339,5 +383,141 @@ describe('Play page', () => {
 
     // Status flipped to CHECKMATE; turn is WHITE -> "Black wins!" copy.
     expect(await screen.findByRole('heading', { name: /black wins/i })).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------
+  // play-ux-fixes (feature 6.8)
+  // ---------------------------------------------------------------
+
+  it('Bug A: fires a "not your turn" Snackbar and does not POST when it is the opponent\'s turn', async () => {
+    // The local player is BLACK; the initial FEN has WHITE to move, so
+    // the first drag-attempt is "not your turn" by chess.js.
+    const inRoomBlack: RoomState = {
+      phase: RoomPhase.InRoom,
+      roomId: 'K7M3X9',
+      playerId: 'player-2',
+      role: 'WHITE', // placeholder; reassigned below to keep type clean
+      gameId: 'game-uuid-1',
+    };
+    const blackPlayer: RoomState = { ...inRoomBlack, playerId: 'player-2', role: 'BLACK' };
+
+    const submitMoveSpy = vi.fn();
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+      http.post(`${TEST_API_BASE_URL}/api/games/:id/moves`, () => {
+        submitMoveSpy();
+        return HttpResponse.json(sampleGameState(), { status: 200 });
+      }),
+    );
+
+    renderWithProviders('/play', blackPlayer);
+
+    // Wait for the initial GET so chess.js holds the canonical FEN
+    // (WHITE to move) before we drive `onPieceDrop`.
+    await waitFor(() => {
+      expect(lastChessboardOptions).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Alice$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      const result = lastChessboardOptions!.onPieceDrop({
+        sourceSquare: 'e7',
+        targetSquare: 'e5',
+        piece: { isSparePiece: false, position: 'e7', pieceType: 'bP' },
+      });
+      expect(result).toBe(false);
+    });
+
+    expect(await screen.findByText(/it is not your turn/i)).toBeInTheDocument();
+    expect(submitMoveSpy).not.toHaveBeenCalled();
+  });
+
+  it('Bug B: canDragPiece returns true for own-side pieces and false for opponent pieces', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(lastChessboardOptions).not.toBeNull();
+    });
+    const canDragPiece = lastChessboardOptions!.canDragPiece;
+    expect(canDragPiece).toBeDefined();
+
+    // Local player is WHITE — own pieces (`wP`, `wK`) are draggable,
+    // opponent pieces (`bP`, `bN`) are not.
+    expect(canDragPiece!({ isSparePiece: false, piece: { pieceType: 'wP' }, square: 'e2' })).toBe(
+      true,
+    );
+    expect(canDragPiece!({ isSparePiece: false, piece: { pieceType: 'wK' }, square: 'e1' })).toBe(
+      true,
+    );
+    expect(canDragPiece!({ isSparePiece: false, piece: { pieceType: 'bP' }, square: 'e7' })).toBe(
+      false,
+    );
+    expect(canDragPiece!({ isSparePiece: false, piece: { pieceType: 'bN' }, square: 'b8' })).toBe(
+      false,
+    );
+  });
+
+  it('Bug C: does not fire a Snackbar or POST when sourceSquare === targetSquare', async () => {
+    const submitMoveSpy = vi.fn();
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+      http.post(`${TEST_API_BASE_URL}/api/games/:id/moves`, () => {
+        submitMoveSpy();
+        return HttpResponse.json(sampleGameState(), { status: 200 });
+      }),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(lastChessboardOptions).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      const result = lastChessboardOptions!.onPieceDrop({
+        sourceSquare: 'e2',
+        targetSquare: 'e2',
+        piece: { isSparePiece: false, position: 'e2', pieceType: 'wP' },
+      });
+      expect(result).toBe(false);
+    });
+
+    // No Snackbar (any error variant) and the server never sees the move.
+    expect(screen.queryByText(/not legal/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/it is not your turn/i)).not.toBeInTheDocument();
+    expect(submitMoveSpy).not.toHaveBeenCalled();
+  });
+
+  it('Bug D: clicking the terminal-dialog button navigates to /new', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ status: 'CHECKMATE', turn: 'BLACK' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    // The terminal dialog opens once the GET resolves with a CHECKMATE
+    // status; the button it owns is the only "Continue" in the tree.
+    const continueButton = await screen.findByRole('button', { name: /continue/i });
+    const user = userEvent.setup();
+    await user.click(continueButton);
+
+    expect(navigateMock).toHaveBeenCalledWith('/new');
   });
 });

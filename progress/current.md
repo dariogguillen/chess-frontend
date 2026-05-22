@@ -1,131 +1,107 @@
 # Current session
 
-**Status:** session closed.
+**Feature:** `play-ux-fixes` (priority 6.8)
+**Status:** in_progress — plan drafted, awaiting user approval.
 
-The previous feature `creator-game-discovery` (priority 6.5)
-was closed on 2026-05-22 and is recorded in `progress/history.md`.
+## Context
 
-This was the LAST piece the frontend needed for the complete
-two-player flow. Player A's "stuck in Waiting for opponent"
-state — flagged at the end of feature 5 — is resolved: GET
-`/api/rooms/{id}` + STOMP `/topic/rooms/{roomId}` both wired,
-race-protected, cleanly handing off to the existing
-`getGameState` + `useGameStomp` chain once a gameId arrives.
+Backend shipped all three fixes (CORS X-Player-Id, RoomService.findById, broadcastRoomJoinedEvent). The full two-browser E2E flow now works against the live backend:
 
-## Frontend is fully ready for production E2E
+- ✅ Player A creates, B joins, A auto-transitions via STOMP `RoomJoinedEvent`.
+- ✅ Real-time move propagation between browsers.
+- ✅ Invalid move (e.g. light-square bishop on dark square) → Snackbar "That move is not legal."
+- ✅ Terminal detection (Checkmate) → CustomDialog on both browsers.
 
-The entire flow is implemented and locally verified:
+During the smoke the user surfaced 4 UX bugs that pre-existed but were only visible end-to-end. They're small and bundle naturally into a single feature.
 
-- Create / join room (features 4 + 5).
-- Player A waits AND DISCOVERS the gameId via either REST GET
-  or STOMP RoomJoinedEvent (feature 6.5, just closed).
-- Both players load game state via `GET /api/games/{id}`.
-- Moves via `POST /api/games/{id}/moves` with optimistic update
-  + server confirm + snapshot revert (feature 5).
-- Real-time opponent moves via STOMP `/topic/games/{gameId}`
-  with self-filter (feature 6).
-- Viewer count via `/topic/games/{gameId}/viewers` (feature 6).
-- Terminal status from server (`GameStatus.isTerminalStatus`).
-- All error codes surfaced via Snackbar with mapped messages.
-- Promotion dialog for pawn promotion moves.
+## The 4 bugs
 
-What stops production E2E from working RIGHT NOW is one item:
-backend CORS, currently in working dir but not committed.
+### Bug A — client-side turn mismatch is silent
 
-## Single remaining cross-repo gate
+In `src/pages/Play/Play.tsx` `onDrop`, chess.js checks whose turn it is. If it's the opponent's, the function returns `false` and the move is never submitted. **No Snackbar fires** because the server's `NOT_YOUR_TURN` (422) error path is what produces the Snackbar in the current code — and we never reach the server.
 
-**Backend CORS.** `git status` on `chess-backend-java` shows:
+**Fix:** before the early-return, fire a Snackbar with an info or error message ("It is not your turn"). Use the same surface as the API-error Snackbars.
 
+### Bug B — opponent pieces are draggable
+
+react-chessboard v5 has a `canDragPiece` callback (`({ piece, square }) => boolean`). Today we don't pass one, so any piece is draggable. The drag completes, drops on a target square, chess.js detects illegal (piece color mismatch), and we get the generic illegal-move Snackbar.
+
+**Fix:** pass `canDragPiece` that returns `false` when `piece.color` doesn't match the player's `Role`. Visual effect: opponent pieces don't show the grab cursor and can't be picked up.
+
+### Bug C — same-square drop is treated as illegal
+
+If the user picks up a piece and drops it back on the same square (changes mind), chess.js sees `from === targetSquare` as a malformed move. Snackbar fires unnecessarily.
+
+**Fix:** early-return `false` in `onDrop` when `sourceSquare === targetSquare`. No Snackbar, no chess.js call, no server call.
+
+### Bug D — Continue button after terminal does nothing useful
+
+The terminal-status CustomDialog currently has a single "Continue" button that only dismisses the modal. The board stays visible but unmovable. The button's `handleContinue` is a leftover TODO from feature 5:
+
+```ts
+handleContinue={() => {
+  console.warn('Play game-over dialog: not yet wired; see TODO above');
+  setOver('');
+}}
 ```
-M  src/main/java/.../config/WebSocketConfig.java
-M  src/main/resources/application.yml
-?? src/main/java/.../config/CorsConfig.java
-?? src/main/java/.../config/CorsProperties.java
-?? src/test/java/.../config/CorsConfigIT.java
-```
 
-Default `allowed-origin-patterns` in the new
-`application.yml`:
-`https://dariogguillen.github.io,http://localhost:*` — exactly
-what the frontend needs (production GH Pages origin + dev
-localhost wildcard for Vite). WebSocketConfig also modified
-(CORS for the WS upgrade in addition to REST).
+**Fix:** replace with a meaningful post-game action. Three options for the implementer to pick:
 
-When you commit + push + deploy backend, the full flow comes
-online:
+1. **"Continue" stays as label, but action becomes `navigate('/new')`** — minimal label change, the click does what makes sense.
+2. **Two buttons: "New Game" + "Home"** — more explicit, slightly bigger surface area.
+3. **Single button renamed to "New Game"** with `navigate('/new')` — clearest action verb.
 
-1. ✅ Backend STOMP (shipped, feature 6's backend dep)
-2. ✅ Backend `GET /api/rooms/{id}` + `/topic/rooms/{roomId}`
-   (shipped, feature 6.5's backend dep — commit `c6de3d3`)
-3. ⏳ Backend CORS (working dir, last gate)
-4. ✅ Frontend `creator-game-discovery` (closed this session)
-5. ✅ Frontend deploy workflow green
-6. ✅ `VITE_BACKEND_URL` set to `https://chess-backend.duckdns.org`
-   in deploy workflow (set in feature 6)
+Recommendation: option 3 (single "New Game" button → `/new`). Simplest, communicates the action, matches user intent (almost always wants to start another game). The "Home" button is optional — the drawer already has Home navigation, so it's redundant.
 
-After step 3, the production smoke is:
+## Approach
 
-- Browser 1: open the deployed SPA, create a room, share link.
-- Browser 2: join via the link.
-- Both browsers reach `/play` with the same gameId.
-- Both browsers see each other's moves in real time.
-- Spectator count visible when a third party visits.
-- All error paths (ILLEGAL_MOVE, NOT_YOUR_TURN, etc.) surface
-  in Snackbars.
+### `Play.tsx` changes
 
-## Feature_list state
+Four small edits to the same file:
 
-| Priority | Status     | Feature                       |
-| -------- | ---------- | ----------------------------- |
-| 0 - 3.94 | done       | (15 prior features)           |
-| 4        | done       | rest-room-integration         |
-| 5        | done       | rest-game-integration         |
-| 6        | done       | stomp-live-updates            |
-| 6.5      | done       | creator-game-discovery        |
-| 7        | pending    | e2e-playwright                |
-| 8        | pending    | hosting-migration             |
-| 9        | pending    | readme-polish                 |
+1. **Snackbar source-of-truth state for turn mismatch.** Today there's `apiError` state for the existing Snackbar. Add a parallel `turnError` state (or reuse `apiError` with a string-only override; implementer picks).
+2. **`canDragPiece` callback** added to the Chessboard options. Reads `role` from the in-room context.
+3. **`onDrop` early-return on same-square.**
+4. **Terminal dialog `handleContinue`** rewired to call `useNavigate()`'s `navigate('/new')`. Also clear `setOver('')` and any related local state (the user is leaving this page).
 
-18 done / 0 in_progress / 3 pending.
+### Tests
 
-## Mientras esperamos CORS
+New tests in `src/pages/Play/Play.test.tsx`:
 
-Las próximas tres pending features no dependen del backend:
+- Bug A: simulate `onDrop` when it's the opponent's turn → assert Snackbar visible with the expected message; no API call made (use MSW handler that fails the test if invoked, or verify via the mocked client).
+- Bug B: render the Chessboard with `canDragPiece` returning false; assert by checking that the prop is plumbed correctly. (Visual cursor not unit-testable; the prop-plumbing test is the proxy.)
+- Bug C: simulate `onDrop` with `sourceSquare === targetSquare` → assert no Snackbar, no API call.
+- Bug D: trigger terminal status, click "New Game" in the dialog → assert `navigate('/new')` called (mocking react-router's navigation).
 
-- **Feature 7 `e2e-playwright`** — install Playwright, config,
-  smoke tests. La acceptance "happy path of a two-player
-  game" idealmente espera backend live, pero el setup +
-  smoke tests pueden hacerse ahora.
-- **Feature 8 `hosting-migration`** — evaluación / ADR de
-  Vercel / Cloudflare Pages vs GH Pages.
-- **Feature 9 `readme-polish`** — pulir el README como
-  artefacto de portfolio.
+### Files touched
 
-Adicionales del carry-over (no en feature_list todavía):
+Just two:
 
-- `local-e2e-runbook` — docs feature, cómo correr backend +
-  frontend en paralelo localmente.
-- `vite-dev-proxy` — `vite.config.ts` `server.proxy` para
-  `/api` y `/ws`. Removería el requirement de CORS para
-  testing local.
-- `ux-polish-pass` — route-titles + document-title-polish
-  ("Joining…" label) + Connecting tooltip.
-- `harness-tooling-pass` — `init-sh-lockfile-sync-check` +
-  `init-sh-stale-install-guard`.
-- `roomresponse-role-narrowing-cleanup` (cross-repo) — backend
-  agrega allowableValues a `RoomResponse.role`; frontend dropea
-  `narrowRole` shim. Tiny.
+- `src/pages/Play/Play.tsx` (modify)
+- `src/pages/Play/Play.test.tsx` (add tests)
 
-## Carry-over debt (unchanged)
+No new files. No new deps. No schema changes. No CHECKPOINTS changes.
 
-- `docs/conventions.md` folder-layout still references
-  `src/utils/api/types.ts` (now `src/api/`). Pre-existing.
-- `index.html`: favicon + og:image URLs hardcode
-  `/chess-frontend/`; dev mode doubles the prefix.
-- 8 `react-refresh/only-export-components` warnings
-  (non-blocking; pre-existing).
-- `src/components/ToggleButton/ToggleButton.tsx:54`
-  `style={{ display: 'block' }}` should be `sx`.
-  Pre-existing.
-- `// TODO(feature-4+): close room via REST` in Play.tsx
-  terminal-status dialog — deferred.
+## Verification
+
+- `./init.sh` green.
+- 133 existing tests pass + ~4 new = 137.
+- Bundle delta zero (or negligible — small added strings).
+- Manual smoke: the user will validate by re-running the 4 scenarios in the local browser after the fix.
+
+## Concepts to highlight in the feature note
+
+Small feature, brief note. Worth covering:
+
+- **client-side validation + server-side authority pattern:** the cliente has redundant checks for UX speed (turn mismatch, same-square) while the server remains the source of truth. The Snackbar message comes from the client's check because the server never sees the request — and that's correct.
+- **react-chessboard's `canDragPiece` callback:** declarative way to restrict drag behavior; compare with imperatively rejecting in `onDrop` (which still drags visually).
+- **Terminal-state navigation pattern:** end-of-game flow that doesn't get stuck on a visible-but-unmovable board.
+
+## Out-of-scope
+
+- **Room cleanup on game-over (close room via REST):** still deferred. The TODO marker in the dialog handler stays referencing feature 4+ (room lifecycle). Closing the room would be a backend cross-repo coordination if/when relevant.
+- **Game replay or move history UI:** not in scope; chess.js has the moves locally and the server has them in GameStateResponse, but rendering them is a future feature.
+
+## Cross-repo
+
+Nothing. This feature is purely frontend. The backend bugs from the last session are all resolved.

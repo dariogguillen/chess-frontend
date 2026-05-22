@@ -319,6 +319,38 @@
     ]
   },
   {
+    "id": "vite-dev-proxy",
+    "title": "Vite dev server proxy for /api and /ws + local E2E runbook",
+    "description": "Configure Vite dev server proxy so `/api/*` and `/ws` requests from the dev frontend (localhost:5173) go same-origin through Vite to the backend (localhost:8080), bypassing the browser CORS preflight entirely. Necessary today because backend CorsConfig.java limits allowedHeaders to Content-Type and Accept, but the frontend sends X-Player-Id on POST /api/games/{id}/moves — the preflight would fail until backend adds the header. The proxy is dev-only; production builds keep using VITE_BACKEND_URL set in the deploy workflow (pointing at chess-backend.duckdns.org). Cross-repo flag to backend: add X-Player-Id (and ideally allow-all or a future-extensible list) to allowedHeaders in CorsConfig.java for production E2E to work over CORS.",
+    "status": "done",
+    "priority": 6.7,
+    "acceptance": [
+      "vite.config.ts adds server.proxy with /api → http://localhost:8080 and /ws → ws://localhost:8080 (with ws: true for WebSocket upgrade).",
+      "config.default.ts handles dev mode: when import.meta.env.DEV is true and VITE_BACKEND_URL is unset, backendUrl resolves to empty string so REST + WS requests are same-origin and flow through the Vite proxy. Production / explicit VITE_BACKEND_URL behavior unchanged.",
+      "config.default.test.ts updated to cover the new dev-mode branch and existing prod/explicit behavior.",
+      "docs/local-e2e.md (new) — runbook documenting: (a) bring up backend (docker compose for Postgres + Redis + Spring Boot via mvnw spring-boot:run or jar), (b) bring up frontend (npm run dev), (c) two-browser smoke flow for create / join / move / opponent-move-sync / viewer-count / terminal-status, (d) which env vars to set/unset in each case.",
+      "README.md gains a one-liner pointer to docs/local-e2e.md under the development setup section.",
+      "./init.sh green end-to-end. 128 existing tests pass (config.default.test.ts may grow by 1-2 tests).",
+      "Cross-repo flag (NOT in this feature): backend should add X-Player-Id to CorsConfig.java allowedHeaders for production E2E to work directly over CORS without the proxy. Documented in progress/current.md cross-repo section."
+    ]
+  },
+  {
+    "id": "play-ux-fixes",
+    "title": "Play page UX polish: turn feedback, draggable restriction, idle drop, post-terminal action",
+    "description": "Four small UX bugs surfaced during the user manual smoke test against the live backend (2026-05-22, after vite-dev-proxy round 2 closed): (A) attempting to move when it is not your turn is silently rejected — chess.js client-side check blocks the submit before reaching the backend, so no Snackbar fires. (B) Opponent pieces are draggable; the drag fails on drop with the generic illegal-move Snackbar, when it should not be possible to drag them at all. (C) Dropping a piece on its source square (changing your mind) triggers an illegal-move Snackbar because chess.js treats from === to as malformed. (D) After checkmate the terminal CustomDialog has a single Continue button that only dismisses the modal, leaving the board visible and unmovable — a leftover TODO from feature 5 that needs a real post-game action.",
+    "status": "in_progress",
+    "priority": 6.8,
+    "acceptance": [
+      "Bug A — client-side turn mismatch: src/pages/Play/Play.tsx onDrop fires a Snackbar with a friendly message (e.g. \"It is not your turn\") when chess.turn() does not match the local player's side. The fail-fast return false stays so we do not submit; the Snackbar surfaces the reason. Same message tone as the existing error-Snackbar pattern (severity info or error; implementer picks consistent with the API-error Snackbars).",
+      "Bug B — opponent pieces not draggable: the Chessboard options include canDragPiece (react-chessboard v5 callback signature ({ piece, square }) => boolean) that returns false when piece.color does not match the local player's Role. Visually verifiable: opponent piece cursor is not the grab cursor.",
+      "Bug C — same-square drop: onDrop early-returns false if sourceSquare === targetSquare; no Snackbar, no server call, no chess.js move attempt.",
+      "Bug D — post-terminal action: replace the terminal-status CustomDialog's single Continue button with a meaningful action. Options the implementer picks from: (1) Continue → navigate(\"/new\") with a quick state cleanup. (2) Two buttons: \"New Game\" → navigate(\"/new\"), \"Home\" → navigate(\"/home\"). (3) Same single button but renamed to \"New Game\" with navigate(\"/new\"). Choice driven by minimum-diff principle; the user's next action after game-over is almost always to start another game.",
+      "Tests: ~4 new tests in src/pages/Play/Play.test.tsx covering each bug case. Existing 133 tests still pass.",
+      "Bundle delta minimal; no new deps; no schema changes.",
+      "./init.sh green end-to-end."
+    ]
+  },
+  {
     "id": "e2e-playwright",
     "title": "Playwright end-to-end test suite",
     "description": "Introduce Playwright for end-to-end tests covering critical user journeys (create room, share, join, play a few moves, see live updates). Add a CI job that runs Playwright against a built dev server. Reference the anthropics/skills/webapp-testing skill for patterns where applicable.",

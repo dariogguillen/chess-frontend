@@ -14,8 +14,8 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Chessboard, type PieceDropHandlerArgs } from 'react-chessboard';
-import { useSearchParams } from 'react-router-dom';
+import { Chessboard, type PieceDropHandlerArgs, type PieceHandlerArgs } from 'react-chessboard';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
 import { PromotionDialog } from '../../components/PromotionDialog';
 import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
@@ -97,6 +97,7 @@ const terminalMessage = (status: GameStatus, turn: Side): string => {
 const Play = () => {
   const { identity, room, setGameId } = useUserContext();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const roomIdFromUrl = searchParams.get('roomId') || undefined;
 
   // Effective room id: the in-room context arm wins. URL query is a
@@ -322,6 +323,12 @@ const Play = () => {
       // dropped off the board — reject silently.
       if (targetSquare === null) return false;
 
+      // Bug C: dropping a piece on the same square is "I changed my
+      // mind", not an illegal move. Bail before chess.js sees it (which
+      // would otherwise treat `from === to` as malformed and surface a
+      // generic illegal-move Snackbar).
+      if (sourceSquare === targetSquare) return false;
+
       // Gate on the in-room invariants. Without these the move cannot
       // be sent and we must not optimistically update either.
       if (gameId === null || gameId === undefined || playerId === null || role === null) {
@@ -330,8 +337,17 @@ const Play = () => {
 
       // Local turn check via chess.js: `chess.turn()` returns 'w'/'b';
       // role is `Role.White | Role.Black`. Match on first letter.
+      //
+      // Bug A: this branch used to silently return false, leaving the
+      // user wondering why the drag did nothing. The server's
+      // `NOT_YOUR_TURN` (422) response is what fires the Snackbar in the
+      // normal path — but we never reach the server here. Surface the
+      // same user-facing message client-side via the existing Snackbar.
       const expected = role === Role.White ? 'w' : 'b';
-      if (chess.turn() !== expected) return false;
+      if (chess.turn() !== expected) {
+        setErrorMessage(messageFor(ApiErrorCode.NotYourTurn));
+        return false;
+      }
 
       const from = sourceSquare as Square;
       const to = targetSquare as Square;
@@ -367,6 +383,28 @@ const Play = () => {
       return true;
     },
     [chess, gameId, playerId, role, sendMove],
+  );
+
+  /**
+   * Bug B: restrict drag to the local player's own pieces. The
+   * `canDragPiece` callback is invoked per drag-start by react-chessboard
+   * v5 with the piece data `{ pieceType, ... }`. `pieceType` is the
+   * camel-cased FEN code, e.g. `'wP'`, `'bK'` — the first character is
+   * the color. We compare against the in-room `Role` ('WHITE'/'BLACK')
+   * by mapping role to the corresponding `'w'`/`'b'` letter.
+   *
+   * Returning false makes opponent pieces non-draggable (no grab cursor),
+   * which avoids the prior failure mode where the drag completed and
+   * chess.js rejected the resulting move with the generic illegal-move
+   * Snackbar.
+   */
+  const canDragPiece = useCallback(
+    ({ piece }: PieceHandlerArgs): boolean => {
+      if (role === null) return false;
+      const expected = role === Role.White ? 'w' : 'b';
+      return piece.pieceType[0] === expected;
+    },
+    [role],
   );
 
   const opponentDisplayName: string | undefined = useMemo(() => {
@@ -408,6 +446,7 @@ const Play = () => {
               options={{
                 position: fen,
                 onPieceDrop: onDrop,
+                canDragPiece,
                 boardOrientation,
                 allowDrawingArrows: true,
               }}
@@ -447,9 +486,15 @@ const Play = () => {
           gameState !== null ? terminalMessage(gameState.status, gameState.turn) : 'Game over'
         }
         handleContinue={() => {
-          // TODO(feature-4+): close room via REST. The legacy realtime
-          // close-room emit has been removed.
+          // Bug D: the previous handler dismissed the dialog and left
+          // the user staring at a frozen board. The user almost always
+          // wants to start a new game next, so navigate to `/new`. The
+          // local dialog state is reset defensively — the page is about
+          // to unmount, but a future reuse of `<Play />` should not
+          // inherit a stale terminal flag. Room cleanup via REST is
+          // still TODO(feature-4+).
           setTerminalDialogOpen(false);
+          navigate('/new');
         }}
       />
       <Snackbar

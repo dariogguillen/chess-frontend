@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ApiError, ApiErrorCode, messageFor } from '../api/errors';
 import { getRoomState } from '../api/rooms';
 import { DiscoveryState, RoomEventType } from '../api/wsEvents';
 import type { RoomEvent } from '../api/wsEvents';
@@ -54,6 +53,19 @@ export type UseRoomDiscoveryOptions = Readonly<{
  *   short-circuit on the first REJECTION too — wrong semantics for
  *   this flow, where one path failing is fine as long as the other
  *   succeeds).
+ * - **STOMP is canonical; GET is a companion.** The STOMP topic is
+ *   the source of truth for the `WAITING_FOR_PLAYER → ACTIVE`
+ *   transition. The GET only exists to cover the narrow window where
+ *   the second player joined before our subscription registered.
+ *   Therefore a GET failure — including a 404 — is NEVER fatal:
+ *   STOMP may still deliver the join event. We log a warning so the
+ *   transient is visible in DevTools but the hook stays in
+ *   `Discovering` and lets the STOMP outcome drive the final state.
+ *   The only path to `Error` is a STOMP connection failure surfaced
+ *   by the factory's `onError`. (Edge case: if BOTH GET fails AND
+ *   STOMP fails to connect, the user sits in `Discovering` until they
+ *   refresh — the page-level error UI catches this via a separate
+ *   surface.)
  *
  * STOMP subscribe carries NO `playerId` header. The backend's
  * `ViewerCountTracker` self-exclusion logic only applies to
@@ -143,11 +155,13 @@ export const useRoomDiscovery = (
         url,
         reconnectDelay: 5000,
         onError: (err) => {
-          // STOMP transport errors do not fail the whole flow — the
-          // GET path may still complete. We surface the message via
-          // the state cell only if GET also fails (handled in the
-          // GET path below).
+          // STOMP is the canonical discovery path; a transport error
+          // here means the room-join event will never arrive. Promote
+          // to `Error` so the page surface can react. (Round 2: this
+          // is the ONLY path that can lead to `Error` now — GET
+          // failures, including 404, are soft per the round-2 fix.)
           if (cancelled || discovered) return;
+          setDiscoveryState(DiscoveryState.Error);
           setErrorMessage(err instanceof Error ? err.message : String(err));
         },
       });
@@ -162,9 +176,10 @@ export const useRoomDiscovery = (
         });
       } catch (cause) {
         if (cancelled || discovered) return;
-        // STOMP failure alone is not fatal; the GET path may still
-        // resolve. Stash the message; the GET branch promotes the
-        // state to `Error` only if its own attempt also fails.
+        // STOMP connect rejected — same treatment as a transport
+        // error from the factory's `onError`: this path was the
+        // canonical one and it failed, so promote to `Error`.
+        setDiscoveryState(DiscoveryState.Error);
         setErrorMessage(cause instanceof Error ? cause.message : String(cause));
       }
     };
@@ -180,17 +195,19 @@ export const useRoomDiscovery = (
         // terminal — we keep waiting on STOMP for the join event.
       } catch (cause) {
         if (cancelled || discovered) return;
-        // A 404 is fatal — the room itself does not exist; the STOMP
-        // topic, even if reachable, will never broadcast for it.
-        // Network / unknown errors are non-fatal: STOMP may still
-        // deliver the event so we only stash the message.
-        const code = cause instanceof ApiError ? cause.code : ApiErrorCode.UnknownError;
-        if (code === ApiErrorCode.RoomNotFound) {
-          setDiscoveryState(DiscoveryState.Error);
-          setErrorMessage(messageFor(code));
-        } else {
-          setErrorMessage(messageFor(code));
-        }
+        // Round 2: ALL GET failures are soft. A 404 was previously
+        // treated as fatal on the assumption that "no room → STOMP
+        // will never broadcast"; the user's smoke test showed this
+        // backend's `RoomService.findById` returns 404 for rooms that
+        // demonstrably exist (the STOMP join event later fires on the
+        // same `roomId`). The treatment of 404 as fatal cancelled the
+        // STOMP setup and left the creator stuck on "Waiting for
+        // opponent" forever. We now log the failure (visible in
+        // DevTools) and let STOMP drive the final state.
+        console.warn(
+          `[useRoomDiscovery] GET /api/rooms/${roomId} failed; STOMP path continues.`,
+          cause,
+        );
       }
     };
 

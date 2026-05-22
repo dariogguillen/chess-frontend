@@ -2095,3 +2095,186 @@ was resolved THIS session by backend commit `c6de3d3`.
   (route-titles carry-over; `ToggleButton.tsx:54` raw `style`
   on MUI component; "Connecting to live updates" tooltip
   polish). All pre-existing or polish-grade.
+
+## 2026-05-22 — vite-dev-proxy
+
+**Status:** done
+
+**Summary:** Configured Vite dev server proxy so `/api/*` and
+`/ws` requests from the dev frontend (`localhost:5173`) flow
+same-origin through Vite to the backend (`localhost:8080`),
+bypassing the browser CORS preflight entirely. Necessary
+because backend `CorsConfig.java` limits `allowedHeaders` to
+`Content-Type, Accept` — the frontend's `X-Player-Id` header
+on `POST /api/games/{id}/moves` triggers a preflight that the
+backend would reject. The proxy is dev-only; production builds
+keep using `VITE_BACKEND_URL` set in the deploy workflow.
+
+Also added `docs/local-e2e.md` — a complete runbook for
+bringing up the backend stack (docker compose) plus the
+frontend dev server and walking the two-browser smoke flow.
+
+This feature is the LAST piece before manual E2E smoke
+testing can happen against the real backend. (And during that
+smoke testing, three new backend bugs surfaced — see
+"Cross-repo bugs discovered during smoke" below.)
+
+**Verification limit:** the implementer ran the smoke flow
+end-to-end via `curl` (no GUI in the agent environment),
+verifying the full REST + WS handshake path through the
+proxy. Browser-gesture smoke (Snackbar, promotion dialog,
+terminal status, real-time STOMP propagation) was the user's
+manual verification. The user's first attempts surfaced two
+bugs (one in the runbook, one in `useRoomDiscovery`) that
+became Round 2.
+
+**Round structure (2 implementer-reviewer cycles + user smoke):**
+
+- **Round 1:** initial implementation + Vite proxy + config
+  consolidation + runbook v1 + feature note. Both reviewers
+  approved.
+- **User smoke (round 1):** failed. Surfaced two bugs:
+  1. `docs/local-e2e.md` instructed running
+     `./mvnw spring-boot:run` AFTER `docker compose up -d`,
+     but the backend's compose has an `app` service that
+     already binds 8080. The maven attempt got "port already
+     in use".
+  2. `useRoomDiscovery`'s GET 404 was treated as fatal,
+     aborting the in-flight STOMP setup. Combined with a
+     separate backend bug (`RoomService.findById` returning
+     404 for ACTIVE rooms — see below), Player A never
+     subscribed to STOMP at all.
+- **Round 2:** doc-only fix to the runbook (two workflows: A —
+  compose-only, recommended; B — compose deps + mvnw, for
+  backend dev) plus a small code fix making the GET 404 path
+  soft (warning logged, state stays `Discovering`, STOMP
+  keeps listening). Both reviewers approved.
+- **User smoke (round 2):** STOMP layer now confirmed working
+  end-to-end (CONNECT, CONNECTED, SUBSCRIBE all visible via
+  the browser's DevTools Network → WS → Messages tab; backend
+  stats confirm sessions). But A still does not transition
+  when B joins — the backend's `broadcastRoomJoinedEvent` is
+  silently failing to deliver to subscribers (third backend
+  bug discovered; see below).
+
+**Notable decisions:**
+
+- **`VITE_BACKEND_URL` default `''` in dev mode.** When
+  `import.meta.env.DEV === true` and the env var is unset,
+  resolve to empty string so REST + WS go same-origin. Vite
+  proxy intercepts the path. In prod (or with explicit env)
+  the value is used as the absolute URL. Empty-string env is
+  treated as unset (same effect as missing). Documented in
+  `config.default.ts` block comment + behaviour matrix in the
+  feature note.
+- **`.env.test` pins `VITE_BACKEND_URL=http://localhost:8080`**
+  for the test runner. Required because the existing test
+  suite assumes absolute URLs via `TEST_API_BASE_URL` and the
+  singleton `apiClient`; touching that would balloon scope.
+  Pinning the env via `.env.test` is one new file, zero
+  changes to existing test code, and the new dev-mode branch
+  is still covered explicitly by `vi.stubEnv` in
+  `config.default.test.ts`.
+- **`changeOrigin: true` on both proxy entries.** Defensive
+  against any future host-name check on the backend; cost is
+  zero. Currently the backend's STOMP endpoint uses
+  `allowedOriginPatterns` (matched against `http://localhost:*`)
+  so the rewrite doesn't matter today, but the safety net is
+  cheap.
+- **`ws: true` on the `/ws` proxy entry.** Mandatory for the
+  WebSocket upgrade — without it, the Vite proxy treats the
+  request as plain HTTP and the upgrade fails. Verified by
+  the implementer with a raw `curl` upgrade handshake.
+- **Round 2: `useRoomDiscovery` GET 404 → soft.** Reverted
+  the round-1 "404 fatal" decision because it caused the
+  STOMP path to be cancelled prematurely. New policy: STOMP
+  connection error is the SOLE feeder of the hook's `Error`
+  state. GET 404 (and any other transient GET failure) logs
+  a `console.warn` and lets STOMP continue. Trade-off: if
+  BOTH paths fail the hook sits in `Discovering` forever —
+  acceptable because both paths failing means backend
+  unreachable, which surfaces elsewhere.
+
+**Cross-repo bugs discovered during smoke (CRITICAL for backend):**
+
+The user's smoke test against the live backend surfaced THREE
+backend bugs that prevent end-to-end production E2E from
+working. None of them are in scope of this feature; all are
+flagged in `progress/current.md` cross-repo section.
+
+1. **`CorsConfig.allowedHeaders` is too narrow.** Today it lists
+   `Content-Type, Accept`. The frontend sends `X-Player-Id` on
+   move submission; the browser preflight checks for it in
+   `Access-Control-Allow-Headers` and rejects the real request
+   when it's absent. Fix: add `X-Player-Id` (or, preferred, use
+   `*` since `allowCredentials: false` keeps the security profile
+   conservative). **Gates production direct CORS.** The dev
+   proxy shipped in this feature is the local workaround.
+
+2. **`RoomService.findById` returns 404 for ACTIVE rooms.** The
+   service-layer query filters out rooms that have already
+   transitioned past `WAITING_FOR_PLAYER`. The controller for
+   `GET /api/rooms/{id}` is correct (verified the
+   `RoomDetailsResponse` JavaDoc says ACTIVE rooms return their
+   `gameId`), but the service-layer lookup throws away the row.
+   Fix: audit `RoomService.findById` lifecycle handling.
+   **Gates the GET fallback in `creator-game-discovery`** —
+   mitigated by this feature's round 2 fix (GET 404 is now
+   soft), so the STOMP path can still deliver. Becomes
+   critical again if STOMP also fails for any reason.
+
+3. **`broadcastRoomJoinedEvent` does not reach subscribers.**
+   Discovered in the round 2 smoke. `RoomService.joinRoom` logs
+   "Room joined" then calls `broadcastRoomJoinedEvent`; the
+   broadcast method's try/catch logs "Failed to broadcast"
+   on any `RuntimeException`. The backend logs show "Room
+   joined" but NEITHER "Failed to broadcast" NOR any indication
+   that `convertAndSend` ran. Yet the frontend (A) is
+   confirmed-subscribed to `/topic/rooms/{roomId}` via the
+   browser's DevTools Network → WS → Messages tab. A never
+   receives the MESSAGE. Fix: add diagnostic logging around
+   the broadcast call to identify where the chain breaks
+   (method entered? `convertAndSend` returned normally?). May
+   be a SimpleBroker subscriber-routing issue, a thread-context
+   issue (transaction not committed before send), or a
+   serialization quirk in `RoomJoinedEvent` that doesn't throw
+   but emits an empty payload. **Gates the canonical creator
+   discovery path entirely** — this is the most critical of
+   the three.
+
+**Files touched (across 2 rounds, 7 files):**
+
+New:
+- `.env.test`
+- `docs/local-e2e.md`
+- `notes/06.7-vite-dev-proxy.md`
+
+Modified:
+- `vite.config.ts` (server.proxy block)
+- `src/utils/config.default.ts` (dev-mode + empty wsUrl)
+- `src/utils/config.default.test.ts` (7 tests)
+- `src/hooks/useRoomDiscovery.ts` (round 2 GET 404 soft)
+- `src/hooks/useRoomDiscovery.test.tsx` (round 2 tests updated)
+- `README.md` (one-line pointer)
+
+**Metrics:**
+
+- Tests: **133** (was 128; +5 — config.default +4, useRoomDiscovery +1).
+- Bundle: dev-only proxy, zero production bundle delta.
+- No new deps.
+
+**Feature note:** `notes/06.7-vite-dev-proxy.md`.
+
+**Pending post-close (deferred verifications):**
+
+The full two-browser smoke flow remains blocked by backend
+bug #3 (broadcastRoomJoinedEvent not delivering). The
+frontend side is correctly implementing the contract; the
+user is taking the three flagged bugs to backend.
+
+**Out-of-scope observations forwarded:**
+
+- The "Connecting to live updates" tooltip polish suggestion
+  from the round-1 ui-reviewer (carry-over from feature 6)
+  still standing.
+- All older carry-over items unchanged.
