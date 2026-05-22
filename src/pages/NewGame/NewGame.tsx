@@ -38,21 +38,26 @@ const DEFAULT_DISPLAY_NAME = 'Guest';
  */
 const NewGame = () => {
   const navigate = useNavigate();
-  const { identity, position, opponent, setIdentity, setPosition, setOpponent, enterRoom } =
-    useUserContext();
+  const { identity, opponent, setIdentity, setOpponent, enterRoom } = useUserContext();
 
   const [time, setTime] = useState<Time>(Time.None);
   const [join, setJoin] = useState(false);
   const [roomIdInput, setRoomIdInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // `position` is a UI-only preference now — the backend assigns sides
+  // (White to room-creator, Black to joiner) and surfaces the result via
+  // `room.role` on the in-room arm of `UserContext`. The toggle below
+  // remains as a decorative control while we leave headroom for a future
+  // "match me as Black" feature.
+  const [position, setLocalPosition] = useState<Position>(Position.White);
 
   const handleOpponent = (_event: MouseEvent<HTMLElement>, newOpponent: Opponent | null) => {
     if (newOpponent !== null) setOpponent(newOpponent);
   };
 
   const handlePosition = (_event: MouseEvent<HTMLElement>, newPos: Position | null) => {
-    if (newPos !== null) setPosition(newPos);
+    if (newPos !== null) setLocalPosition(newPos);
   };
 
   const handleJoin = (_event: ChangeEvent<HTMLInputElement>, newValue: boolean) => {

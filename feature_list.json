@@ -272,7 +272,7 @@
     "id": "rest-game-integration",
     "title": "REST integration for game state and moves",
     "description": "Wire the game page to the backend's POST /api/games/{id}/moves and GET /api/games/{id}. Send X-Player-Id header on move submissions. Display server status (FEN, turn, status) instead of client-side chess.js authority. Keep chess.js for legal-move highlighting as UX aid only.",
-    "status": "pending",
+    "status": "done",
     "priority": 5,
     "acceptance": [
       "src/utils/api/ exposes typed submitMove() and getGameState() functions.",

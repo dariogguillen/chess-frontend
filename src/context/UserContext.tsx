@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useState } from 'react
 import type { ReactNode } from 'react';
 import { Role } from '../api/rooms';
 import type { RoomResponse } from '../api/rooms';
-import { Opponent, Position } from '../pages/NewGame/utils';
+import { Opponent } from '../pages/NewGame/utils';
 
 /**
  * Identity discriminant values. The const-object + derived-type pattern
@@ -68,18 +68,22 @@ export type RoomState =
 /**
  * Application user state surfaced via context.
  *
- * `identity` is one discriminated union; `room` is another. `position`
- * and `opponent` are page-local-ish preferences set on NewGame and read
- * on Play; they survive navigation, which is why they live here rather
- * than in URL state.
+ * `identity` is one discriminated union; `room` is another. `opponent`
+ * is a page-local-ish preference set on NewGame; it survives navigation,
+ * which is why it lives here rather than in URL state.
+ *
+ * Legacy `position` (a `'white' | 'black'` mirror of the assigned side)
+ * was removed in feature 5: it duplicated `room.role` (which carries
+ * the server's authoritative assignment as `Role.White`/`Role.Black`),
+ * and keeping two sources of the same fact invited drift. Consumers
+ * that need "which side am I?" now read `room.role` from the in-room
+ * arm.
  */
 export type UserContextValue = Readonly<{
   identity: Identity;
-  position: Position;
   opponent: Opponent;
   room: RoomState;
   setIdentity: (identity: Identity) => void;
-  setPosition: (position: Position) => void;
   setOpponent: (opponent: Opponent) => void;
   /**
    * Promote `room` to the `in-room` arm from a server `RoomResponse`.
@@ -104,8 +108,6 @@ export type UserContextProviderProps = Readonly<{
   children: ReactNode;
   /** Initial identity. Defaults to a guest with an empty display name. */
   initialIdentity?: Identity;
-  /** Initial board side. Defaults to White. */
-  initialPosition?: Position;
   /** Initial opponent type. Defaults to Friend. */
   initialOpponent?: Opponent;
   /** Initial room state. Defaults to `{ phase: 'none' }`. */
@@ -118,17 +120,14 @@ const defaultRoom: RoomState = { phase: RoomPhase.None };
 export const UserContextProvider = ({
   children,
   initialIdentity = defaultGuest,
-  initialPosition = Position.White,
   initialOpponent = Opponent.Friend,
   initialRoom = defaultRoom,
 }: UserContextProviderProps) => {
   const [identity, setIdentityState] = useState<Identity>(initialIdentity);
-  const [position, setPositionState] = useState<Position>(initialPosition);
   const [opponent, setOpponentState] = useState<Opponent>(initialOpponent);
   const [room, setRoomState] = useState<RoomState>(initialRoom);
 
   const setIdentity = useCallback((next: Identity) => setIdentityState(next), []);
-  const setPosition = useCallback((next: Position) => setPositionState(next), []);
   const setOpponent = useCallback((next: Opponent) => setOpponentState(next), []);
 
   const enterRoom = useCallback((response: RoomResponse) => {
@@ -148,26 +147,14 @@ export const UserContextProvider = ({
   const value = useMemo<UserContextValue>(
     () => ({
       identity,
-      position,
       opponent,
       room,
       setIdentity,
-      setPosition,
       setOpponent,
       enterRoom,
       leaveRoom,
     }),
-    [
-      identity,
-      position,
-      opponent,
-      room,
-      setIdentity,
-      setPosition,
-      setOpponent,
-      enterRoom,
-      leaveRoom,
-    ],
+    [identity, opponent, room, setIdentity, setOpponent, enterRoom, leaveRoom],
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

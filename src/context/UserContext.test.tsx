@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { UserContextProvider, useUserContext } from './UserContext';
 import type { Identity } from './UserContext';
-import { Opponent, Position } from '../pages/NewGame/utils';
+import { Opponent } from '../pages/NewGame/utils';
 
 describe('UserContext', () => {
   it('throws when useUserContext is called outside a provider', () => {
@@ -17,7 +17,6 @@ describe('UserContext', () => {
 
     expect(result.current.identity.kind).toBe('guest');
     expect(result.current.identity.displayName).toBe('Guest');
-    expect(result.current.position).toBe(Position.White);
     expect(result.current.opponent).toBe(Opponent.Friend);
     expect(result.current.room).toEqual({ phase: 'none' });
   });
@@ -46,17 +45,15 @@ describe('UserContext', () => {
     }
   });
 
-  it('updates position and opponent through setters', () => {
+  it('updates opponent through the setter', () => {
     const { result } = renderHook(() => useUserContext(), {
       wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
     });
 
     act(() => {
-      result.current.setPosition(Position.Black);
       result.current.setOpponent(Opponent.Bot);
     });
 
-    expect(result.current.position).toBe(Position.Black);
     expect(result.current.opponent).toBe(Opponent.Bot);
   });
 

@@ -118,6 +118,13 @@ other typed contract with `chess-backend-java`.
       client uses (`TEST_API_BASE_URL` in `src/test/msw-server.ts`).
       No raw `vi.fn().mockResolvedValue` replacements for the typed
       client.
+- [ ] When the feature reads game state from `chess-backend-java`,
+      the server's response is the source of truth (FEN, status,
+      turn, move history). chess.js may shadow these locally for UX
+      (optimistic moves, legal-move probing) but never drives
+      terminal-state UI. Terminal status comes from
+      `GameStateResponse.status` via `isTerminalStatus` in
+      `src/api/games.ts`.
 
 ### Performance discipline
 

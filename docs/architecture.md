@@ -213,20 +213,52 @@ src/api/
 ├── client.ts              # createClient<paths>({ baseUrl })
 ├── errors.ts              # ApiError + mapError + errorMessages
 ├── rooms.ts               # createRoom / joinRoom typed wrappers
-└── rooms.test.ts          # MSW-backed unit tests
+├── rooms.test.ts          # MSW-backed unit tests
+├── games.ts               # getGameState / submitMove typed wrappers
+└── games.test.ts          # MSW-backed unit tests
 ```
 
-The wrappers in `rooms.ts` translate the `{ data, error, response }`
-shape that `openapi-fetch` returns into a thrown `ApiError`, so
-React components can `try { ... } catch (cause) { if (cause instanceof
-ApiError) ... }` and avoid plumbing the result tuple through their
-state.
+The wrappers in `rooms.ts` and `games.ts` translate the
+`{ data, error, response }` shape that `openapi-fetch` returns into a
+thrown `ApiError`, so React components can
+`try { ... } catch (cause) { if (cause instanceof ApiError) ... }` and
+avoid plumbing the result tuple through their state.
 
 `ApiError.code` is a discriminated union of the server-defined
 `ErrorResponse.error` enum extended with `NETWORK_ERROR` and
 `UNKNOWN_ERROR` for transport failures. Each code maps to a
 user-facing string in `errorMessages` — components do not hand-craft
 copy from the error object.
+
+### Game state model
+
+The Play page is server-authoritative. The full FEN, status, turn,
+and move history come from `GET /api/games/{id}` on mount and from
+the POST response on every move; the page never derives any of these
+facts locally. chess.js stays loaded as a UX helper:
+
+- It validates "is it my turn?" locally before the POST so a
+  misclick does not waste a round-trip.
+- It computes the optimistic post-move FEN so the board feels snappy.
+- It flags pawn-promotion moves (`flags: 'p'`) so the page can
+  intercept them with a `PromotionDialog` before submitting.
+- It does **not** drive terminal-state UI. Checkmate, stalemate,
+  draw, and abandoned status come from `GameStateResponse.status`
+  via the `isTerminalStatus` helper in `src/api/games.ts`. If the
+  server and chess.js ever disagree, the server wins.
+
+The optimistic-update pattern is:
+
+1. Capture a `PendingSnapshot` of the pre-move FEN.
+2. Apply the move locally (`chess.move(...)`) and re-render.
+3. POST `{ from, to, promotion? }` with the `X-Player-Id` header.
+4. On 200: replace local state with the server's response.
+5. On error: `chess.load(snapshot.fen)` to revert; show the
+   `errorMessages[code]` string in a Snackbar.
+
+For promotions, step 2 is deferred until the user picks a piece in
+the `PromotionDialog`. Cancelling the dialog aborts the flow without
+ever applying the move locally.
 
 ### API base URL
 

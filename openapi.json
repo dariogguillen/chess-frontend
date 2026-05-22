@@ -28,7 +28,9 @@
   "paths": {
     "/api/rooms": {
       "post": {
-        "tags": ["Rooms"],
+        "tags": [
+          "Rooms"
+        ],
         "summary": "Create a room",
         "description": "Creates a new room with the caller as White. The response includes the assigned playerId and the freshly generated roomId.",
         "operationId": "createRoom",
@@ -68,7 +70,9 @@
     },
     "/api/rooms/{id}/join": {
       "post": {
-        "tags": ["Rooms"],
+        "tags": [
+          "Rooms"
+        ],
         "summary": "Join a room",
         "description": "Joins {id} as the second player (Black) and creates the game in the same atomic step. Path {id} is case-insensitive; the canonical uppercase form is returned in the body.",
         "operationId": "joinRoom",
@@ -138,7 +142,9 @@
     },
     "/api/games/{id}/moves": {
       "post": {
-        "tags": ["Games"],
+        "tags": [
+          "Games"
+        ],
         "summary": "Apply a move",
         "description": "Applies a move on behalf of the caller (identified by the X-Player-Id header). The move is rejected if it is not the caller's turn, if the move is illegal in the current position, or if the game has already ended.",
         "operationId": "move",
@@ -226,7 +232,9 @@
     },
     "/api/health": {
       "get": {
-        "tags": ["Health"],
+        "tags": [
+          "Health"
+        ],
         "summary": "Application health",
         "description": "Returns the application status, build version, and current server time.",
         "operationId": "health",
@@ -246,7 +254,9 @@
     },
     "/api/games/{id}": {
       "get": {
-        "tags": ["Games"],
+        "tags": [
+          "Games"
+        ],
         "summary": "Read game state",
         "description": "Returns the current state of the game: position FEN, status, whose turn it is, the two players, and the full move history.",
         "operationId": "get",
@@ -408,12 +418,22 @@
           },
           "status": {
             "type": "string",
-            "enum": ["ONGOING", "CHECK", "CHECKMATE", "STALEMATE", "DRAW", "ABANDONED"]
+            "enum": [
+              "ONGOING",
+              "CHECK",
+              "CHECKMATE",
+              "STALEMATE",
+              "DRAW",
+              "ABANDONED"
+            ]
           },
           "turn": {
             "type": "string",
             "description": "Side whose turn it is. WHITE if move count is even, BLACK if odd.",
-            "enum": ["WHITE", "BLACK"],
+            "enum": [
+              "WHITE",
+              "BLACK"
+            ],
             "example": "WHITE"
           },
           "moves": {

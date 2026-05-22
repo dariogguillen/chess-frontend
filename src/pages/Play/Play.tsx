@@ -1,126 +1,321 @@
-import { Box, CircularProgress, Container, Grid2 as Grid, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  CircularProgress,
+  Container,
+  Grid2 as Grid,
+  Snackbar,
+  Stack,
+  Typography,
+} from '@mui/material';
 import { Chess } from 'chess.js';
-import type { Color, Square } from 'chess.js';
+import type { Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Chessboard, type PieceDropHandlerArgs } from 'react-chessboard';
 import { useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
+import { PromotionDialog } from '../../components/PromotionDialog';
+import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
+import {
+  GameStatus,
+  PromotionPiece,
+  Side,
+  getGameState,
+  isTerminalStatus,
+  submitMove,
+} from '../../api/games';
+import type { GameState } from '../../api/games';
+import { Role } from '../../api/rooms';
 import { RoomPhase, useUserContext } from '../../context';
 
 // `useStompSubscription` exists from feature 2; it is imported here so
 // the seam is visible. It is NOT called yet — feature 6 will wire it to
-// `/topic/games/{gameId}` and feed the opponent's moves into `makeAMove`.
+// `/topic/games/{gameId}` and feed the opponent's moves into the local
+// game state.
 import { useStompSubscription } from '../../hooks/useStompSubscription';
 
 // Keep the import referenced so tsconfig's `noUnusedLocals` does not flag
 // it while we wait for feature 6 to actually call the hook.
 void useStompSubscription;
 
-export interface MoveObj {
+/** The optimistic-state snapshot we keep so we can revert on POST failure. */
+type PendingSnapshot = Readonly<{
+  fen: string;
+  /** Pending move metadata, captured for diagnostic logging. */
   from: Square;
   to: Square;
-  color: Color;
-  promotion?: string;
-}
+}>;
+
+/** A move the user has dropped but not yet committed — pending promotion choice. */
+type PendingPromotion = Readonly<{
+  from: Square;
+  to: Square;
+  preMoveFen: string;
+}>;
 
 /**
- * Play page. Renders the board, status, and (eventually) opponent
- * presence. All network side-effects are stubbed with TODO markers
- * pointing at the next feature that will wire them.
+ * Terminal-status copy. Keeps the message map in one place so the
+ * dialog's title and body stay aligned to the enum.
+ */
+const terminalMessage = (status: GameStatus, turn: Side): string => {
+  switch (status) {
+    case GameStatus.Checkmate: {
+      // The server toggles `turn` to the side that would move next, so
+      // the winner is the OPPOSITE side at the moment of checkmate.
+      const winner = turn === Side.White ? 'Black' : 'White';
+      return `Checkmate — ${winner} wins!`;
+    }
+    case GameStatus.Stalemate:
+      return 'Stalemate.';
+    case GameStatus.Draw:
+      return 'Draw.';
+    case GameStatus.Abandoned:
+      return 'Game abandoned.';
+    case GameStatus.Ongoing:
+    case GameStatus.Check:
+      // Non-terminal — caller should not reach this branch, but we
+      // return a safe fallback rather than throwing inside render.
+      return 'Game in progress.';
+  }
+};
+
+/**
+ * Play page. Server-authoritative game view that wires the board to
+ * `GET /api/games/{id}` (initial load) and `POST /api/games/{id}/moves`
+ * (each drop) using the typed client in `src/api/games.ts`.
+ *
+ * State model:
+ *   - `gameState` is the canonical record from the server, updated
+ *     after every successful submit.
+ *   - `fen` is the rendered FEN; it diverges from `gameState.fen` only
+ *     between the optimistic chess.js move and the server's response.
+ *   - The chess.js instance (`chess`) is a UX helper — it validates
+ *     locality (whose turn? legal?) and surfaces the `flags: 'p'`
+ *     promotion bit. It is NOT the source of truth for terminal
+ *     state; that comes from `gameState.status`.
+ *
+ * Failure mode: any POST error reverts the chess.js position to the
+ * pre-move snapshot and surfaces the mapped error in a Snackbar.
  */
 const Play = () => {
-  const { identity, position, room } = useUserContext();
+  const { identity, room } = useUserContext();
   const [searchParams] = useSearchParams();
   const roomIdFromUrl = searchParams.get('roomId') || undefined;
 
-  // `room.phase === RoomPhase.InRoom` after a successful create/join.
-  // The URL query-string fallback (`?roomId=...`) is kept as a dev
-  // shortcut so refreshing /play with a room code in the URL still
-  // shows it; in the production flow the user never types this
-  // manually.
+  // Effective room id: the in-room context arm wins. URL query is a
+  // dev shortcut so refreshing `/play?roomId=...` still renders the
+  // page title — it does not back game-state requests on its own.
   const roomId = room.phase === RoomPhase.InRoom ? room.roomId : roomIdFromUrl;
+  const playerId = room.phase === RoomPhase.InRoom ? room.playerId : null;
+  const gameId = room.phase === RoomPhase.InRoom ? room.gameId : null;
+  const role = room.phase === RoomPhase.InRoom ? room.role : null;
 
-  // chess.js instance survives the component lifetime; we only re-render
-  // when the FEN changes.
-  const chess = useMemo(() => new Chess(), []);
-  const [fen, setFen] = useState(chess.fen());
-  const [over, setOver] = useState('');
+  // chess.js instance kept stable across renders via `useState`'s lazy
+  // initializer. We mutate the instance in place and re-render by
+  // updating the FEN string in state — chess.js itself is intentionally
+  // imperative, so this matches its grain. We never call the setter:
+  // the second tuple element is unused on purpose. (StrictMode may
+  // construct two instances on first mount; both end up garbage-
+  // collected, and the one held by the hook is the one we use.)
+  const [chess] = useState<Chess>(() => new Chess());
 
-  const makeAMove = useCallback(
-    (move: MoveObj) => {
-      try {
-        const result = chess.move(move);
-        setFen(chess.fen());
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  // chess.js' default FEN — the standard initial position. We use the
+  // literal here rather than `chess.fen()` so render does not read from
+  // the chess.js instance (which the React 19 lint rule treats like a
+  // ref). The instance is also at the starting FEN, so the two stay
+  // aligned.
+  const [fen, setFen] = useState<string>(
+    'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+  );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [terminalDialogOpen, setTerminalDialogOpen] = useState<boolean>(false);
+  const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
 
-        if (chess.isGameOver()) {
-          if (chess.isCheckmate()) {
-            setOver(`Checkmate! ${chess.turn() === 'w' ? 'black' : 'white'} wins!`);
-          } else if (chess.isDraw()) {
-            setOver('Draw');
-          } else {
-            setOver('Game over');
-          }
-        }
-
-        return result;
-      } catch (e) {
-        console.error(e);
-        return null;
+  /** Replace local chess.js + FEN with the authoritative server state. */
+  const syncFromServer = useCallback(
+    (next: GameState) => {
+      chess.load(next.fen);
+      setFen(next.fen);
+      setGameState(next);
+      if (isTerminalStatus(next.status)) {
+        setTerminalDialogOpen(true);
       }
     },
     [chess],
   );
 
-  const onDrop = ({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean => {
-    // v5 widens targetSquare to nullable; null means the piece was
-    // dropped off the board — reject silently.
-    if (targetSquare === null) return false;
+  /** Revert the chess.js position + rendered FEN to a pre-move snapshot. */
+  const revertTo = useCallback(
+    (snapshot: PendingSnapshot) => {
+      chess.load(snapshot.fen);
+      setFen(snapshot.fen);
+    },
+    [chess],
+  );
 
-    // `position` is "white" | "black"; chess.turn() returns "w" | "b". A
-    // quick first-letter match keeps the local UX honest until the server
-    // arbitrates legality in feature 5.
-    if (chess.turn() !== position[0]) return false;
-
-    const moveData: MoveObj = {
-      from: sourceSquare as Square,
-      to: targetSquare as Square,
-      color: chess.turn(),
-      promotion: 'q',
+  // Initial load: fetch the game state when we mount with a known gameId.
+  // AbortController cancels the in-flight request on unmount.
+  useEffect(() => {
+    if (gameId === null || gameId === undefined) return;
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const state = await getGameState(gameId);
+        if (cancelled || ac.signal.aborted) return;
+        syncFromServer(state);
+      } catch (cause) {
+        if (cancelled || ac.signal.aborted) return;
+        const code = cause instanceof ApiError ? cause.code : ApiErrorCode.UnknownError;
+        setErrorMessage(messageFor(code));
+      }
     };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [gameId, syncFromServer]);
 
-    const move = makeAMove(moveData);
-    if (move === null) return false;
+  /**
+   * Send a move to the server with an optimistic chess.js update. On
+   * 200 the authoritative state replaces the local state; on error
+   * the chess.js position is reverted from `snapshot`.
+   */
+  const sendMove = useCallback(
+    async (
+      from: Square,
+      to: Square,
+      promotion: PromotionPiece | undefined,
+      snapshot: PendingSnapshot,
+    ) => {
+      if (gameId === null || gameId === undefined || playerId === null) {
+        // Should be unreachable: drop handler gates on these. Defensive
+        // revert keeps the board honest if it ever fires.
+        revertTo(snapshot);
+        return;
+      }
+      try {
+        const next = await submitMove(gameId, playerId, { from, to, promotion });
+        syncFromServer(next);
+      } catch (cause) {
+        revertTo(snapshot);
+        const code = cause instanceof ApiError ? cause.code : ApiErrorCode.UnknownError;
+        setErrorMessage(messageFor(code));
+      }
+    },
+    [gameId, playerId, revertTo, syncFromServer],
+  );
 
-    // TODO(feature-5): POST /api/games/{id}/moves — the server is the
-    // authority for legality. The legacy realtime move emit has been
-    // removed.
-    console.warn('Play.onDrop: not yet wired; see TODO above');
+  /**
+   * Resolve a promotion selection: apply the optimistic chess.js move
+   * with the chosen piece, then submit. On cancel: clear pending state
+   * and do nothing (board never moved).
+   */
+  const handlePromotionSelect = useCallback(
+    (piece: PromotionPiece) => {
+      if (pendingPromotion === null) return;
+      const { from, to, preMoveFen } = pendingPromotion;
+      setPendingPromotion(null);
+      // chess.js wants the lowercase first letter of the piece name.
+      const promotionLetter = piece[0].toLowerCase();
+      try {
+        chess.move({ from, to, promotion: promotionLetter });
+      } catch {
+        // chess.js refused the optimistic move (e.g. snapshot drifted).
+        // Restore explicitly and surface a generic error.
+        chess.load(preMoveFen);
+        setFen(preMoveFen);
+        setErrorMessage(messageFor(ApiErrorCode.UnknownError));
+        return;
+      }
+      setFen(chess.fen());
+      void sendMove(from, to, piece, { fen: preMoveFen, from, to });
+    },
+    [chess, pendingPromotion, sendMove],
+  );
 
-    return true;
-  };
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+    // No board mutation happened — the chess.js position is still the
+    // pre-move FEN, so nothing to revert. We re-set `fen` defensively
+    // in case a future code path optimistically moves before opening
+    // the dialog.
+    setFen(chess.fen());
+  }, [chess]);
 
-  useEffect(() => {
-    // TODO(feature-6): subscribe to /topic/games/{gameId} via
-    // useStompSubscription(client, `/topic/games/${gameId}`, makeAMove).
-    // For now `makeAMove` is referenced so noUnusedLocals stays happy.
-    void makeAMove;
-  }, [makeAMove]);
+  const onDrop = useCallback(
+    ({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean => {
+      // v5 widens targetSquare to nullable; null means the piece was
+      // dropped off the board — reject silently.
+      if (targetSquare === null) return false;
 
-  useEffect(() => {
-    // TODO(feature-6+): surface server-side disconnect signals here.
-    void setOver;
-  }, []);
+      // Gate on the in-room invariants. Without these the move cannot
+      // be sent and we must not optimistically update either.
+      if (gameId === null || gameId === undefined || playerId === null || role === null) {
+        return false;
+      }
+
+      // Local turn check via chess.js: `chess.turn()` returns 'w'/'b';
+      // role is `Role.White | Role.Black`. Match on first letter.
+      const expected = role === Role.White ? 'w' : 'b';
+      if (chess.turn() !== expected) return false;
+
+      const from = sourceSquare as Square;
+      const to = targetSquare as Square;
+      const preMoveFen = chess.fen();
+
+      // Promotion detection: chess.js' verbose move list flags pawn
+      // promotions with `'p'`. We only check moves from the source
+      // square, which scopes the lookup.
+      const isPromotion = chess
+        .moves({ square: from, verbose: true })
+        .some((m) => m.to === to && m.flags.includes('p'));
+
+      if (isPromotion) {
+        // Pause — open the dialog. The optimistic chess.js move is
+        // deferred until the user picks a piece, because chess.js
+        // requires the promotion field on `move()` for any pawn
+        // reaching the back rank.
+        setPendingPromotion({ from, to, preMoveFen });
+        return true;
+      }
+
+      // Non-promotion path: optimistically apply locally, then send.
+      try {
+        chess.move({ from, to });
+      } catch {
+        // chess.js rejected the move locally — surface as illegal and
+        // do not contact the server.
+        setErrorMessage(messageFor(ApiErrorCode.IllegalMove));
+        return false;
+      }
+      setFen(chess.fen());
+      void sendMove(from, to, undefined, { fen: preMoveFen, from, to });
+      return true;
+    },
+    [chess, gameId, playerId, role, sendMove],
+  );
+
+  const opponentDisplayName: string | undefined = useMemo(() => {
+    if (gameState === null || role === null) return undefined;
+    return role === Role.White ? gameState.black.displayName : gameState.white.displayName;
+  }, [gameState, role]);
+
+  const boardOrientation: 'white' | 'black' = role === Role.Black ? 'black' : 'white';
+
+  const showTerminalDialog =
+    terminalDialogOpen && gameState !== null && isTerminalStatus(gameState.status);
 
   const displayName = identity.displayName;
-  // Opponent display is a placeholder — there is no opponent state yet.
-  const opponentDisplayName: string | undefined = undefined;
 
   return (
     <Container maxWidth="xl" sx={{ pt: 4 }}>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 8 }}>
           <Typography variant="body1">
-            {opponentDisplayName || (
+            {opponentDisplayName ?? (
               <Fragment>
                 Waiting for opponent
                 <CircularProgress size="15px" sx={{ ml: 1 }} />
@@ -137,7 +332,7 @@ const Play = () => {
               options={{
                 position: fen,
                 onPieceDrop: onDrop,
-                boardOrientation: position === 'white' ? 'white' : 'black',
+                boardOrientation,
                 allowDrawingArrows: true,
               }}
             />
@@ -152,17 +347,38 @@ const Play = () => {
           </Stack>
         </Grid>
       </Grid>
+      <PromotionDialog
+        open={pendingPromotion !== null}
+        onSelect={handlePromotionSelect}
+        onCancel={handlePromotionCancel}
+      />
       <CustomDialog
-        open={Boolean(over)}
-        title={over}
-        contentText={over}
+        open={showTerminalDialog}
+        title={gameState !== null ? terminalMessage(gameState.status, gameState.turn) : 'Game over'}
+        contentText={
+          gameState !== null ? terminalMessage(gameState.status, gameState.turn) : 'Game over'
+        }
         handleContinue={() => {
           // TODO(feature-4+): close room via REST. The legacy realtime
           // close-room emit has been removed.
-          console.warn('Play game-over dialog: not yet wired; see TODO above');
-          setOver('');
+          setTerminalDialogOpen(false);
         }}
       />
+      <Snackbar
+        open={errorMessage !== null}
+        autoHideDuration={6000}
+        onClose={() => setErrorMessage(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          severity="error"
+          onClose={() => setErrorMessage(null)}
+          sx={{ width: '100%' }}
+          variant="filled"
+        >
+          {errorMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

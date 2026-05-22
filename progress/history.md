@@ -1619,3 +1619,159 @@ follow-up, because the change was mechanical and the surface
 was the same files. The lesson is procedural — the harness is
 permeable to user judgment during the final-approval window,
 and that's the intended behavior, not a violation.
+
+## 2026-05-22 — rest-game-integration
+
+**Status:** done
+
+**Summary:** Second REST integration: `GET /api/games/{id}` and
+`POST /api/games/{id}/moves`. Reused feature 4's typed-client
+foundation (`client.ts`, `errors.ts`, `mapError`, MSW infra)
+without modification. New module `src/api/games.ts` adds typed
+wrappers for both endpoints plus three new const-object wire
+enums (`GameStatus` with 6 codes + the inverse exhaustiveness
+assertion mirroring `ApiErrorCode`, `Side`, `PromotionPiece`).
+`Play.tsx` rewritten for server-authoritative state with
+optimistic update + snapshot-based revert; new `PromotionDialog`
+component closes the promotion gap; terminal status now driven
+by the server's `GameStatus.isTerminalStatus(status)` rather
+than chess.js's local detection. Dropped legacy `position`
+field from `UserContext` (duplicated `room.role` since
+feature 4); NewGame.tsx migrated its single usage to local
+`useState`.
+
+**Verification limit:** identical to feature 4 — backend CORS
+still pending; production E2E smoke against
+`https://chess-backend.duckdns.org` is deferred until backend
+ships CORS. The feature closes on local `./init.sh` + MSW
+tests + UI-reviewer + reviewer all green.
+
+**Round structure (2 implementer-reviewer cycles):**
+
+- **Round 1:** full implementation. UI-reviewer APPROVED on
+  first pass. Regular reviewer APPROVED with one out-of-scope
+  observation: the feature note's "Decisions taken" section
+  justified the `PendingSnapshot` revert pattern by claiming
+  `chess.js.undo()` does not cover promotion — empirically
+  incorrect. The chosen pattern is still right, but the
+  rationale was off.
+- **Round 2:** doc-only fix. Implementer rewrote the relevant
+  section to attribute the snapshot choice to the
+  promotion-dialog interlock (no chess.js mutation happens
+  until the user picks a piece, so cancel needs no revert)
+  and to the defensive value of decoupling revert from
+  chess.js's internal history for the non-promotion path.
+  Reviewer APPROVED.
+
+**Notable decisions:**
+
+- **chess.js held via `useState(() => new Chess())`**, not
+  `useRef`. React 19's `react-hooks/refs` lint rule rejects
+  reading `ref.current` during render. The lazy initialiser
+  constructs once; the instance is mutated in place inside
+  callbacks (never during render). Documented inline.
+- **`PendingSnapshot` revert pattern.** Captures
+  `chess.fen()` at the call site before the optimistic mutation;
+  on error, `chess.load(snapshot.fen)` restores. Chosen over
+  `chess.js.undo()` because (a) the promotion path stages the
+  optimistic move only after the dialog resolves — there is
+  nothing to undo on cancel, and (b) for non-promotion moves
+  the snapshot is a defensive choice that decouples revert
+  semantics from chess.js's internal history.
+- **Promotion dialog suspended before the optimistic
+  `chess.move()`.** chess.js requires the `promotion` field
+  on `move()` for any pawn reaching the back rank; therefore
+  the move cannot be applied until the user has picked a
+  piece. Dialog opens, optimistic move waits, on confirm
+  the staged move includes `promotion: <piece>`.
+- **`Side` kept separate from `Role` despite identical wire
+  values** (`'WHITE' | 'BLACK'`). The backend has distinct
+  Java types and we mirror that — `Side` is the side
+  whose turn it is to move (server's `turn` field), `Role`
+  is the local player's fixed assignment in the room. The
+  type system surfaces intent at the call site.
+- **`GameStatus` exhaustiveness assertion** mirrors the
+  pattern from `ApiErrorCode` in feature 4
+  (`Exclude<ServerType, ConstObjectValues> extends never`
+  with `void _check;` for `noUnusedLocals`). A future 7th
+  status from the backend forces a compile-time fix here.
+- **`position` removed from `UserContext`.** It was set by
+  NewGame for piece-color decoration, consumed by Play.tsx
+  in two places (board orientation + turn check). Both are
+  now `room.role`-derived (typed via the `Role` const
+  object); NewGame keeps `position` as local UI state via
+  `useState`. Single source of truth restored.
+- **OpenAPI re-snapshot finding.** The live backend's
+  `/v3/api-docs` does NOT expose `PlayerGamesController`
+  (springdoc apparently does not pick it up). The re-snapshot
+  produced only cosmetic JSON-formatting diff vs the
+  feature-4 commit; `schema.ts` regenerated with zero diff.
+  Spec-drift assumption was unfounded but the protocol
+  (snapshot + generate + idempotency check) ran cleanly.
+
+**Files touched (across 2 rounds, 16 files):**
+
+New:
+- `src/api/games.ts`
+- `src/api/games.test.ts` (13 MSW-backed tests)
+- `src/components/PromotionDialog/PromotionDialog.tsx`
+- `src/components/PromotionDialog/PromotionDialog.test.tsx`
+- `src/components/PromotionDialog/index.tsx`
+- `notes/05-rest-game-integration.md`
+
+Modified:
+- `openapi.json` (cosmetic re-snapshot)
+- `src/api/generated/schema.ts` (zero diff but regenerated)
+- `src/context/UserContext.tsx` (dropped `position`)
+- `src/context/UserContext.test.tsx`
+- `src/pages/Play/Play.tsx` (rewritten)
+- `src/pages/Play/Play.test.tsx` (3 new tests)
+- `src/pages/Play/index.tsx`
+- `src/pages/NewGame/NewGame.tsx` (`position` to local state)
+- `docs/architecture.md`
+- `CHECKPOINTS.md`
+
+**Metrics:**
+
+- Tests: **80** (was 60; +20 — 13 games + 4 PromotionDialog + 3 Play).
+- Initial-load surface: **471.19 KB** (+0.01 KB vs feature 4
+  baseline 471.18 KB).
+- Play lazy chunk: 125.92 KB (+~5 KB).
+- No new deps.
+
+**Feature note:** `notes/05-rest-game-integration.md`.
+
+**Process insight — cross-repo gap discovered at session close.**
+
+While planning the manual E2E testing setup the user asked the
+key question: "if A creates a room, opens the board, then B
+joins — does A find out?" The answer surfaces a real gap in
+the cross-repo contract: when A creates a room, the response
+includes `gameId: null` (the game is created atomically only
+on B's join). A's frontend has no way to discover the
+`gameId` later — there is no `GET /api/rooms/{id}`, no STOMP
+topic for room-level events (only `/topic/games/{gameId}` and
+`/topic/games/{gameId}/viewers`, both requiring an
+already-known gameId). The current Play.tsx renders "Waiting
+for opponent" honestly when `room.phase === 'in-room'` but
+`room.gameId === null`, but A has no path forward without a
+manual workaround (DevTools console patch).
+
+This is a legitimate gap, not a frontend bug. It is documented
+in `progress/current.md` under "Cross-repo work waiting on
+backend" so it travels with the CORS coordination the user
+already plans to do. The fix on the backend side will be
+small (most likely `GET /api/rooms/{id}` returning the current
+room state including `gameId` if present); the corresponding
+frontend feature (creator-game-discovery via polling) waits
+for the backend endpoint and lands as a future feature.
+
+**Pending post-close (deferred verifications):**
+
+1. Production E2E smoke — gated on backend CORS.
+2. Local manual E2E — also gated on backend Vite-proxy-compatible
+   surface (CORS isn't needed for proxy, but the room-discovery
+   gap blocks A's flow).
+3. `creator-game-discovery` feature — new, depends on backend
+   `GET /api/rooms/{id}` (or equivalent room-state endpoint or
+   STOMP topic).
