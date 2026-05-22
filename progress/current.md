@@ -2,194 +2,167 @@
 
 **Status:** session closed.
 
-The previous feature `rest-game-integration` (priority 5) was
+The previous feature `stomp-live-updates` (priority 6) was
 closed on 2026-05-22 and is recorded in `progress/history.md`.
-Frontend now consumes both REST endpoints the backend exposes
-for game state and moves; `Play.tsx` is server-authoritative;
-chess.js is the UX helper only.
+The STOMP foundation from feature 2 is now wired to the live
+broker; the Play page receives opponent moves via
+`/topic/games/{gameId}` and renders a viewer count from
+`/topic/games/{gameId}/viewers`.
 
 ## Frontend is feature-complete for what backend exposes today
 
-Both REST features (4 and 5) are done. The frontend can:
+Features 4, 5, and 6 cover the full REST + STOMP integration
+contract the backend has shipped. The frontend can:
 
-- Create a room (POST /api/rooms).
-- Join a room (POST /api/rooms/{id}/join).
-- Read game state (GET /api/games/{id}).
-- Submit moves with optimistic update + server confirm
-  + revert (POST /api/games/{id}/moves).
-- Render terminal status from server-side `GameStatus`.
+- Create / join rooms (POST /api/rooms, POST /api/rooms/{id}/join).
+- Read / submit game state (GET /api/games/{id}, POST /api/games/{id}/moves).
+- Subscribe to real-time moves with self-filter (STOMP
+  /topic/games/{gameId} + playerId header).
+- Display viewer count (STOMP /topic/games/{gameId}/viewers).
 - Surface every documented error code via Snackbar.
+- Render terminal status from server-side `GameStatus`.
 
-What it CANNOT do today is anything that depends on real-time
-events or backend endpoints that don't exist yet — see the
-"cross-repo work" section below.
+What it CANNOT do today is gated by backend work in flight —
+see the cross-repo section.
 
-## Cross-repo work waiting on backend
+## Cross-repo work waiting on backend (unchanged)
 
-This is the consolidated list the user is taking to
-`chess-backend-java`. Each item gates a specific piece of
-frontend work. When all four are shipped, the frontend has
-everything it needs to ship a complete production E2E flow.
+The user is taking these to `chess-backend-java`. When all
+four ship, the frontend has everything it needs for production
+E2E. Order of importance:
 
 ### 1. CORS for the frontend origin
 
-**Why:** the deployed frontend on GitHub Pages
-(`https://dariogguillen.github.io/chess-frontend/`) is blocked
-by the browser on every preflight against
-`https://chess-backend.duckdns.org/api/*`. Same applies for any
-other deployed origin (Vercel/Cloudflare in the future).
+**Why:** the deployed frontend on GH Pages is blocked by the
+browser on every preflight against
+`https://chess-backend.duckdns.org/api/*` and on the WS
+upgrade against `wss://chess-backend.duckdns.org/ws`.
 
-**What to add (backend):** one of
-- A `WebMvcConfigurer` with `addCorsMappings`, allowing the
-  GH Pages origin (and localhost:5173 for dev convenience,
-  optional — the Vite proxy approach below removes the local
-  CORS requirement).
-- `@CrossOrigin` at controller level — works but spreads the
-  policy across files.
-- `Access-Control-Allow-Origin` headers in the production
-  Caddyfile — fine if the policy is purely operational.
+**Unblocks:** production E2E for features 4 / 5 / 6 (the
+three REST/WS integrations).
 
-**Unblocks:** production E2E for features 4 and 5.
-
-### 2. `GET /api/rooms/{id}` (or equivalent room state read)
+### 2. `GET /api/rooms/{id}` (or equivalent room-state read)
 
 **Why:** when player A creates a room, the response carries
-`gameId: null` (game is created atomically only when B joins).
-A has no way to discover the `gameId` once B joins. There is
-no room-level STOMP topic either (only `/topic/games/{gameId}`
-and `/topic/games/{gameId}/viewers`, both requiring a known
-`gameId`). A is stuck in "Waiting for opponent" forever in the
-current contract.
+`gameId: null` (game is created atomically only when B
+joins). A has no way to discover `gameId` after B joins — no
+room-level STOMP topic, no room state endpoint. The current
+Play.tsx honestly renders "Waiting for opponent" but A is
+stuck without a manual DevTools workaround.
 
-**What to add (backend):** a new endpoint that returns the
-current state of a room by ID, including the `gameId` if a
-game exists. Shape suggestion (subject to backend judgment):
+**Shape sketch (subject to backend judgment):**
 
 ```
 GET /api/rooms/{id} → 200
 {
   "roomId": "K7M3X9",
-  "players": [
-    { "id": "...", "displayName": "Alice", "role": "WHITE" },
-    { "id": "...", "displayName": "Bob",   "role": "BLACK" }
-  ],
-  "gameId": "0d52a8a0-...",   // null if room is single-player
+  "players": [...],
+  "gameId": "0d52a8a0-..." | null,
   "status": "OPEN" | "FULL" | "CLOSED"
 }
 ```
 
-Idempotent GET, no body, returns 404 if room doesn't exist.
-
-**Alternative shape (smaller):** just return the `RoomResponse`
-that `POST /api/rooms/{id}/join` returns, but with `playerId`
-replaced by something appropriate for a non-joining caller
-(or omitted). The shape choice is the backend's; the
-frontend only needs the `gameId`.
-
 **Unblocks:**
-- Frontend `creator-game-discovery` feature: A polls this
-  endpoint while `gameId === null`, transitions to the board
-  on first non-null read.
-- Local E2E testing: without this, A's flow is untestable
-  without a DevTools workaround.
+- Frontend `creator-game-discovery` feature: A polls every
+  2-3s while `gameId === null`, transitions on first
+  non-null read.
+- A's STOMP subscription (feature 6 already wires it, but
+  `useGameStomp(null, ...)` is a no-op until A has a
+  gameId).
+- Local manual E2E for A's flow.
 
-### 3. (Optional, nice-to-have) STOMP topic `/topic/rooms/{id}/joined`
+### 3. (Optional) STOMP topic `/topic/rooms/{id}/joined`
 
 **Why:** polling works but pushes a wasteful steady load. A
-STOMP topic that emits when the second player joins would
-let A subscribe immediately after create and react on push.
+push-based event when the second player joins is the
+nicer UX. Polling fallback from item 2 is still acceptable;
+this is a quality upgrade.
 
-**What to add (backend):** publish a small event when the
-second player joins a room, on a per-room topic. Payload
-includes the `gameId` and the joining player's display info.
+### 4. Additional 4xx error codes (if any)
 
-**Unblocks:** real-time UX for the creator. Polling fallback
-from item 2 is still acceptable; this is purely a quality
-upgrade. Defer if backend bandwidth is tight.
+User mentioned that during the Postgres backend work, more
+4xx error codes may surface. The frontend's `ApiErrorCode`
+const object has an inverse exhaustiveness type-level
+assertion (from feature 4) — when we regenerate the OpenAPI
+snapshot post-backend-merge, tsc will fail in compile listing
+exactly the codes we need to add to the runtime object plus
+`errorMessages` map. Mechanical fix. No backend coordination
+required other than "use the same envelope and add to
+@Schema allowableValues".
 
-### 4. (Frontend prep — does NOT need backend)
+## Frontend work that doesn't need backend (parallel options)
 
-Once CORS and `GET /api/rooms/{id}` ship, the frontend side
-of the work is:
+These can be picked up if the user wants to advance the
+codebase while backend is being worked on:
 
-- **Vite dev proxy** in `vite.config.ts` for local E2E: maps
-  `/api/*` → `http://localhost:8080`. Removes the local CORS
-  requirement entirely (browser sees same-origin via Vite).
-- **`creator-game-discovery` feature** (priority TBD,
-  probably 5.5): poll `GET /api/rooms/{id}` every 2-3s while
-  `room.phase === 'in-room' && room.gameId === null`, stop
-  on first non-null read, store gameId in context, transition
-  to the GET game state flow.
-- **`docs/local-e2e.md`** mini runbook: how to bring up
-  backend (docker compose for Postgres + Redis + Spring
-  Boot) and frontend in parallel, what flows to validate.
-
-## Production deploy readiness checklist
-
-When all four backend items ship and the frontend `creator-game-discovery`
-feature lands, the deploy chain looks like:
-
-1. Backend CORS allows the GH Pages origin.
-2. Backend `GET /api/rooms/{id}` deployed.
-3. Frontend `VITE_API_BASE_URL` in the deploy workflow already
-   points at `https://chess-backend.duckdns.org` (set in
-   feature 4).
-4. Frontend deploy workflow runs green (already does — see
-   `ci-engine-strict-fix` and following history entries).
-5. Manual smoke from the user:
-   - Open the deployed SPA, create a room, get a share link.
-   - On a second browser, join via the link.
-   - Confirm both browsers reach `/play` with the same
-     `gameId` and the board renders.
-   - Play a couple of moves; confirm the server's authoritative
-     state wins.
-
-The deploy itself is the GH Pages workflow that's already
-running — no infra changes needed on the frontend side beyond
-what's already shipped.
+- **`local-e2e-runbook`** — small docs feature. Document the
+  flow for bringing up backend (docker compose for Postgres
+  + Redis + Spring Boot) and frontend (`npm run dev`) in
+  parallel for local testing. No code changes; just
+  `docs/local-e2e.md` and a README pointer.
+- **Vite dev proxy** (`vite.config.ts` `server.proxy`) for
+  `/api` and `/ws`. Removes the CORS requirement for local
+  testing. Trivially small.
+- **`ux-polish-pass`** — combines `route-titles` (per-route
+  `document.title`) + `document-title-polish` (NewGame
+  Start/Join button "Joining…" label while submitting) +
+  Play "Connecting…" tooltip (carry-over from feature 6 ui-reviewer).
+- **`harness-tooling-pass`** — combines
+  `init-sh-lockfile-sync-check` +
+  `init-sh-stale-install-guard`. Defensive checks against
+  the failure modes that hit features in the past.
+- **Feature 7 `e2e-playwright` setup parcial** — install
+  Playwright, config base, one smoke test that mounts the
+  initial route. The acceptance criteria's "happy path of a
+  two-player game" requires backend live; postpone the flow
+  tests until backend is ready.
+- **Feature 8 `hosting-migration` evaluation** — ADR-only
+  pass in `docs/architecture.md` comparing GH Pages /
+  Vercel / Cloudflare Pages. The actual migration is its
+  own feature.
 
 ## Feature_list state
 
 | Priority | Status     | Feature                       |
 | -------- | ---------- | ----------------------------- |
-| ...      | done       | (15 prior features)           |
+| 0 - 3.94 | done       | (15 prior features)           |
 | 4        | done       | rest-room-integration         |
 | 5        | done       | rest-game-integration         |
-| 6        | pending    | stomp-live-updates            |
+| 6        | done       | stomp-live-updates            |
 | 7        | pending    | e2e-playwright                |
 | 8        | pending    | hosting-migration             |
 | 9        | pending    | readme-polish                 |
 
-16 done / 0 in_progress / 4 pending.
+17 done / 0 in_progress / 3 pending.
 
-Note that `creator-game-discovery` is not in `feature_list.json`
-yet — it lands as a new entry (likely 5.5) when backend item 2
-ships and we're ready to plan it.
+Plus carry-over candidates (not in `feature_list.json` yet):
+`creator-game-discovery` (blocked on backend item 2),
+`local-e2e-runbook`, `vite-dev-proxy`, `ux-polish-pass`,
+`harness-tooling-pass`, `viewer-count-display` (already
+shipped in feature 6 actually — drop from the candidate list).
 
-## Feature candidates remaining (not yet in `feature_list.json`)
+## Production deploy readiness checklist (updated)
 
-Carry-over from prior sessions, still valid:
+When backend items 1 and 2 ship and the frontend
+`creator-game-discovery` feature lands, the deploy chain is:
 
-- **`init-sh-lockfile-sync-check`** — `./init.sh` could
-  assert `package.json` / `package-lock.json` consistency
-  early.
-- **`init-sh-stale-install-guard`** — sanity check for
-  partial `node_modules`.
-- **`route-titles`** — per-route `document.title`.
-- **`pre-validation-recipe-codification`** — formalize the
-  peer-dep + `min-release-age` recipe into `leader.md`.
-  Used 5+ times now.
-- **`ci-reviewer` agent** — defensive scan of CI workflows
-  against actual installed engine surface.
-- **`document-title-polish`** — NewGame Start/Join button
-  could swap label to "Joining…" while submitting.
-- **`creator-game-discovery`** (new this session, depends
-  on backend item 2 above).
-- **`local-e2e-runbook`** — small docs feature for the
-  local two-server testing flow.
-
-Three of these could combine into a single
-`harness-tooling-pass` feature if priorities shift later.
+1. ✅ Backend STOMP — shipped.
+2. Backend CORS — pending.
+3. Backend `GET /api/rooms/{id}` — pending.
+4. Frontend `creator-game-discovery` — waiting on backend
+   item 3.
+5. Frontend deploy workflow runs green — already does.
+6. `VITE_BACKEND_URL` is set to `https://chess-backend.duckdns.org`
+   in the build env — set in feature 6 update.
+7. Manual smoke from the user:
+   - Browser 1: create a room, get share link.
+   - Browser 2: join via the link.
+   - Both browsers reach `/play` with the same gameId.
+   - Both browsers see each other's moves in real time
+     (STOMP).
+   - Spectator count visible.
+   - Errors (ILLEGAL_MOVE, NOT_YOUR_TURN, GAME_ALREADY_ENDED)
+     surface in the Snackbar.
 
 ## Older carry-over (unchanged)
 
@@ -197,14 +170,11 @@ Three of these could combine into a single
   references `src/utils/api/types.ts` (now `src/api/`).
   Pre-existing.
 - `index.html`: favicon + og:image URLs hardcode
-  `/chess-frontend/`; dev mode doubles the prefix and
-  404s the favicon.
+  `/chess-frontend/`; dev mode doubles the prefix.
 - 8 `react-refresh/only-export-components` warnings
-  (non-blocking; up from 6 after feature 5's new exports).
+  (non-blocking; pre-existing).
 - `src/components/ToggleButton/ToggleButton.tsx:54`
   `style={{ display: 'block' }}` should be `sx`.
   Pre-existing.
-- `// TODO(feature-6): subscribe to /topic/games/{gameId}`
-  in `Play.tsx` — exact target of feature 6.
 - `// TODO(feature-4+): close room via REST` in
   `Play.tsx` terminal-status dialog — deferred.

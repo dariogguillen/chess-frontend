@@ -1775,3 +1775,170 @@ for the backend endpoint and lands as a future feature.
 3. `creator-game-discovery` feature — new, depends on backend
    `GET /api/rooms/{id}` (or equivalent room-state endpoint or
    STOMP topic).
+
+## 2026-05-22 — stomp-live-updates
+
+**Status:** done
+
+**Summary:** Wired the STOMP foundation from feature 2
+(`src/utils/ws/`, `useStompSubscription`) to the backend's
+live broker. New `useGameStomp(gameId, playerId, onMove)`
+hook owns ONE STOMP client connection with TWO subscriptions:
+`/topic/games/{gameId}` (with STOMP header `playerId` so the
+backend's `ViewerCountTracker` self-excludes the player from
+the spectator count) and `/topic/games/{gameId}/viewers` (no
+header). Self-filter pattern: `MoveEvent.movedBy === playerId`
+is silently dropped (the player's REST submit already
+returned the new state; the STOMP echo would re-process
+their own move). Play.tsx renders a viewer-count chip with
+the Visibility icon in the sidebar (hidden when 0), a small
+CircularProgress next to the room ID during `Connecting`,
+and info/error Snackbars on `Disconnected` / `Error`.
+
+`VITE_BACKEND_URL` consolidated as the single source for both
+REST baseUrl and WS URL (replaces the dual
+`VITE_API_BASE_URL` + legacy `VITE_BACKEND_URL` defaults that
+existed since features 2 and 4). WS URL derived as
+`backendUrl.replace(/^http/, 'ws') + '/ws'`.
+
+**Verification limit:** identical to features 4 and 5 —
+backend CORS still pending; production E2E real-time smoke
+across two browsers is deferred until backend ships CORS.
+Local tests cover the contract via `mockStompClient` with
+dispatched events.
+
+**Round structure (1 implementer-reviewer cycle):**
+
+Single round. Both reviewers approved on first pass.
+ui-reviewer cleared 10 checks; regular reviewer accepted the
+hand-typed WS shapes as a documented drift surface, the
+jsdom + react-chessboard FEN-change limitation as honest, and
+all backwards-compat requirements (subscribe headers param,
+existing call sites compiling).
+
+**Notable decisions:**
+
+- **Single STOMP client + two subscriptions**, not two
+  clients. Matches backend semantics (one WS session per
+  player, multiple topic subscriptions on it) and keeps
+  connection state coherent for UI surfacing.
+- **`StompClient.subscribe` extended with optional `headers`
+  third param.** Backwards-compatible — existing call sites
+  in `useStompSubscription` and the test file continue to
+  compile without the param. The mock client now exposes a
+  `subscriptions` inspection surface so tests can assert
+  "the playerId header was sent on the moves topic but NOT
+  on the viewers topic".
+- **Hand-typed WS shapes in `src/api/wsEvents.ts`** mirror the
+  backend's `MoveEvent.java` and `ViewerCountEvent.java`.
+  Genuine drift risk vs the REST path (which has
+  openapi-typescript codegen + exhaustiveness check). JSDoc
+  references the backend source files; CHECKPOINTS gained a
+  guard item ("WS wire shapes are hand-typed; verify against
+  backend records on any backend change touching the
+  websocket package"). A future feature could introduce
+  AsyncAPI or similar codegen.
+- **`ConnectionState` as const-object discriminant** per the
+  established pattern from features 4-5 (IdentityKind /
+  RoomPhase / Role / GameStatus / Side / PromotionPiece /
+  ApiErrorCode). Values: `Connecting | Connected |
+  Disconnected | Error`. Drives the Play.tsx UI surface
+  (spinner / info Snackbar / error Snackbar).
+- **`VITE_BACKEND_URL` consolidation.** Renamed from
+  `VITE_API_BASE_URL` (feature 4) and replaced the legacy
+  `VITE_BACKEND_URL` default `http://localhost:3001` (Node
+  backend, feature 2). Single source means single line in
+  `.env.example`, single line in the deploy workflow,
+  derived WS URL via a one-liner `replace(/^http/, 'ws') +
+  '/ws'`.
+- **`reconnectDelay = 5000` (stompjs built-in).** Custom
+  exponential backoff was rejected as overkill. The flat
+  5-second delay is what `@stomp/stompjs` does natively when
+  the property is set; sufficient for the project's threat
+  model and UX expectations.
+- **`onOpponentMove` callback held in a ref** to avoid
+  re-subscribing on every render — the standard idiom from
+  `useStompSubscription`, applied to the move topic's
+  handler.
+- **The `Connecting` state transition lives inside an async
+  `run` wrapper** to satisfy the `react-hooks/set-state-in-effect`
+  lint rule (synchronous setState in effect bodies). The
+  microtask boundary is functionally equivalent; the user
+  still sees the spinner briefly before steady state.
+- **jsdom + react-chessboard v5 FEN-change limitation.**
+  When the test exercises an opponent MoveEvent and the
+  board's FEN changes mid-render, react-chessboard v5 trips
+  on a DOM measurement under jsdom. The opponent-move test
+  keeps the starting FEN and still exercises the
+  status/terminal transition through `chess.load` and
+  `setGameState`. The full FEN-change render path is
+  covered implicitly (chess.load is chess.js's own behavior;
+  setGameState is React state). Documented in the feature
+  note's "Gotchas" section.
+
+**Files touched (19 files):**
+
+New:
+- `src/api/wsEvents.ts` — MoveEvent / ViewerCountEvent / ConnectionState
+- `src/api/wsEvents.test.ts` — 5 construction + JSON round-trip tests
+- `src/hooks/useGameStomp.ts` — the new hook
+- `src/hooks/useGameStomp.test.tsx` — 10 tests
+- `notes/06-stomp-live-updates.md`
+
+Modified:
+- `src/utils/ws/types.ts` — subscribe headers param, MockSubscription
+- `src/utils/ws/stompClient.ts` — headers passthrough + reconnectDelay
+- `src/utils/ws/mockStompClient.ts` — subscriptions inspection surface
+- `src/utils/ws/stompClient.test.ts` (+4 tests)
+- `src/utils/ws/mockStompClient.test.ts` (+2 tests)
+- `src/utils/ws/index.ts` — re-export MockSubscription
+- `src/utils/config.default.ts` — VITE_BACKEND_URL + derived wsUrl
+- `src/utils/config.default.test.ts` (+1 test)
+- `src/api/client.ts` — reads backendUrl from config.default
+- `src/pages/Play/Play.tsx` — wires useGameStomp, viewer chip, connection UI
+- `src/pages/Play/Play.test.tsx` (+5 STOMP integration tests)
+- `.env.example` — single VITE_BACKEND_URL
+- `.github/workflows/deploy-frontend.yml` — VITE_BACKEND_URL build env
+- `docs/architecture.md` — new "STOMP integration" section
+- `CHECKPOINTS.md` — WS wire-shapes guard item
+
+**Metrics:**
+
+- Tests: **107** (was 80; +27 — useGameStomp 10, Play 5,
+  wsEvents 5, stompClient 4, mockStompClient 2, config 1).
+- Initial-load surface: **471.20 KB** (≈ flat vs feature 5
+  baseline 471.19 KB).
+- Play lazy chunk: **192.86 KB** (+66.94 KB —
+  `@stomp/stompjs` genuinely consumed for the first time;
+  falls into the lazy chunk as planned, not initial load).
+- No new deps.
+
+**Feature note:** `notes/06-stomp-live-updates.md`.
+
+**Pending post-close (deferred verifications):**
+
+Unchanged from feature 5 — all gated by backend work
+in flight:
+
+1. Production E2E real-time smoke across two browsers —
+   gated on backend CORS.
+2. Player A discovery flow over STOMP — gated on backend
+   `GET /api/rooms/{id}` (without it, A never has a gameId
+   to subscribe to).
+3. Local manual E2E — gated on either Vite proxy work
+   (planned for when backend is ready) or backend CORS
+   landing.
+
+**Out-of-scope observations forwarded:**
+
+- Polish: a visible tooltip next to the Connecting spinner
+  (matching the spectator-chip's Tooltip pattern) would
+  improve sighted-user UX. The aria-label covers a11y.
+- jsdom + react-chessboard v5 limitation — could become a
+  test-infra feature: investigate replacing jsdom with
+  happy-dom or running the relevant Play.tsx tests in a
+  real-browser Playwright component-test mode. Out of scope
+  today.
+- `notes/04-rest-room-integration.md` still references
+  `VITE_API_BASE_URL` in its file map — correctly left as
+  immutable historical snapshot.

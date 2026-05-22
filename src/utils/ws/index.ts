@@ -7,4 +7,10 @@
 
 export { createStompClient } from './stompClient';
 export { createMockStompClient } from './mockStompClient';
-export type { StompClient, StompClientConfig, MockStompClient, Unsubscribe } from './types';
+export type {
+  StompClient,
+  StompClientConfig,
+  MockStompClient,
+  MockSubscription,
+  Unsubscribe,
+} from './types';

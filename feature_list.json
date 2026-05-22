@@ -287,7 +287,7 @@
     "id": "stomp-live-updates",
     "title": "STOMP subscription for real-time updates",
     "description": "Connect the STOMP client to the backend's broadcast topic for game state. After a move is submitted via REST, the server pushes the new state to all subscribers of /topic/games/{gameId}. The frontend subscribes and updates the local state accordingly. Depends on backend feature 6 (websocket-realtime) being shipped.",
-    "status": "pending",
+    "status": "done",
     "priority": 6,
     "acceptance": [
       "STOMP client connects on Play page mount and disconnects on unmount.",

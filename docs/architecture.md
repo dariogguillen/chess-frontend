@@ -262,12 +262,15 @@ ever applying the move locally.
 
 ### API base URL
 
-`src/api/client.ts` resolves the base URL from
-`import.meta.env.VITE_API_BASE_URL` (set at build time by Vite) with
-a fallback to `http://localhost:8080`. The GitHub Pages deploy
-workflow injects the production value
-(`https://chess-backend.duckdns.org`) via the `VITE_API_BASE_URL`
-repository variable.
+`src/api/client.ts` resolves the base URL from `backendUrl` in
+`src/utils/config.default.ts`, which reads `import.meta.env.VITE_BACKEND_URL`
+(set at build time by Vite) with a fallback to `http://localhost:8080`.
+The GitHub Pages deploy workflow injects the production value
+(`https://chess-backend.duckdns.org`) via the `VITE_BACKEND_URL`
+repository variable. The same env var also drives the STOMP/WebSocket
+endpoint (see "STOMP integration" below): one config knob, two derived
+URLs, because the REST surface and the WebSocket surface live on the
+same origin.
 
 ### CORS
 
@@ -280,6 +283,56 @@ This work is on the backend's roadmap after its in-flight Redis
 integration and is tracked outside this repo. Local development
 (both `npm run dev` and `npm test`) is unaffected because the dev
 origin matches the API origin.
+
+## STOMP integration
+
+The Play page owns the STOMP lifecycle through the `useGameStomp` hook
+(`src/hooks/useGameStomp.ts`). One STOMP client per Play mount, two
+subscriptions per client:
+
+- `/topic/games/{gameId}` — broadcasts on every accepted move. Payload:
+  `MoveEvent`. Subscribed with a `playerId` STOMP header so the
+  backend's `ViewerCountTracker` self-excludes the subscriber from the
+  spectator tally.
+- `/topic/games/{gameId}/viewers` — broadcasts on every viewer count
+  change. Payload: `ViewerCountEvent`. Subscribed without a `playerId`
+  header (the moves topic already carries identity; the viewer topic
+  is just a counter).
+
+**Self-filter contract.** When a player submits a move via
+`POST /api/games/{id}/moves`, the new state is delivered to them twice:
+once in the REST response and once on the STOMP topic broadcast. The
+hook compares `MoveEvent.movedBy` to the local `playerId` and drops
+self-emitted frames; only opponent moves reach the page's
+`onOpponentMove` callback. This keeps the optimistic-update path (REST
+response wins) intact while still letting the same code path consume
+opponent moves.
+
+**Hand-typed wire shapes vs OpenAPI codegen.** REST DTOs flow through
+`openapi-typescript` codegen — the snapshot is committed and a contract
+mismatch surfaces as a TS compile error. STOMP, by contrast, is not in
+the OpenAPI surface: there is no machine-readable schema. `MoveEvent`
+and `ViewerCountEvent` are therefore hand-typed in
+`src/api/wsEvents.ts`, with JSDoc pointers to the backend Java records
+they mirror. This is a real drift-risk surface; a future feature could
+introduce AsyncAPI or an equivalent codegen step. Until then, the
+discipline is: when the backend touches a WS event, the frontend types
+update in the same PR.
+
+**Connection state as a sum type.** The hook returns a
+`ConnectionState` discriminant (`Connecting | Connected | Disconnected
+| Error`) modelled as a const-object + derived type, matching the
+pattern used by `GameStatus`, `Side`, and `Role`. Play.tsx narrows on
+the discriminant to drive the small reconnect UX (progress indicator
+while connecting, info snackbar on disconnect, error snackbar on
+error). Modelling connection state as a sum type rather than a
+boolean `isConnected` keeps the transitional states (mid-connect,
+reconnecting) explicit.
+
+**Reconnect.** `@stomp/stompjs`'s built-in `reconnectDelay = 5000`
+covers transient failures with a 5-second flat retry. Custom
+exponential backoff is out of scope; the reconnect UI surfaces the
+state and the user can refresh if attempts run long.
 
 ## Cross-repo coordination
 

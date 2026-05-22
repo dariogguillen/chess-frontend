@@ -1,26 +1,26 @@
 import createClient from 'openapi-fetch';
+import { backendUrl } from '../utils/config.default';
 import type { paths } from './generated/schema';
 
 /**
  * Base URL for the REST API.
  *
- * Resolution order:
- *   1. `import.meta.env.VITE_API_BASE_URL` (set at build time by Vite).
- *      Production sets it to `https://chess-backend.duckdns.org` in
- *      `.github/workflows/deploy-frontend.yml`.
- *   2. Fallback to `http://localhost:8080` so `npm run dev` against a
- *      locally booted backend works without configuration.
+ * Single source of truth: `backendUrl` from `src/utils/config.default.ts`,
+ * which resolves `import.meta.env.VITE_BACKEND_URL` with a localhost
+ * fallback. The same env var also drives the STOMP/WebSocket URL via
+ * `wsUrl` in that module — REST and WS share an origin, so they share
+ * a config key.
+ *
+ * Production sets `VITE_BACKEND_URL` to `https://chess-backend.duckdns.org`
+ * in `.github/workflows/deploy-frontend.yml`. Locally, the default
+ * `http://localhost:8080` matches the Spring Boot backend booted via
+ * `./gradlew bootRun`.
  *
  * Vite inlines `import.meta.env.VITE_*` literally at compile time, so
- * the bundle for production already contains the duckdns URL — there is
- * no runtime lookup.
+ * the bundle for production already contains the resolved URL — there
+ * is no runtime lookup.
  */
-const DEFAULT_BASE_URL = 'http://localhost:8080';
-
-const resolveBaseUrl = (): string => {
-  const fromEnv = import.meta.env.VITE_API_BASE_URL;
-  return typeof fromEnv === 'string' && fromEnv.length > 0 ? fromEnv : DEFAULT_BASE_URL;
-};
+const resolveBaseUrl = (): string => backendUrl;
 
 /**
  * `openapi-fetch` reads `globalThis.fetch` once, at `createClient()`

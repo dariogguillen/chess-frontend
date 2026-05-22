@@ -63,6 +63,28 @@ describe('createMockStompClient', () => {
     ]);
   });
 
+  it('records every subscribe() call in subscriptions, with headers when passed', () => {
+    const mock = createMockStompClient();
+
+    mock.subscribe<unknown>('/topic/games/abc', () => {}, { playerId: 'p1' });
+    mock.subscribe<unknown>('/topic/games/abc/viewers', () => {});
+
+    expect(mock.subscriptions).toEqual([
+      { topic: '/topic/games/abc', headers: { playerId: 'p1' } },
+      { topic: '/topic/games/abc/viewers', headers: undefined },
+    ]);
+  });
+
+  it('keeps subscriptions entries after unsubscribe (they are a tally, not live state)', () => {
+    const mock = createMockStompClient();
+
+    const off = mock.subscribe<unknown>('/topic/x', () => {});
+    off();
+
+    expect(mock.subscriptions).toHaveLength(1);
+    expect(mock.subscriptions[0].topic).toBe('/topic/x');
+  });
+
   it('increments connectCalls and disconnectCalls on lifecycle', async () => {
     const mock = createMockStompClient();
     expect(mock.connectCalls).toBe(0);

@@ -1,13 +1,16 @@
 import {
   Alert,
   Box,
+  Chip,
   CircularProgress,
   Container,
   Grid2 as Grid,
   Snackbar,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
@@ -24,19 +27,12 @@ import {
   isTerminalStatus,
   submitMove,
 } from '../../api/games';
-import type { GameState } from '../../api/games';
+import type { GameState, MoveSummary } from '../../api/games';
 import { Role } from '../../api/rooms';
+import { ConnectionState } from '../../api/wsEvents';
+import type { MoveEvent } from '../../api/wsEvents';
 import { RoomPhase, useUserContext } from '../../context';
-
-// `useStompSubscription` exists from feature 2; it is imported here so
-// the seam is visible. It is NOT called yet — feature 6 will wire it to
-// `/topic/games/{gameId}` and feed the opponent's moves into the local
-// game state.
-import { useStompSubscription } from '../../hooks/useStompSubscription';
-
-// Keep the import referenced so tsconfig's `noUnusedLocals` does not flag
-// it while we wait for feature 6 to actually call the hook.
-void useStompSubscription;
+import { useGameStomp } from '../../hooks/useGameStomp';
 
 /** The optimistic-state snapshot we keep so we can revert on POST failure. */
 type PendingSnapshot = Readonly<{
@@ -144,6 +140,66 @@ const Play = () => {
     },
     [chess],
   );
+
+  /**
+   * Apply an opponent's move arriving over STOMP. The hook self-filters
+   * own-player events (`movedBy === playerId`), so by the time we land
+   * here the event represents a move the local player did NOT make.
+   *
+   * The MoveEvent does not carry full player records (the topic payload
+   * is the per-move delta, not the whole game-state response), so we
+   * extend the existing `gameState` with the FEN / status / turn / move
+   * summary from the event. The chess.js instance is loaded to the new
+   * FEN to keep the optimistic-update probe (`chess.turn()`,
+   * `chess.moves(...)`) honest on the next own-player drop.
+   */
+  const applyOpponentMove = useCallback(
+    (event: MoveEvent) => {
+      chess.load(event.fen);
+      setFen(event.fen);
+      setGameState((prev) => {
+        if (prev === null) {
+          // No prior REST snapshot. The opponent's move arrived before
+          // the initial GET resolved, which is the same race the
+          // `cancelled` flag in the initial-load effect guards against
+          // from the other direction. We skip rather than fabricate a
+          // half-typed state; the next GET (or the next event) will
+          // catch up.
+          return prev;
+        }
+        if (prev.id !== event.gameId) {
+          // Defensive: we're subscribed by topic, so the gameIds should
+          // always match. Drop the event rather than corrupt the state.
+          return prev;
+        }
+        const summary: MoveSummary = {
+          from: event.from,
+          to: event.to,
+          promotion: event.promotion,
+        };
+        return {
+          ...prev,
+          fen: event.fen,
+          status: event.status,
+          turn: event.turn,
+          moves: [...prev.moves, summary],
+        };
+      });
+      if (isTerminalStatus(event.status)) {
+        setTerminalDialogOpen(true);
+      }
+    },
+    [chess],
+  );
+
+  // Wire the STOMP subscriptions. The hook is a no-op while `gameId` is
+  // null (Player A's pre-join state), and tears down both subscriptions
+  // + the underlying client on unmount or gameId change.
+  const {
+    connectionState,
+    viewerCount,
+    errorMessage: stompError,
+  } = useGameStomp(gameId ?? null, playerId, applyOpponentMove);
 
   /** Revert the chess.js position + rendered FEN to a pre-move snapshot. */
   const revertTo = useCallback(
@@ -324,7 +380,12 @@ const Play = () => {
           </Typography>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
-          <Typography variant="body1">Room ID: {roomId || '—'}</Typography>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Typography variant="body1">Room ID: {roomId || '—'}</Typography>
+            {connectionState === ConnectionState.Connecting && (
+              <CircularProgress size="15px" aria-label="Connecting to live updates" />
+            )}
+          </Stack>
         </Grid>
         <Grid size={12}>
           <Box flexGrow={1} sx={{ maxWidth: 600 }}>
@@ -342,8 +403,20 @@ const Play = () => {
           <Typography variant="body1">{displayName}</Typography>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
-          <Stack>
+          <Stack spacing={1}>
             <Typography variant="body1">Options</Typography>
+            {viewerCount > 0 && (
+              <Tooltip title="Spectators watching this game">
+                <Chip
+                  icon={<VisibilityIcon />}
+                  label={viewerCount}
+                  size="small"
+                  variant="outlined"
+                  sx={{ alignSelf: 'flex-start' }}
+                  aria-label={`${viewerCount} spectators watching this game`}
+                />
+              </Tooltip>
+            )}
           </Stack>
         </Grid>
       </Grid>
@@ -377,6 +450,28 @@ const Play = () => {
           variant="filled"
         >
           {errorMessage}
+        </Alert>
+      </Snackbar>
+      {/*
+        Live-updates connection feedback. Only surface the disconnected
+        state once we have a gameId — pre-game the hook is intentionally
+        idle and reporting "Disconnected" there would be noise, not
+        information.
+      */}
+      <Snackbar
+        open={gameId !== null && connectionState === ConnectionState.Disconnected}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="info" sx={{ width: '100%' }} variant="filled">
+          Reconnecting…
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={connectionState === ConnectionState.Error}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" sx={{ width: '100%' }} variant="filled">
+          {stompError ?? 'Live updates unavailable'}
         </Alert>
       </Snackbar>
     </Container>

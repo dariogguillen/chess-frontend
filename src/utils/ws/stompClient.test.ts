@@ -18,6 +18,7 @@ const makeFakeClientCtor = () => {
 
   class FakeClient implements ClientLike {
     brokerURL: string | undefined;
+    reconnectDelay = 0;
     onConnect: (frame: FakeFrame) => void = () => {};
     onDisconnect: (frame: FakeFrame) => void = () => {};
     onStompError: (frame: FakeFrame) => void = () => {};
@@ -29,6 +30,7 @@ const makeFakeClientCtor = () => {
     subscriptions: Array<{
       destination: string;
       callback: (frame: FakeFrame) => void;
+      headers: Record<string, string> | undefined;
       unsubscribe: ReturnType<typeof vi.fn>;
     }> = [];
 
@@ -45,9 +47,13 @@ const makeFakeClientCtor = () => {
       // ordering the production code does.
       return Promise.resolve();
     }
-    subscribe(destination: string, callback: (message: FakeFrame) => void): FakeSubscription {
+    subscribe(
+      destination: string,
+      callback: (message: FakeFrame) => void,
+      headers?: Record<string, string>,
+    ): FakeSubscription {
       const unsubscribe = vi.fn();
-      this.subscriptions.push({ destination, callback, unsubscribe });
+      this.subscriptions.push({ destination, callback, headers, unsubscribe });
       return { unsubscribe };
     }
     publish(params: { destination: string; body: string }): void {
@@ -151,6 +157,46 @@ describe('createStompClient', () => {
 
     await expect(dp).resolves.toBeUndefined();
     expect(created[0].deactivateCalls).toBe(1);
+  });
+
+  it('forwards headers passed to subscribe() through to the underlying Client.subscribe', async () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    const stomp = createStompClient({ url: 'ws://test/ws' }, { ClientCtor: Ctor });
+    const p = stomp.connect();
+    created[0].onConnect({ body: '' });
+    await p;
+
+    stomp.subscribe<unknown>('/topic/games/abc', () => {}, { playerId: 'player-1' });
+
+    expect(created[0].subscriptions).toHaveLength(1);
+    expect(created[0].subscriptions[0].headers).toEqual({ playerId: 'player-1' });
+  });
+
+  it('omits headers on subscribe() when the caller does not pass any', async () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    const stomp = createStompClient({ url: 'ws://test/ws' }, { ClientCtor: Ctor });
+    const p = stomp.connect();
+    created[0].onConnect({ body: '' });
+    await p;
+
+    stomp.subscribe<unknown>('/topic/games/abc/viewers', () => {});
+
+    expect(created[0].subscriptions[0].headers).toBeUndefined();
+  });
+
+  it('forwards reconnectDelay from config to the underlying Client', () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    createStompClient({ url: 'ws://test/ws', reconnectDelay: 5000 }, { ClientCtor: Ctor });
+
+    expect(created).toHaveLength(1);
+    expect(created[0].reconnectDelay).toBe(5000);
+  });
+
+  it('leaves reconnectDelay at the Client default when config does not set it', () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    createStompClient({ url: 'ws://test/ws' }, { ClientCtor: Ctor });
+
+    expect(created[0].reconnectDelay).toBe(0);
   });
 
   it('forwards STOMP errors to onError after connection is established', async () => {

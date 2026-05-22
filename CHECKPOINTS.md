@@ -125,6 +125,11 @@ other typed contract with `chess-backend-java`.
       terminal-state UI. Terminal status comes from
       `GameStateResponse.status` via `isTerminalStatus` in
       `src/api/games.ts`.
+- [ ] STOMP wire shapes (`MoveEvent`, `ViewerCountEvent`) live in
+      `src/api/wsEvents.ts`, hand-typed because WS is out of scope
+      for the OpenAPI snapshot. Each type's JSDoc names the backend
+      Java record it mirrors so a future drift is auditable. Pages
+      and hooks consume these types from `wsEvents.ts`, never inline.
 
 ### Performance discipline
 

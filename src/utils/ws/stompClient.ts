@@ -15,13 +15,18 @@ interface SubscriptionLike {
 
 export interface ClientLike {
   brokerURL: string | undefined;
+  reconnectDelay: number;
   onConnect: (frame: StompFrameLike) => void;
   onDisconnect: (frame: StompFrameLike) => void;
   onStompError: (frame: StompFrameLike) => void;
   onWebSocketError: (evt: unknown) => void;
   activate(): void;
   deactivate(): Promise<void>;
-  subscribe(destination: string, callback: (message: StompFrameLike) => void): SubscriptionLike;
+  subscribe(
+    destination: string,
+    callback: (message: StompFrameLike) => void,
+    headers?: Record<string, string>,
+  ): SubscriptionLike;
   publish(params: { destination: string; body: string }): void;
 }
 
@@ -57,6 +62,9 @@ export const createStompClient = (
   const Ctor: ClientCtor = opts.ClientCtor ?? (Client as unknown as ClientCtor);
   const client = new Ctor();
   client.brokerURL = config.url;
+  if (config.reconnectDelay !== undefined) {
+    client.reconnectDelay = config.reconnectDelay;
+  }
 
   client.onStompError = (frame: StompFrameLike) => {
     config.onError?.(new Error(`STOMP error: ${frame.body}`));
@@ -100,11 +108,19 @@ export const createStompClient = (
       result.then(() => resolve()).catch(() => resolve());
     });
 
-  const subscribe = <T>(topic: string, handler: (message: T) => void): Unsubscribe => {
-    const sub = client.subscribe(topic, (frame: StompFrameLike) => {
-      const parsed = JSON.parse(frame.body) as T;
-      handler(parsed);
-    });
+  const subscribe = <T>(
+    topic: string,
+    handler: (message: T) => void,
+    headers?: Record<string, string>,
+  ): Unsubscribe => {
+    const sub = client.subscribe(
+      topic,
+      (frame: StompFrameLike) => {
+        const parsed = JSON.parse(frame.body) as T;
+        handler(parsed);
+      },
+      headers,
+    );
     return () => sub.unsubscribe();
   };
 
