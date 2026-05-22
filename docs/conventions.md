@@ -362,6 +362,18 @@ The file at the repo root is the load-bearing piece. It declares:
   detection-and-deprecation window for compromised-account publications.
   Requires npm 11.7+. The value is in days as a Number; the kebab-case
   key is the canonical npm config name.
+- **`legacy-peer-deps=true`** — skips npm's strict peer-dependency
+  reconciliation at install time. Added because `openapi-typescript`
+  peer-requires `typescript@^5.x` while this project ships TypeScript
+  6.x; the tool is invoked as a CLI binary at codegen time, not
+  imported as a runtime dependency, and the `schema.ts` it emits is
+  consumed by our own `tsc` and compiles cleanly. The mismatch is
+  cosmetic but blocks `npm ci`. This flag does **not** weaken the
+  load-bearing supply-chain controls (`ignore-scripts=true`,
+  `min-release-age=7`, `engine-strict=true`), which govern install-time
+  code execution and version freshness — orthogonal concerns to peer
+  reconciliation. Remove this line when every dep we care about
+  supports TypeScript 6 natively.
 
 ### Postinstall allowlist (the controlled escape hatch)
 

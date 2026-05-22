@@ -1,9 +1,11 @@
 import {
+  Alert,
   Button,
   Checkbox,
   Container,
   Divider,
   Paper,
+  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -12,7 +14,9 @@ import { useState } from 'react';
 import type { ChangeEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ToggleButtons from '../../components/ToggleButton';
-import { useUserContext } from '../../context';
+import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
+import { createRoom, joinRoom } from '../../api/rooms';
+import { IdentityKind, useUserContext } from '../../context';
 import {
   Opponent,
   Position,
@@ -27,15 +31,21 @@ const DEFAULT_DISPLAY_NAME = 'Guest';
 /**
  * Configuration page for a new game: nickname, join-vs-create toggle,
  * board side, opponent type, timer (placeholder). The Start/Join button
- * navigates to `/play` once REST wiring lands in feature 4.
+ * hits `POST /api/rooms` or `POST /api/rooms/{id}/join` and, on success,
+ * promotes the context's `room` slice via `enterRoom` and navigates to
+ * `/play`. The legacy piece-color toggle is preserved as decoration but
+ * the server's assignment is authoritative.
  */
 const NewGame = () => {
   const navigate = useNavigate();
-  const { identity, position, opponent, roomId, setIdentity, setPosition, setOpponent, setRoomId } =
+  const { identity, position, opponent, setIdentity, setPosition, setOpponent, enterRoom } =
     useUserContext();
 
   const [time, setTime] = useState<Time>(Time.None);
   const [join, setJoin] = useState(false);
+  const [roomIdInput, setRoomIdInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleOpponent = (_event: MouseEvent<HTMLElement>, newOpponent: Opponent | null) => {
     if (newOpponent !== null) setOpponent(newOpponent);
@@ -54,32 +64,44 @@ const NewGame = () => {
   };
 
   const handleRoomId = (event: ChangeEvent<HTMLInputElement>) => {
-    setRoomId(event.target.value);
+    setRoomIdInput(event.target.value);
   };
 
   const handleDisplayName = (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value || DEFAULT_DISPLAY_NAME;
     // Identity is a discriminated union; we preserve the kind on update.
-    if (identity.kind === 'guest') {
-      setIdentity({ kind: 'guest', displayName: value });
+    if (identity.kind === IdentityKind.Guest) {
+      setIdentity({ kind: IdentityKind.Guest, displayName: value });
     } else {
       setIdentity({ ...identity, displayName: value });
     }
   };
 
-  const handleStart = () => {
-    if (!join) {
-      // TODO(feature-4): POST /api/rooms — the server returns the canonical
-      // roomId + playerId; today we stub and navigate to /play with whatever
-      // we have. The legacy realtime-create emit has been removed.
-      console.warn('NewGame.handleStart: not yet wired; see TODO above');
-      navigate(`/play${roomId ? `?roomId=${encodeURIComponent(roomId)}` : ''}`);
-    } else {
-      // TODO(feature-4): POST /api/rooms/{id}/join — the server validates the
-      // roomId and returns the second-player playerId. The legacy
-      // realtime-join emit has been removed.
-      console.warn('NewGame.handleStart: not yet wired; see TODO above');
-      if (roomId) navigate(`/play?roomId=${encodeURIComponent(roomId)}`);
+  const isDisplayNameValid = identity.displayName.trim().length > 0;
+  const isRoomIdValid = roomIdInput.trim().length > 0;
+  const canSubmit = !submitting && isDisplayNameValid && (!join || isRoomIdValid);
+
+  const handleStart = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const response = join
+        ? await joinRoom(roomIdInput.trim(), identity.displayName)
+        : await createRoom(identity.displayName);
+      enterRoom(response);
+      navigate('/play');
+    } catch (cause) {
+      if (cause instanceof ApiError) {
+        setErrorMessage(messageFor(cause.code));
+      } else {
+        // Defensive: rooms.ts wraps everything as ApiError, but a future
+        // refactor could regress that contract. Treat unknown throws as
+        // UNKNOWN_ERROR for the user.
+        setErrorMessage(messageFor(ApiErrorCode.UnknownError));
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -119,8 +141,9 @@ const NewGame = () => {
             variant="standard"
             disabled={!join}
             fullWidth
-            value={roomId || ''}
+            value={roomIdInput}
             onChange={handleRoomId}
+            slotProps={{ htmlInput: { maxLength: 6, style: { textTransform: 'uppercase' } } }}
           />
         </Paper>
         <Paper sx={{ p: 2 }}>
@@ -142,10 +165,25 @@ const NewGame = () => {
           </Typography>
           <ToggleButtons {...timeButtons} disabled={join} />
         </Paper>
-        <Button variant="contained" onClick={handleStart}>
+        <Button variant="contained" onClick={handleStart} disabled={!canSubmit}>
           {join ? 'Join game' : 'Start'}
         </Button>
       </Stack>
+      <Snackbar
+        open={errorMessage !== null}
+        autoHideDuration={6000}
+        onClose={() => setErrorMessage(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          severity="error"
+          onClose={() => setErrorMessage(null)}
+          sx={{ width: '100%' }}
+          variant="filled"
+        >
+          {errorMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

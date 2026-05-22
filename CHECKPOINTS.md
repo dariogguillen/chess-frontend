@@ -95,6 +95,30 @@ a later feature) live in a dedicated folder when they arrive.
       codebase. Inline `jest.fn()` style mocks are tolerated when
       scoped tight.
 
+### API / integration
+
+These items apply when the feature touches the REST surface or any
+other typed contract with `chess-backend-java`.
+
+- [ ] `openapi.json` at the repo root is in sync with the backend's
+      `/v3/api-docs`. When the contract changes, `openapi.json` is
+      refreshed via `npm run openapi:fetch` (against a live backend)
+      and the resulting diff is part of the PR.
+- [ ] `npm run openapi:generate` is idempotent: running it twice
+      produces zero diff against the committed
+      `src/api/generated/schema.ts`. The reviewer verifies by running
+      the script.
+- [ ] `src/api/generated/schema.ts` is not edited by hand. Narrowing
+      and wrapping happen in `src/api/*.ts` next to the generated
+      file, not inside it.
+- [ ] API errors are surfaced to React via `ApiError` (see
+      `src/api/errors.ts`); pages do not handle bare `{ error }`
+      tuples from `openapi-fetch`.
+- [ ] MSW handlers in tests register against the same base URL the
+      client uses (`TEST_API_BASE_URL` in `src/test/msw-server.ts`).
+      No raw `vi.fn().mockResolvedValue` replacements for the typed
+      client.
+
 ### Performance discipline
 
 These are the rules absorbed from the Vercel React best-practices

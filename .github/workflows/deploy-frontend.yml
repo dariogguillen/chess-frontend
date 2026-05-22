@@ -22,6 +22,7 @@ on:
 
 env:
   VITE_BACKEND_URL: ${{ vars.VITE_BACKEND_URL }}
+  VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
 
 # Sets the GITHUB_TOKEN permissions to allow deployment to GitHub Pages
 permissions:
@@ -54,7 +55,13 @@ jobs:
         run: npm ci
       - name: Build
         run: |
-          echo VITE_BACKEND_URL=$VITE_BACKEND_URL > .env
+          # Pin every VITE_* the bundle reads at build time. Vite inlines
+          # `import.meta.env.VITE_*` literally — these become string
+          # constants in the emitted JS, not runtime config lookups.
+          {
+            echo VITE_BACKEND_URL=$VITE_BACKEND_URL
+            echo VITE_API_BASE_URL=$VITE_API_BASE_URL
+          } > .env
           npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v6

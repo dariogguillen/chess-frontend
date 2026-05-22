@@ -943,6 +943,17 @@ the gesture model changes from HTML5 DnD to Pointer events +
 DragOverlay. Desktop mouse should be equivalent; mobile touch
 worth checking separately.
 
+> **POST-CLOSE CONFIRMATION 2026-05-21** — The user pushed
+> "chore: bump react chess board 5.10.0" and the deploy ran
+> green (36s). The user manually verified drag-drop on the
+> deployed site and reports it still works correctly — the
+> gesture model swap from HTML5 DnD to @dnd-kit's pointer
+> events did not regress desktop UX. Dependabot PR #9
+> **auto-closed** on detection (no `@dependabot close`
+> comment needed this time, unlike the slower closures we
+> saw on PRs #8 and #11). Final acceptance criteria 8, 9, 10
+> all satisfied. The feature is fully closed.
+
 **Out-of-scope observations forwarded:**
 
 - **Lockfile sync check in `init.sh`** (new candidate from this
@@ -1416,3 +1427,195 @@ The first-pass files (`.github/workflows/deploy-frontend.yml`,
 first-pass changes are still correct.
 
 **Feature note:** N/A (mini-feature, per convention).
+
+## 2026-05-21 — rest-room-integration
+
+**Status:** done
+
+**Summary:** First REST integration with the live Java backend.
+Wires `POST /api/rooms` and `POST /api/rooms/{id}/join` through a
+typed client (`openapi-fetch` + `openapi-typescript` codegen),
+backed by an OpenAPI spec snapshot at the repo root. Adds a
+`RoomState` slice to `UserContext` (orthogonal to `Identity`),
+wires the NewGame buttons to the new flow with MUI Snackbar
+error surfacing, and lands MSW-backed tests. Unblocks the
+remaining REST/STOMP features (priorities 5 and 6).
+
+Cross-repo prerequisite (`@Schema(allowableValues = ...)` on
+`ErrorResponse.error`) shipped earlier in the day on
+`chess-backend-java` (commit `0e03bc7`), giving us the 9-code
+literal union in the generated TypeScript types and amortizing
+the typing investment across feature 5.
+
+**Verification limit:** the deployed frontend cannot smoke-test
+against the live backend yet — backend CORS is still pending
+(scheduled by the user after the in-flight Redis work). The
+feature closes on local `./init.sh` + MSW tests being green; the
+post-merge production E2E confirmation lands in a future session
+after backend CORS ships.
+
+**Round structure (3 implementer-reviewer cycles):**
+
+- **Round 1:** full implementation. UI-reviewer APPROVED on
+  first pass (the new Snackbar / Alert / disabled-button surface
+  passes color-vs-structural cues per checklist item 9; no
+  `style={{}}` or hardcoded hex regressions). Regular reviewer
+  REJECTED with one specific issue: the new `legacy-peer-deps=true`
+  in `.npmrc` was undocumented in `docs/conventions.md` § "Supply
+  chain hygiene" (the canonical reference that `.npmrc`'s own
+  header points to).
+- **Round 2:** doc-only fix. Implementer added the fourth bullet
+  to conventions.md plus a courtesy enumeration update in
+  `README.md`. Reviewer APPROVED.
+- **Round 3:** user-requested DX refactor. After reviewing the
+  approved diff, the user flagged that `identity.kind === 'guest'`
+  / `room.phase === 'in-room'` / `error.code === 'ROOM_NOT_FOUND'`
+  style raw literal-string comparisons were typesafe but not
+  refactor-friendly. Re-scope expanded the feature to convert
+  four discriminants to the modern `as const` object + derived
+  type pattern (rejecting native TS enums for tree-shaking and
+  transpile reasons). Both reviewers re-approved.
+
+**Notable decisions:**
+
+- **OpenAPI snapshot vs live spec.** The backend only exposes
+  `/v3/api-docs` at runtime; CI cannot depend on a live backend.
+  Chose to commit `openapi.json` at the repo root + the
+  generated `src/api/generated/schema.ts`. Two scripts:
+  `openapi:fetch` (curl) and `openapi:generate` (codegen). The
+  generated schema is committed and excluded from Prettier
+  (codegen idempotency would otherwise break).
+- **`legacy-peer-deps=true` added to `.npmrc`.** Explicitly
+  documented why: `openapi-typescript@7.13.0` peers
+  `typescript@^5.x`, we ship 6.x. The tool is invoked as a CLI
+  at codegen time, not imported. Does NOT weaken the
+  load-bearing supply-chain controls (`ignore-scripts=true`,
+  `min-release-age=7`, `engine-strict=true`). Documented in
+  `.npmrc` itself, `docs/conventions.md`, `README.md`, and the
+  feature note. Removal condition: when every dep we care about
+  supports TS 6 natively. Alternatives considered: `overrides`
+  doesn't apply to peers; downgrading openapi-typescript
+  doesn't help (no 7.x version advertises TS 6 peer);
+  hand-typing schema.ts was explicitly rejected in the plan.
+- **`ApiError` thrown** (not `Result<...>`). Matches React Query
+  / Suspense conventions; exhaustive matching preserved via the
+  `errorMessages: Record<ApiErrorCode, string>` map.
+- **`lazyFetch` thunk** wraps `globalThis.fetch` lookup. Required
+  because `openapi-fetch` captures `globalThis.fetch` at
+  `createClient` time, which prevents MSW from intercepting the
+  module-singleton client in tests. The thunk closes over the
+  live `globalThis` reference instead of the value.
+- **`role` narrowed in `rooms.ts`**, not in `schema.ts`. The
+  generated `RoomResponse.role` is plain `string` (backend doesn't
+  emit `@Schema(allowableValues = ...)` on the field today). The
+  fix at the implementer's site preserves codegen idempotency;
+  the long-term fix is a backend annotation in a future
+  cross-repo coordination.
+- **Const object + derived type pattern for discriminants
+  (round 3).** Four sites: `IdentityKind`, `RoomPhase`, `Role`,
+  `ApiErrorCode`. Same name reused for value and type
+  namespaces. For `ApiErrorCode` (whose 9 server codes are
+  derived from the generated schema), the const object carries
+  `as const satisfies Record<string, ApiErrorCode>` (subset
+  check) AND an inverse exhaustiveness type-level assertion
+  (`Exclude<ApiErrorCode, typeof X[keyof typeof X]> extends never`)
+  to catch the case where the backend adds a new code we forget
+  to mirror in the runtime object. The `void` reference is
+  required to satisfy tsc's `noUnusedLocals` (distinct from
+  ESLint's `no-unused-vars`).
+- **`narrowRole` rewritten as exhaustive switch** (round 3
+  scope-adjacent improvement). Strictly clearer than the prior
+  `||` chain; exhaustively checkable if a third role ever
+  appears.
+
+**Files touched (cumulative across 3 rounds, 24 files):**
+
+New:
+- `openapi.json`
+- `src/api/client.ts`
+- `src/api/errors.ts`
+- `src/api/rooms.ts`
+- `src/api/rooms.test.ts`
+- `src/api/generated/schema.ts` (auto-generated)
+- `src/test/msw-server.ts`
+- `notes/04-rest-room-integration.md`
+- `.env.example`
+
+Modified:
+- `.npmrc` (added `legacy-peer-deps=true` with rationale)
+- `.prettierignore` (exclude generated + openapi.json)
+- `package.json` (deps + scripts)
+- `package-lock.json` (regenerated)
+- `.github/workflows/deploy-frontend.yml` (added `VITE_API_BASE_URL` build env)
+- `CHECKPOINTS.md` (new API/integration subsection)
+- `docs/architecture.md` (new "REST integration" section)
+- `docs/conventions.md` (fourth `.npmrc` policy bullet, round 2)
+- `README.md` (enumeration update, round 2)
+- `vitest.setup.ts` (MSW lifecycle hooks)
+- `src/context/UserContext.tsx` (RoomState slice + IdentityKind/RoomPhase const objects)
+- `src/context/UserContext.test.tsx` (room slice tests)
+- `src/context/index.tsx` (re-export IdentityKind/RoomPhase as values)
+- `src/pages/NewGame/NewGame.tsx` (typed client wiring, Snackbar, const-object refs)
+- `src/pages/NewGame/NewGame.test.tsx` (MSW-backed happy + error paths)
+- `src/pages/Play/Play.tsx` (reads from new room slice using RoomPhase)
+
+**Metrics:**
+
+- Tests: **60** (was 49; +11 — 7 in `rooms.test.ts`, 2 in
+  UserContext, 2 in NewGame).
+- Initial-load surface: **471.18 KB** (target ~471 KB ✓ — vs
+  470.99 KB pre-feature, +0.19 KB).
+- NewGame chunk (lazy): 77 KB (includes openapi-fetch ~5 KB).
+- Play chunk (lazy): 121 KB.
+- MSW verified absent from production bundle.
+- `min-release-age=7` clearance: all four new deps clear by
+  margin (openapi-fetch and openapi-typescript at 99 days,
+  msw at 10 days, @testing-library/dom at 298 days).
+
+**Feature note:** `notes/04-rest-room-integration.md`.
+
+**Pending post-close (deferred verifications):**
+
+1. **Production E2E smoke** — gated on backend CORS landing.
+   `https://chess-backend.duckdns.org` is live but blocks the GH
+   Pages origin on preflight today. User coordinates the
+   backend-side change (most likely a `WebMvcConfigurer` with
+   `addCorsMappings`, or `Access-Control-Allow-Origin` headers
+   in Caddy). Once shipped: dev a manual create-room round trip
+   from the deployed SPA against the live backend; report back.
+2. **Backend `@Schema(allowableValues = {"WHITE","BLACK"})` on
+   `RoomResponse.role`** — closes the gap that forced the
+   client-side narrowing in `rooms.ts`. Optional but cleaner;
+   when shipped, regenerate `openapi.json` and the `Role`
+   narrowing collapses to a direct type alias.
+
+**Out-of-scope observations forwarded (candidates for future
+features, not entries in `feature_list.json` yet):**
+
+- `docs/conventions.md` folder-layout example still references
+  `src/utils/api/types.ts` (now `src/api/`). Pre-existing
+  inconsistency, predates this feature.
+- `src/components/ToggleButton/ToggleButton.tsx:54` uses
+  `style={{ display: 'block' }}` on an MUI component (should be
+  `sx`). Pre-existing since the `refactor` commit.
+- Per-route `document.title` (carry-over `route-titles`).
+- Polish: NewGame Start/Join button could swap its label to
+  "Joining…" while submitting; the HTML `disabled` attribute is
+  already a structural cue, so this is a nice-to-have a11y
+  upgrade rather than a fix.
+
+**Process insight worth recording:**
+
+The third round was triggered by the user reading the approved
+diff and surfacing a legitimate DX concern that neither
+reviewer flagged because both reviewers walk file-level
+recipes, and a "no raw literal-string discriminants" rule was
+not in their checklists. The pattern is general: code-review
+checklists catch the bugs they were built around; novel
+quality concerns surface from a human reading the diff with
+fresh eyes. The implementer-leader-user loop handled this
+gracefully: re-scope the still-open feature rather than spawn a
+follow-up, because the change was mechanical and the surface
+was the same files. The lesson is procedural — the harness is
+permeable to user judgment during the final-approval window,
+and that's the intended behavior, not a violation.

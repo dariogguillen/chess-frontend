@@ -172,6 +172,83 @@ policy (broadcasts are fire-and-forget; loss is recoverable via
 `GET /api/games/{id}` + resubscribe), and ordering/concurrency
 guarantees. Any change to the contract starts there.
 
+## REST integration
+
+The REST surface is typed end-to-end against the backend's OpenAPI
+spec. The contract is captured as a **snapshot on disk** at
+`openapi.json` in the repo root. Two npm scripts maintain the
+artefacts:
+
+- `npm run openapi:fetch` — `curl http://localhost:8080/v3/api-docs`
+  and overwrite `openapi.json`. Requires a running backend; intended
+  to be run on demand when the contract changes.
+- `npm run openapi:generate` — run `openapi-typescript` against
+  `openapi.json` to emit `src/api/generated/schema.ts`. Idempotent:
+  the script produces zero diff when re-run.
+
+Both `openapi.json` and `schema.ts` are committed. `init.sh` does
+**not** invoke either script; it trusts the committed artefacts.
+A future hardening could add a drift-check (regenerate, `diff`
+against committed) — out of scope for the initial integration.
+
+**Why snapshot, not build-time fetch?** Build-time fetch would make
+CI (GitHub Pages) depend on a reachable backend at build time. The
+backend is hosted on AWS Free Tier and may be down for unrelated
+reasons; coupling the frontend deploy to the backend's uptime is the
+wrong default. Snapshot + manual refresh keeps the frontend
+deployable independently and makes contract drift visible as a diff
+in PRs.
+
+**Why not hand-typed DTOs?** Hand-typing loses the enum surface
+(`ErrorResponse.error` is a 9-value literal union; the generated
+type tracks the backend automatically) and creates a maintenance tax
+that scales with the API.
+
+### Client layer
+
+```
+src/api/
+├── generated/
+│   └── schema.ts          # openapi-typescript output (do not edit)
+├── client.ts              # createClient<paths>({ baseUrl })
+├── errors.ts              # ApiError + mapError + errorMessages
+├── rooms.ts               # createRoom / joinRoom typed wrappers
+└── rooms.test.ts          # MSW-backed unit tests
+```
+
+The wrappers in `rooms.ts` translate the `{ data, error, response }`
+shape that `openapi-fetch` returns into a thrown `ApiError`, so
+React components can `try { ... } catch (cause) { if (cause instanceof
+ApiError) ... }` and avoid plumbing the result tuple through their
+state.
+
+`ApiError.code` is a discriminated union of the server-defined
+`ErrorResponse.error` enum extended with `NETWORK_ERROR` and
+`UNKNOWN_ERROR` for transport failures. Each code maps to a
+user-facing string in `errorMessages` — components do not hand-craft
+copy from the error object.
+
+### API base URL
+
+`src/api/client.ts` resolves the base URL from
+`import.meta.env.VITE_API_BASE_URL` (set at build time by Vite) with
+a fallback to `http://localhost:8080`. The GitHub Pages deploy
+workflow injects the production value
+(`https://chess-backend.duckdns.org`) via the `VITE_API_BASE_URL`
+repository variable.
+
+### CORS
+
+The backend currently has no CORS configuration. The GH-Pages-hosted
+frontend will be blocked by the browser on the preflight
+`OPTIONS /api/rooms` until the backend adds either a
+`WebMvcConfigurer.addCorsMappings`, `@CrossOrigin` annotations, or
+`Access-Control-Allow-Origin` headers in the Caddy reverse proxy.
+This work is on the backend's roadmap after its in-flight Redis
+integration and is tracked outside this repo. Local development
+(both `npm run dev` and `npm test`) is unaffected because the dev
+origin matches the API origin.
+
 ## Cross-repo coordination
 
 When a feature in `chess-frontend` changes how it consumes the

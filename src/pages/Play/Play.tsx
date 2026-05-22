@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Chessboard, type PieceDropHandlerArgs } from 'react-chessboard';
 import { useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
-import { useUserContext } from '../../context';
+import { RoomPhase, useUserContext } from '../../context';
 
 // `useStompSubscription` exists from feature 2; it is imported here so
 // the seam is visible. It is NOT called yet — feature 6 will wire it to
@@ -29,17 +29,16 @@ export interface MoveObj {
  * pointing at the next feature that will wire them.
  */
 const Play = () => {
-  const { identity, position, roomId, setRoomId } = useUserContext();
+  const { identity, position, room } = useUserContext();
   const [searchParams] = useSearchParams();
   const roomIdFromUrl = searchParams.get('roomId') || undefined;
 
-  // URL is the source of truth for which room is being played. We
-  // reconcile context to match it on entry.
-  useEffect(() => {
-    if (roomIdFromUrl && roomIdFromUrl !== roomId) {
-      setRoomId(roomIdFromUrl);
-    }
-  }, [roomIdFromUrl, roomId, setRoomId]);
+  // `room.phase === RoomPhase.InRoom` after a successful create/join.
+  // The URL query-string fallback (`?roomId=...`) is kept as a dev
+  // shortcut so refreshing /play with a room code in the URL still
+  // shows it; in the production flow the user never types this
+  // manually.
+  const roomId = room.phase === RoomPhase.InRoom ? room.roomId : roomIdFromUrl;
 
   // chess.js instance survives the component lifetime; we only re-render
   // when the FEN changes.

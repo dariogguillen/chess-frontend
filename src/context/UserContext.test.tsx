@@ -19,7 +19,7 @@ describe('UserContext', () => {
     expect(result.current.identity.displayName).toBe('Guest');
     expect(result.current.position).toBe(Position.White);
     expect(result.current.opponent).toBe(Opponent.Friend);
-    expect(result.current.roomId).toBeUndefined();
+    expect(result.current.room).toEqual({ phase: 'none' });
   });
 
   it('updates identity while preserving the discriminant', () => {
@@ -46,7 +46,7 @@ describe('UserContext', () => {
     }
   });
 
-  it('updates position, opponent, and roomId through setters', () => {
+  it('updates position and opponent through setters', () => {
     const { result } = renderHook(() => useUserContext(), {
       wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
     });
@@ -54,12 +54,55 @@ describe('UserContext', () => {
     act(() => {
       result.current.setPosition(Position.Black);
       result.current.setOpponent(Opponent.Bot);
-      result.current.setRoomId('room-42');
     });
 
     expect(result.current.position).toBe(Position.Black);
     expect(result.current.opponent).toBe(Opponent.Bot);
-    expect(result.current.roomId).toBe('room-42');
+  });
+
+  it('enterRoom transitions room state to the in-room arm', () => {
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    act(() => {
+      result.current.enterRoom({
+        roomId: 'K7M3X9',
+        playerId: 'player-1',
+        role: 'WHITE',
+        gameId: null,
+      });
+    });
+
+    expect(result.current.room.phase).toBe('in-room');
+    if (result.current.room.phase === 'in-room') {
+      expect(result.current.room.roomId).toBe('K7M3X9');
+      expect(result.current.room.playerId).toBe('player-1');
+      expect(result.current.room.role).toBe('WHITE');
+      expect(result.current.room.gameId).toBeNull();
+    } else {
+      throw new Error('expected in-room state');
+    }
+  });
+
+  it('leaveRoom returns room state to the none arm', () => {
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    act(() => {
+      result.current.enterRoom({
+        roomId: 'K7M3X9',
+        playerId: 'player-1',
+        role: 'BLACK',
+        gameId: 'game-1',
+      });
+    });
+    act(() => {
+      result.current.leaveRoom();
+    });
+
+    expect(result.current.room).toEqual({ phase: 'none' });
   });
 
   it('seals the discriminated union — wrong-shape access is rejected by TS', () => {

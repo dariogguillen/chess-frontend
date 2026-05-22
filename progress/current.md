@@ -2,107 +2,85 @@
 
 **Status:** session closed.
 
-The previous feature `react-chessboard-bump` (priority 3.94)
-was closed on 2026-05-21 and is recorded in `progress/history.md`.
-Bundle shrunk by 23.54 KB on the Play chunk (positive surprise
-— @dnd-kit is leaner than the old react-dnd).
+The previous feature `rest-room-integration` (priority 4) was
+closed on 2026-05-21 and is recorded in `progress/history.md`.
+First REST integration against the live Java backend; landed the
+typed-client foundation (`openapi-fetch` + `openapi-typescript`
+codegen) that feature 5 (`rest-game-integration`) will reuse
+verbatim. Initial-load surface held at 471.18 KB; +11 tests
+(60 total).
 
-## Pending post-close verifications (leader-owned)
+## Pending post-close verifications
 
 After the user pushes:
 
-1. **Deploy workflow runs green** — same pattern as prior pushes.
-2. **Dependabot PR #9** (`react-chessboard` 4.7 → 5.10) closes or
-   retargets. If still open after some hours, `@dependabot close`
-   comment per the established pattern.
-3. **User's manual drag-drop test** — the DnD backend swap means
-   the gesture model differs. Worth a check on:
-   - Desktop mouse: drag piece, drop on valid square.
-   - Mobile touch (if available): same.
+1. **Deploy workflow runs green** — same pattern as prior
+   pushes; no surprises expected (only doc/test/code changes,
+   no infra deltas in the workflow itself beyond the
+   `VITE_API_BASE_URL` build env added in round 1).
+2. **Production E2E smoke** — **DEFERRED.** Backend CORS still
+   pending (scheduled by the user after the in-flight Redis
+   work on `chess-backend-java`). Once backend CORS lands, the
+   user will: open the deployed SPA, click "Create new room",
+   confirm a POST to `https://chess-backend.duckdns.org/api/rooms`
+   succeeds, lands on `/play` with a roomId visible. Report
+   back in a future session — the `react-chessboard-bump`-style
+   POST-CLOSE CONFIRMATION pattern applies here too.
 
-## Dependabot queue final state
+## Next feature pending
 
-After this round, the open set should be:
+Priority 5: **`rest-game-integration`** — `POST /api/games/{id}/moves`
+and `GET /api/games/{id}`. Reuses the typed-client foundation from
+feature 4 directly; the existing `src/api/` modules and the
+generated `schema.ts` already contain the game endpoints (the
+backend exposed them when we snapshotted the spec). Expected
+scope: thin extension to `src/api/` (new module `games.ts`),
+wire `Play.tsx` to read game state on mount and after each
+move, `X-Player-Id` header on move submission, handle the
+4 game-specific error codes (`ILLEGAL_MOVE`, `NOT_YOUR_TURN`,
+`GAME_ALREADY_ENDED`, 404). Tests with MSW following the same
+pattern.
 
-| # | Bump | Notes |
-| --- | --- | --- |
-| 10 | `@vitejs/plugin-react` 6.0.1 → 6.0.2 | Re-targeted; clears `min-release-age=7` 2026-05-22 |
-| 12 | `eslint` 10.3.0 → 10.4.0 | Re-targeted; clears 2026-05-22 |
-
-Both are time-locked patches. Tomorrow's `min-release-age`
-clearance unlocks them naturally; they can be merged via the
-Dependabot UI or held until next dep round.
-
-## Achievement of the dep-bump arc
-
-We started today's session with **13 open Dependabot PRs** and
-the deploy broken on `engine-strict` policy. We closed:
-
-- 13 dep features shipped (priority 3.5 through 3.94)
-- 11 Dependabot PRs cleared (#1-9 + #11 + #13, plus #8 force-closed)
-- **All majors landed**: TypeScript 6, ESLint 10, React 19, Vite 8,
-  @vitejs/plugin-react 6, react-chessboard 5, react-hooks 7
-- **Bundle shrunk** from 480 → 680 → split → 659 KB total
-- **Initial-load surface dropped below 500 KB** for the first time
-- 49 tests untouched throughout
-- Pre-validation recipe forged and applied 5 times consecutively
-
-The harness held up under sustained dep churn with one major
-process improvement validated: pre-validating the peer-dep
-matrix and `min-release-age` before drafting plans.
-
-## Feature candidates remaining
-
-Not yet entries in `feature_list.json`:
+## Feature candidates remaining (not yet in `feature_list.json`)
 
 - **`init-sh-lockfile-sync-check`** — `./init.sh` could assert
-  `package.json`/`package-lock.json` consistency early, catching
-  the failure mode that took two implementer passes on
-  `react-chessboard-bump`. New candidate from this feature.
+  `package.json`/`package-lock.json` consistency early.
 - **`init-sh-stale-install-guard`** — sanity check for partial
-  `node_modules` (flagged twice in previous features).
-- **`route-titles`** — per-route `document.title` (carry-over).
+  `node_modules`.
+- **`route-titles`** — per-route `document.title`.
 - **`pre-validation-recipe-codification`** — formalize the
-  peer-dep + min-release-age recipe into `leader.md`. Now used
-  successfully 5 times.
+  peer-dep + `min-release-age` recipe into `leader.md`. Now
+  used successfully 5 times.
+- **`ci-reviewer` agent** — defensive scan of CI workflows
+  against actual installed engine surface (carry-over from
+  `ci-engine-strict-fix` retrospective).
+- **`document-title-polish`** — round-3 ui-reviewer
+  observation: NewGame Start/Join button could swap label to
+  "Joining…" while submitting. Trivial a11y upgrade.
 
-## Next product feature (still blocked)
+Three of these could combine into a single `harness-tooling-pass`
+feature if priorities shift later.
 
-`rest-room-integration` (priority 4) remains paused waiting on
-`chess-backend-java` to enum-ize `ErrorResponse.error`.
+## Cross-repo dependencies waiting
 
-## Carry-over debt updated
+- **Backend CORS** — gates production E2E for feature 4 and
+  feature 5. User coordinates after Redis.
+- **Backend `@Schema(allowableValues = {"WHITE","BLACK"})` on
+  `RoomResponse.role`** — would let us drop the client-side
+  `narrowRole` shim. Optional cleanup.
 
+## Older carry-over (unchanged from prior sessions)
+
+- `docs/conventions.md` folder-layout example still references
+  `src/utils/api/types.ts` (now `src/api/`). Pre-existing.
 - `index.html`: favicon + og:image URLs hardcode
-  `/chess-frontend/`; dev mode doubles the prefix and 404s
-  the favicon.
+  `/chess-frontend/`; dev mode doubles the prefix and 404s.
 - 6 `react-refresh/only-export-components` warnings
-  (non-blocking; was 4 pre-code-splitting, +2 from lazy()
-  exports).
-- ~~Bundle above Vite's 500 KB warning~~ **resolved by
-  code-splitting-routes (3.92).** Initial-load surface at
-  470.99 KB.
-
-## Harness retrospective candidates (now 4 deep)
-
-- No `ci-reviewer` agent yet.
-- **Pre-validation recipe** — applied 5 times successfully, ready
-  to codify.
-- **Stale `node_modules` detection in `init.sh`** — flagged 2
-  features ago.
-- **Lockfile sync check in `init.sh`** — new from this feature.
-
-The last three are all candidates for a single
-`init-sh-hardening` feature that adds defensive checks early
-in the script.
-
-## Older carry-over (unchanged)
-
-- `// TODO(feature-4): POST /api/rooms` etc. in
-  `pages/NewGame.tsx` / `pages/Play.tsx`.
+  (non-blocking).
+- `src/components/ToggleButton/ToggleButton.tsx:54`
+  `style={{ display: 'block' }}` should be `sx`. Pre-existing
+  since the `refactor` commit.
+- `// TODO(feature-5): ...` markers in `Play.tsx` for game
+  state endpoints — exact target of next feature.
 - `// TODO(feature-6): subscribe to /topic/games/{id}` in
-  `pages/Play.tsx`.
-- Backend's STOMP API contract has a viewer-count / spectator
-  sub-section the frontend doc omits; feature 6 mirrors it.
-- `@vitejs/plugin-react` referenced in both `vite.config.ts`
-  and `vitest.config.ts` (known cost).
+  `Play.tsx` — target of feature 6.

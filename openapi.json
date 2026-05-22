@@ -1,0 +1,482 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Chess Backend API",
+    "description": "REST API for the chess-backend-java project. WebSocket/STOMP is documented in README.md and is not covered by this spec.",
+    "version": "0.0.1-SNAPSHOT"
+  },
+  "servers": [
+    {
+      "url": "https://chess-backend.duckdns.org",
+      "description": "Generated server url"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Rooms",
+      "description": "Create and join chess rooms."
+    },
+    {
+      "name": "Games",
+      "description": "Make moves and read game state."
+    },
+    {
+      "name": "Health",
+      "description": "Application status endpoint."
+    }
+  ],
+  "paths": {
+    "/api/rooms": {
+      "post": {
+        "tags": ["Rooms"],
+        "summary": "Create a room",
+        "description": "Creates a new room with the caller as White. The response includes the assigned playerId and the freshly generated roomId.",
+        "operationId": "createRoom",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoomRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Room created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (validation failure or malformed JSON)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rooms/{id}/join": {
+      "post": {
+        "tags": ["Rooms"],
+        "summary": "Join a room",
+        "description": "Joins {id} as the second player (Black) and creates the game in the same atomic step. Path {id} is case-insensitive; the canonical uppercase form is returned in the body.",
+        "operationId": "joinRoom",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinRoomRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Joined; game created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (validation failure or malformed JSON)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Room does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Room already has two players",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/games/{id}/moves": {
+      "post": {
+        "tags": ["Games"],
+        "summary": "Apply a move",
+        "description": "Applies a move on behalf of the caller (identified by the X-Player-Id header). The move is rejected if it is not the caller's turn, if the move is illegal in the current position, or if the game has already ended.",
+        "operationId": "move",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Player-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Move applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameStateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (validation failure on body fields, malformed JSON body, or missing X-Player-Id header)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Game does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Game has already ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Move is illegal or not the caller's turn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Application health",
+        "description": "Returns the application status, build version, and current server time.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Service is up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/games/{id}": {
+      "get": {
+        "tags": ["Games"],
+        "summary": "Read game state",
+        "description": "Returns the current state of the game: position FEN, status, whose turn it is, the two players, and the full move history.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current game state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameStateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Game does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateRoomRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "example": "Alice",
+            "minLength": 1
+          }
+        }
+      },
+      "RoomResponse": {
+        "type": "object",
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "description": "6-char short code from the alphabet ABCDEFGHJKMNPQRSTUVWXYZ23456789. Case-insensitive in URLs; canonical uppercase form returned here.",
+            "example": "K7M3X9"
+          },
+          "playerId": {
+            "type": "string",
+            "description": "Server-generated UUID identifying the caller as a player in the room.",
+            "example": "8b3c1f04-1234-5678-9abc-def012345678"
+          },
+          "role": {
+            "type": "string",
+            "description": "Side assigned to the caller. WHITE for the room creator, BLACK for the joiner.",
+            "example": "WHITE"
+          },
+          "gameId": {
+            "type": "string",
+            "description": "UUID of the chess game associated with the room. Null on the create response (no game exists yet); non-null on the join response.",
+            "example": "0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standard error envelope returned by every 4xx response from the API.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Stable upper-snake-case error code identifying the error class. Intended for programmatic matching by clients.",
+            "enum": [
+              "ROOM_NOT_FOUND",
+              "ROOM_FULL",
+              "GAME_NOT_FOUND",
+              "GAME_ALREADY_ENDED",
+              "ILLEGAL_MOVE",
+              "NOT_YOUR_TURN",
+              "VALIDATION_FAILED",
+              "MALFORMED_REQUEST",
+              "MISSING_HEADER"
+            ],
+            "example": "ROOM_NOT_FOUND"
+          },
+          "message": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "JoinRoomRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "example": "Bob",
+            "minLength": 1
+          }
+        }
+      },
+      "MoveRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Origin square in algebraic notation, lowercase.",
+            "example": "e2",
+            "minLength": 1,
+            "pattern": "^[a-h][1-8]$"
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination square in algebraic notation, lowercase.",
+            "example": "e4",
+            "minLength": 1,
+            "pattern": "^[a-h][1-8]$"
+          },
+          "promotion": {
+            "type": "string",
+            "description": "Promotion piece for pawn promotion; one of KNIGHT, BISHOP, ROOK, QUEEN. Null otherwise.",
+            "example": "QUEEN",
+            "pattern": "^(KNIGHT|BISHOP|ROOK|QUEEN)$"
+          }
+        }
+      },
+      "GameStateResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "roomId": {
+            "type": "string"
+          },
+          "white": {
+            "$ref": "#/components/schemas/Player"
+          },
+          "black": {
+            "$ref": "#/components/schemas/Player"
+          },
+          "fen": {
+            "type": "string",
+            "description": "Current position in Forsyth-Edwards Notation.",
+            "example": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ONGOING", "CHECK", "CHECKMATE", "STALEMATE", "DRAW", "ABANDONED"]
+          },
+          "turn": {
+            "type": "string",
+            "description": "Side whose turn it is. WHITE if move count is even, BLACK if odd.",
+            "enum": ["WHITE", "BLACK"],
+            "example": "WHITE"
+          },
+          "moves": {
+            "type": "array",
+            "description": "Full move history in playback order.",
+            "items": {
+              "$ref": "#/components/schemas/MoveSummary"
+            }
+          }
+        }
+      },
+      "MoveSummary": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Origin square in algebraic notation, lowercase.",
+            "example": "e2"
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination square in algebraic notation, lowercase.",
+            "example": "e4"
+          },
+          "promotion": {
+            "type": "string",
+            "description": "Promotion piece for pawn promotion; one of KNIGHT, BISHOP, ROOK, QUEEN. Null otherwise.",
+            "example": "QUEEN"
+          }
+        }
+      },
+      "Player": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Application liveness status; always \"UP\" when reachable.",
+            "example": "UP"
+          },
+          "version": {
+            "type": "string",
+            "description": "Application build version, derived from BuildProperties at boot time.",
+            "example": "0.0.1-SNAPSHOT"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Server time at the moment the response was produced, in UTC.",
+            "example": "2026-05-18T12:34:56Z"
+          }
+        }
+      }
+    }
+  }
+}

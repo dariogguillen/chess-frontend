@@ -256,7 +256,7 @@
     "id": "rest-room-integration",
     "title": "REST integration for room create/join",
     "description": "Replace the in-memory roomId generation and socket.io createRoom/joinRoom flow with calls to the backend's REST endpoints: POST /api/rooms and POST /api/rooms/{id}/join. Add a typed API client under src/utils/api/ aligned with the backend's OpenAPI spec. Store the returned playerId in UserContext.",
-    "status": "pending",
+    "status": "done",
     "priority": 4,
     "acceptance": [
       "src/utils/api/ exposes typed createRoom() and joinRoom() functions.",
