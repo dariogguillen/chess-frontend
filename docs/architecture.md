@@ -20,7 +20,7 @@ be invisible to a reader of the code.
   prediction. The server (`chess-backend-java`) is authoritative for
   legality.
 - **Vitest** + **React Testing Library** for unit and component tests.
-- **Playwright** (planned, not in baseline) for end-to-end tests.
+- **Playwright** for end-to-end tests against the production bundle.
 - **ESLint 10** + **typescript-eslint 8** + **Prettier** (planned) for
   linting and formatting.
 
@@ -381,6 +381,52 @@ subscribe / disconnect lifecycles. Each hook owns its own
 `createStompClient` + `connect()` + `disconnect()` instead. STOMP
 handshakes are cheap and one-client-per-hook keeps the lifetime
 semantics local.
+
+## End-to-end testing
+
+The frontend ships two test tiers:
+
+1. **Vitest + React Testing Library** (jsdom). Renders the React tree
+   in-process. MSW intercepts `fetch` at the network layer; the STOMP
+   client is swapped at the module seam via the `MockStompClient`
+   fake. ~140 tests; the entire suite runs in seconds. Lives co-located
+   with its subjects (`Foo.tsx` + `Foo.test.tsx`).
+2. **Playwright** (Chromium, headless by default). Loads the
+   **production bundle** (`vite preview`) in a real browser. Specs
+   live in `e2e/`; the backend is mocked at the network layer
+   (`page.route` for REST, `page.routeWebSocket` for STOMP), so the
+   tier is hermetic and does not require `chess-backend-java`.
+
+The two tiers complement each other rather than overlap. Vitest covers
+component logic, hook state machines, and the typed API wrappers in
+isolation; Playwright covers the wire-up — does the bundle that ships
+actually navigate, render, and submit moves the way the components
+that compose it expect?
+
+**Decision: mocked backend at the e2e tier.** The alternative — a
+real backend via docker-compose — would give true contract tests but
+adds cross-repo coordination (the backend image has to be published
+or built in CI) and ~30s of boot time per CI run. The contract is
+already typed end-to-end via `openapi-typescript` (`src/api/generated/schema.ts`)
+plus the hand-typed STOMP records (`src/api/wsEvents.ts`); the
+mocks model that contract. A future `e2e-integration` feature can
+add the docker-compose tier when the marginal realism gain justifies
+the CI cost.
+
+**STOMP frame mocking.** Playwright's `routeWebSocket` intercepts the
+raw WebSocket; our `e2e/fixtures/mockStomp.ts` speaks STOMP 1.2 on top
+of that — CONNECT/CONNECTED handshake, SUBSCRIBE tracking by
+destination, MESSAGE pushes with the right `subscription:` id. The
+JSON payloads are typed against the same `MoveEvent`, `RoomJoinedEvent`,
+and `ViewerCountEvent` shapes in `src/api/wsEvents.ts` that production
+consumes, so a future drift between mock and real wire shape compiles
+loud.
+
+**CI vs local gating.** The e2e suite is **opt-in** locally
+(`RUN_E2E=true ./init.sh`) so the regular dev loop stays fast.
+A dedicated GitHub Actions workflow at `.github/workflows/e2e.yml`
+runs the suite on every pull request and push to main; the HTML
+report is uploaded as a build artefact on failure for triage.
 
 ## Cross-repo coordination
 

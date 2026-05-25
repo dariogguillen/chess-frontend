@@ -184,6 +184,23 @@ info "Build (npm run build)"
 npm run build --silent
 ok "Build passed"
 
+# --- Step 10: Optional e2e (Playwright) ---
+# Default: skipped. The Playwright suite spins up `vite preview`, drives
+# Chromium, and mocks the backend at the network layer. It is opt-in
+# locally via `RUN_E2E=true ./init.sh` so the regular dev loop stays
+# tight; CI runs it in its own workflow (`.github/workflows/e2e.yml`).
+if [ "${RUN_E2E:-false}" = "true" ]; then
+  if has_script test:e2e; then
+    info "E2E (npx playwright test)"
+    npx playwright test
+    ok "E2E passed"
+  else
+    info "Skipping e2e — test:e2e script not defined"
+  fi
+else
+  info "Skipping e2e — set RUN_E2E=true to enable"
+fi
+
 # --- Done ---
 echo
 printf "${GREEN}All checks passed.${NC}\n"

@@ -2278,3 +2278,246 @@ user is taking the three flagged bugs to backend.
   from the round-1 ui-reviewer (carry-over from feature 6)
   still standing.
 - All older carry-over items unchanged.
+
+---
+
+## 2026-05-25 — Feature 6.8 `play-ux-fixes` closed (+ production E2E milestone)
+
+Four small UX fixes on `Play.tsx` surfaced during the manual
+two-browser smoke against the live backend in feature 6.7:
+
+- **A — Turn mismatch is no longer silent.** `onDrop` fires a
+  Snackbar with `messageFor(ApiErrorCode.NotYourTurn)` when
+  `chess.turn()` does not match the local player's `Role`,
+  before the fail-fast `return false`. Reuses the existing
+  `errorMessage` state + Snackbar surface; no parallel state
+  added.
+- **B — Opponent pieces are not draggable.** The Chessboard
+  `options` block now carries `canDragPiece` returning `false`
+  when the piece's color (first char of `pieceType`) does not
+  match the local `Role`. Visually verifiable: no grab cursor
+  on enemy pieces.
+- **C — Same-square drop is a no-op.** `onDrop` early-returns
+  `false` when `sourceSquare === targetSquare`, before chess.js
+  sees the `from === to` malformed move. No Snackbar, no server
+  call.
+- **D — Terminal dialog navigates to `/new`.** The
+  `CustomDialog`'s `handleContinue` now calls `navigate('/new')`
+  via `useNavigate()`. Label stayed as "Continue" — renaming
+  would have required a new prop on the shared `CustomDialog`
+  (the label is hardcoded today), and the action is the
+  load-bearing change.
+
+**Notable decisions:**
+
+- **Reuse `errorMessage` state for Bug A** instead of a parallel
+  `turnError`. Visual treatment + vocabulary are identical to
+  the API-error Snackbar; the semantic distinction (client-side
+  vs server-side) lives in a comment, not in state shape.
+- **Keep "Continue" label** for Bug D. Renaming would require
+  touching the shared `CustomDialog` API. The action is what
+  matters; the label is cosmetic.
+- **Mock `react-chessboard` globally in tests.** jsdom does not
+  faithfully simulate the pointer/drag events the library uses.
+  The mock captures the `options` prop into a module-level ref
+  so tests assert against the contract (right callbacks passed)
+  rather than library drag mechanics. Reset in `beforeEach`.
+
+**Files touched (2 files):**
+
+Modified:
+- `src/pages/Play/Play.tsx` (4 fixes inline)
+- `src/pages/Play/Play.test.tsx` (4 new tests, plus the
+  react-chessboard + react-router-dom mocks)
+
+New:
+- `notes/06.8-play-ux-fixes.md`
+
+**Metrics:**
+
+- Tests: **137** (was 133; +4 — one per bug).
+- Bundle: trivial (added strings + one prop callback).
+- No new deps.
+
+**Feature note:** `notes/06.8-play-ux-fixes.md`.
+
+**Production E2E milestone (validated post-close):**
+
+After the implementer + reviewer + ui-reviewer cycle closed,
+the user pushed to remote and the deploy pipeline ran end-to-end.
+The full two-browser smoke now passes against production
+(`https://dariogguillen.github.io/chess-frontend/` ←→
+`https://chess-backend.duckdns.org`). All three backend bugs
+flagged in 6.7 are resolved upstream (`CorsConfig` added
+`X-Player-Id`, `RoomService.findById` no longer 404s ACTIVE
+rooms, `broadcastRoomJoinedEvent` now reaches subscribers).
+
+The single quirk discovered during prod smoke: **Brave Shields
+blocks WSS cross-origin** as anti-fingerprinting. Disabling
+Shields for the site (or using any other browser) makes the
+WS work. Confirmed in Chromium (works out of the box) and in
+Brave with Shields lowered. This is opt-in user privacy, not
+a frontend bug — captured as carry-over `readme-brave-note`
+to be folded into `readme-polish` (feature 9).
+
+**MVP CORE INTEGRATION MILESTONE COMPLETE.** 20 features done
+(priorities 0 → 6.8). 137 tests passing. Local + production
+E2E both functional. The remaining three features (7
+`e2e-playwright`, 8 `hosting-migration`, 9 `readme-polish`)
+are pure polish / portfolio finishing.
+
+**Out-of-scope observations forwarded:**
+
+- `readme-brave-note` — new carry-over: document Brave Shields
+  WSS quirk in the README. Natural fit for `readme-polish`
+  (feature 9).
+- Older carry-overs still standing: `ux-polish-pass`,
+  `harness-tooling-pass`, `roomresponse-role-narrowing-cleanup`
+  (cross-repo), "Connecting to live updates" tooltip polish.
+
+---
+
+## 2026-05-25 — Feature 7 `e2e-playwright` closed
+
+Playwright introduced as the new browser-driven test tier on
+top of the existing Vitest + RTL unit/component suite. Single
+session, single implementer + reviewer pass, no rejections.
+
+**Strategy chosen: mocked backend.** `page.route()` for REST +
+`page.routeWebSocket()` (Playwright >=1.48) for STOMP, with a
+hand-rolled STOMP 1.2 frame helper that speaks CONNECT/CONNECTED
++ tracks SUBSCRIBE frames by destination + exposes
+`pushMoveEvent` / `pushRoomJoinedEvent` / `pushViewerCountEvent`.
+Tests stay hermetic — no docker, no cross-repo coordination, no
+backend flake. A future `e2e-integration` feature can layer a
+real-backend tier (docker compose) if/when contract drift
+becomes a concern.
+
+**Two specs ship:**
+
+- `e2e/smoke.spec.ts` — single user navigates home → drawer →
+  /new → create room (REST mocked) → /play renders board.
+- `e2e/two-player.spec.ts` — two `browser.newContext()` contexts:
+  context A creates room, B joins, server pushes
+  `RoomJoinedEvent` on A's `/topic/rooms/X` subscription → A
+  transitions via `useRoomDiscovery`, both contexts make moves
+  (e2-e4, e7-e5) via mocked REST and observe each other via
+  mocked STOMP `MoveEvent` pushes.
+
+**Notable decisions:**
+
+- **`@playwright/test@1.60.0`** — published 2026-05-11 (14 days
+  old at close), satisfies `.npmrc min-release-age=7`.
+- **`baseURL: 'http://127.0.0.1:4173/chess-frontend'`** because
+  Vite ships with `base: '/chess-frontend/'` for the GH Pages
+  deploy and `vite preview` honours it. Letting `page.goto('/')`
+  resolve to the SPA entry keeps the specs base-path-aware.
+- **`init.sh` gated by `RUN_E2E=true`.** Default behaviour:
+  skipped. Vitest stays the fast inner loop (<5s) and Playwright
+  the slower outer loop (~5s for two specs locally, grows with
+  the suite). CI always runs e2e via the dedicated workflow.
+- **`vitest.config.ts` excludes `e2e/**`.** Not in the original
+  plan — surfaced during implementation because Vitest's default
+  discovery walks `**/*.spec.ts` and would have tried to execute
+  the Playwright specs under jsdom. Exclude is the mechanical
+  fix.
+- **Drag-and-drop via `mouse.down/move/up`.** `react-chessboard`
+  v5 swapped its DnD backend from `react-dnd` to `@dnd-kit/core`
+  (pointer events, not HTML5). Playwright's `dragTo` only emits
+  HTML5 events, silently no-ops against dnd-kit. The specs
+  synthesise the pointer gesture explicitly with intermediate
+  moves to satisfy `PointerSensor`'s activation threshold.
+- **`sendFrame` identity check on WS close.** The Play page
+  opens two sequential WebSocket connections per mount
+  (`useRoomDiscovery` then `useGameStomp`); the mockStomp
+  fixture has to keep the latest connection's sender even when
+  an older one closes. The `if (sendFrame === localSend)` guard
+  in `onClose` is the fix.
+- **`workers: process.env.CI ? 1 : undefined`** — conservative
+  against flake in CI with `fullyParallel: true`; trades CI
+  wall-clock. Acceptable for 2 specs; revisit when the suite
+  grows.
+- **`getByRole('checkbox').first()`** for the "Join an existing
+  game" checkbox — the checkbox has no `aria-label` (text label
+  on wrapping Typography). Out-of-scope here; carry-over
+  `a11y-pass` candidate.
+
+**Files touched (16 files):**
+
+New:
+- `playwright.config.ts`
+- `e2e/smoke.spec.ts`
+- `e2e/two-player.spec.ts`
+- `e2e/fixtures/mockRest.ts`
+- `e2e/fixtures/mockStomp.ts`
+- `.github/workflows/e2e.yml`
+- `notes/07-e2e-playwright.md`
+
+Modified:
+- `package.json` (+ `@playwright/test@1.60.0` devDep + 4 npm
+  scripts: `test:e2e`, `test:e2e:headed`, `test:e2e:ui`,
+  `test:e2e:report`)
+- `package-lock.json` (regenerated via `npm install` — Bash,
+  not Edit; hook blocks direct lockfile edits)
+- `init.sh` (gated e2e step at end)
+- `.gitignore` (Playwright artefact paths)
+- `vitest.config.ts` (exclude `e2e/**` from Vitest discovery)
+- `docs/architecture.md` (new "End-to-end testing" section)
+- `docs/conventions.md` (Playwright conventions under Testing)
+- `README.md` (Playwright paragraph in dev section)
+- `CHECKPOINTS.md` (e2e gate under Build and verification)
+
+**Metrics (independently verified by reviewer):**
+
+- Vitest: **137** (unchanged from baseline, 19 files).
+- Playwright: **2** (smoke ~683 ms, two-player ~3.7 s).
+- Production bundle delta: **zero** — every chunk hash byte-
+  identical pre/post install. Playwright lives in
+  `devDependencies` only.
+- `npm audit --audit-level=moderate`: 0 vulnerabilities.
+- No `src/` modifications (verified via `git diff --stat`) —
+  this feature is infrastructure-only.
+
+**Feature note:** `notes/07-e2e-playwright.md`.
+
+**Reviewer non-blocking nits (carry-over candidates):**
+
+- `.github/workflows/e2e.yml` path filter omits `.npmrc`,
+  `prettier.config.*`, `vitest.config.ts`. Mirrors
+  `deploy-frontend.yml` — project-wide pattern, not a
+  regression. Potential "workflow path-filter pass" feature.
+- `a11y-pass` carry-over candidate: add `aria-label` to the
+  "Join an existing game" checkbox in `src/pages/NewGame/`.
+- `.gitignore` lists `/playwright/.cache/` (legacy local
+  cache); Playwright 1.60.0 uses `~/.cache/ms-playwright`
+  only. Defensive but slightly stale.
+- `tsconfig.app.json` does not include `e2e/`; Playwright
+  handles its own ts transform. A dedicated `tsconfig.e2e.json`
+  referenced from the root would catch type drift before
+  running Playwright — nice-to-have.
+
+**Cross-repo:** none. Mocked-backend strategy is the explicit
+decision to keep this tier hermetic. The `e2e-integration`
+follow-up (docker compose + real backend) would be the
+cross-repo tier when wanted.
+
+**Out-of-scope observations:**
+
+- Real-backend E2E via docker compose — deferred to a future
+  `e2e-integration` feature.
+- Visual regression tests (`toHaveScreenshot()`) — deferred.
+- Cross-browser matrix (Firefox + WebKit) — Chromium-only at
+  this scope.
+- Accessibility audits via `@axe-core/playwright` — deferred,
+  the `ui-reviewer` agent already walks a11y checks at the
+  component level.
+
+**Carry-overs still on the radar:**
+
+- `readme-brave-note` (for feature 9).
+- `roomresponse-role-narrowing-cleanup` (cross-repo).
+- `ux-polish-pass`, `harness-tooling-pass`.
+- "Connecting to live updates" tooltip polish (feature 6
+  ui-reviewer).
+- **New from this session**: `a11y-pass` candidate,
+  potential workflow path-filter pass.

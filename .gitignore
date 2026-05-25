@@ -39,3 +39,11 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright artefacts (feature 7 — e2e-playwright). HTML report,
+# trace bundles, video, and the per-OS browser cache live under these
+# paths. None of them belong in source control.
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/

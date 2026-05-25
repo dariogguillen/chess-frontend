@@ -9,6 +9,34 @@ STOMP), see [`docs/local-e2e.md`](./docs/local-e2e.md). The Vite dev server
 proxies `/api/*` and `/ws` to `http://localhost:8080` so the frontend talks
 same-origin and CORS is out of the picture during local testing.
 
+### Automated end-to-end (Playwright)
+
+Beyond the manual two-browser flow, the repo ships an automated end-to-end
+tier driven by [Playwright](https://playwright.dev). Specs live in `e2e/`
+and exercise the production bundle in Chromium against a fully mocked
+backend (REST via `page.route`, STOMP via `page.routeWebSocket`) — no
+running backend is required.
+
+Run locally:
+
+```bash
+npm run test:e2e            # headless
+npm run test:e2e:headed     # see the browser
+npm run test:e2e:ui         # Playwright's interactive UI
+npm run test:e2e:report     # open the last HTML report
+```
+
+`./init.sh` skips Playwright by default to keep the dev loop tight. Opt
+in with the `RUN_E2E` flag:
+
+```bash
+RUN_E2E=true ./init.sh
+```
+
+CI runs the suite on every pull request via
+[`.github/workflows/e2e.yml`](./.github/workflows/e2e.yml); the HTML
+report is uploaded as a build artefact on failure for triage.
+
 ## Supply chain hygiene
 
 The npm dependency surface in this repo is hardened by policy. The

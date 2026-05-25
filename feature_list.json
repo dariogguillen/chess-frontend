@@ -338,7 +338,7 @@
     "id": "play-ux-fixes",
     "title": "Play page UX polish: turn feedback, draggable restriction, idle drop, post-terminal action",
     "description": "Four small UX bugs surfaced during the user manual smoke test against the live backend (2026-05-22, after vite-dev-proxy round 2 closed): (A) attempting to move when it is not your turn is silently rejected — chess.js client-side check blocks the submit before reaching the backend, so no Snackbar fires. (B) Opponent pieces are draggable; the drag fails on drop with the generic illegal-move Snackbar, when it should not be possible to drag them at all. (C) Dropping a piece on its source square (changing your mind) triggers an illegal-move Snackbar because chess.js treats from === to as malformed. (D) After checkmate the terminal CustomDialog has a single Continue button that only dismisses the modal, leaving the board visible and unmovable — a leftover TODO from feature 5 that needs a real post-game action.",
-    "status": "in_progress",
+    "status": "done",
     "priority": 6.8,
     "acceptance": [
       "Bug A — client-side turn mismatch: src/pages/Play/Play.tsx onDrop fires a Snackbar with a friendly message (e.g. \"It is not your turn\") when chess.turn() does not match the local player's side. The fail-fast return false stays so we do not submit; the Snackbar surfaces the reason. Same message tone as the existing error-Snackbar pattern (severity info or error; implementer picks consistent with the API-error Snackbars).",
@@ -354,7 +354,7 @@
     "id": "e2e-playwright",
     "title": "Playwright end-to-end test suite",
     "description": "Introduce Playwright for end-to-end tests covering critical user journeys (create room, share, join, play a few moves, see live updates). Add a CI job that runs Playwright against a built dev server. Reference the anthropics/skills/webapp-testing skill for patterns where applicable.",
-    "status": "pending",
+    "status": "done",
     "priority": 7,
     "acceptance": [
       "@playwright/test added as a devDependency; browsers installed via Playwright's setup.",

@@ -178,6 +178,48 @@ Do not add one for:
 - Defensive fallbacks against situations that cannot occur in
   practice.
 
+### End-to-end tests (Playwright)
+
+The e2e tier (introduced in feature 7) lives in `e2e/`, NOT co-located.
+That is the deliberate exception to the "co-located tests" rule above:
+Playwright specs exercise the **production bundle** (via
+`vite preview`) from outside the React tree, so they have no source
+file to sit next to. The folder layout is:
+
+```
+e2e/
+├── *.spec.ts           # one spec per user journey
+└── fixtures/
+    ├── mockRest.ts     # page.route() helpers for /api/* endpoints
+    └── mockStomp.ts    # page.routeWebSocket() + STOMP frame helpers
+```
+
+Conventions specific to the Playwright tier:
+
+- **Mocked backend by default.** Tests never assume a real
+  `chess-backend-java`. REST is intercepted with `page.route()` against
+  the `**/api/*` glob; STOMP is intercepted with `page.routeWebSocket('**/ws')`.
+  The mock helpers live in `e2e/fixtures/` and accept full canonical
+  payloads — no partials, no "fill in the blanks" — so a future drift
+  between mock and real backend surfaces as a compile error in the
+  fixture's types.
+- **Assert on user-visible behavior, never on internals.** Same rule
+  as Vitest+RTL: query by accessible role, label, or text. The one
+  unavoidable exception is `react-chessboard`, which we drive via
+  its stable `data-square` attribute because the library exposes no
+  accessible per-square name.
+- **One browser context per user.** Multi-user flows use
+  `browser.newContext()` to model independent sessions (independent
+  cookie jars, storage state, network mocks). The two-player spec is
+  the canonical example.
+- **Chromium-only at this scope.** Firefox and WebKit are deferred.
+  Cross-browser coverage is a separate engineering investment; the
+  current goal is a fast, reliable single-browser tier.
+- **Locally must pass on the first try.** `retries: 0` locally,
+  `retries: 2` in CI. Flake masks regressions; the CI retries cover
+  known transient sources (asset load timing, font swap) without
+  papering over genuine bugs.
+
 ## React performance
 
 These rules are paraphrased from

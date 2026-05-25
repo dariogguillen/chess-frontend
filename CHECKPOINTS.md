@@ -22,6 +22,11 @@ approves **and** the user gives explicit OK.
       code.
 - [ ] No `npm` script was renamed or removed without an explicit
       reason recorded in `progress/current.md`.
+- [ ] When the feature touches the e2e tier (`e2e/`,
+      `playwright.config.ts`, `.github/workflows/e2e.yml`),
+      `RUN_E2E=true ./init.sh` exits 0 locally. The default
+      `./init.sh` skips Playwright by design; CI runs it in its own
+      workflow on every PR.
 
 ### Scope and state
 

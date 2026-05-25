@@ -12,5 +12,10 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     css: true,
+    // Vitest's default discovery picks up `**/*.{test,spec}.{ts,tsx}` —
+    // which would pull in the Playwright specs under `e2e/`. Playwright
+    // owns that tier; exclude it so the Vitest runner doesn't try to
+    // execute browser-only specs in jsdom.
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],
   },
 });
