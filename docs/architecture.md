@@ -26,14 +26,91 @@ be invisible to a reader of the code.
 
 ## Deployment
 
-- **GitHub Pages** hosts the production build at
-  `https://dariogguillen.github.io/chess-frontend/`.
-- A GitHub Actions workflow at `.github/workflows/deploy-frontend.yml`
-  triggers on pushes to `main` that affect build-relevant files. It
-  runs `npm ci && npm run build` and publishes `./dist` to Pages.
-- Future features may migrate to Vercel or Cloudflare Pages for
-  preview deployments per PR and richer DevOps experience. Decision
-  deferred to a dedicated feature.
+- **Cloudflare Pages** hosts the production build. The static `dist/`
+  bundle is uploaded by Cloudflare's GitHub integration on every push to
+  `main` and on every pull request. The SPA is served at the root of the
+  project's Pages subdomain (no `/chess-frontend/` sub-path).
+- **Preview deployments** land on a per-commit subdomain
+  (`https://<commit-hash>.chess-frontend.pages.dev`) on every PR. The
+  reviewer clicks the preview from the PR check.
+- **No `wrangler.toml`.** Build settings (build command, output dir,
+  Node version, env vars) live in the Cloudflare dashboard. See the
+  "Hosting" section below for the decision record.
+
+## Hosting
+
+The frontend was hosted on GitHub Pages until 2026-05-25. The migration
+to Cloudflare Pages was driven by three requirements that GitHub Pages
+could not satisfy on the free tier: preview deployments per pull request,
+a root-served origin (no `/chess-frontend/` sub-path), and the ability to
+inject response headers without a build step.
+
+### Decision
+
+**Cloudflare Pages.** Static `dist/` upload via Cloudflare's GitHub
+integration. Build command `npm run build`, output directory `dist`,
+Node version pinned to 20 (`.nvmrc`). `VITE_BACKEND_URL` lives in the
+dashboard. The SPA fallback (`public/_redirects`) and security headers
+(`public/_headers`) ship as part of the build output and are honoured by
+Cloudflare's edge.
+
+### Alternatives weighed
+
+| Host                 | Preview / PR | Bandwidth (free)   | Custom headers          | Root domain | Edge CDN |
+| -------------------- | ------------ | ------------------ | ----------------------- | ----------- | -------- |
+| **Cloudflare Pages** | Yes          | Unmetered          | `_headers` file         | Yes         | Yes      |
+| Vercel               | Yes          | 100 GB/mo soft cap | `vercel.json` / Edge fn | Yes         | Yes      |
+| GitHub Pages (stay)  | No           | 100 GB/mo soft cap | None (static only)      | Sub-path    | Limited  |
+
+- **Cloudflare Pages** wins on bandwidth (unmetered free tier), the
+  static-friendly `_headers` / `_redirects` convention, and a path to
+  Cloudflare Workers later if we ever need request-time logic. The
+  trade-off is a vendor-specific config surface (we are not portable
+  back to GH Pages without rewriting `_redirects` as `404.html` hacks),
+  but the lock-in is shallow because the build output itself is plain
+  static HTML/JS/CSS.
+- **Vercel** is the most polished developer experience but imposes a
+  100 GB/month bandwidth soft cap on the free tier and a "Hobby tier
+  is not for commercial use" license clause that, while irrelevant to a
+  portfolio project, is the kind of detail one prefers not to read on a
+  Friday afternoon. The `_headers` / `_redirects` convention also does
+  not exist on Vercel; headers go through `vercel.json` and rewrites use
+  a different schema. For a SPA at this scope the two hosts are
+  functionally identical; Cloudflare's bandwidth posture is the
+  tie-breaker.
+- **GitHub Pages (stay)** would have kept the deploy workflow simple
+  but locked us to the `/chess-frontend/` sub-path (forced `vite base`,
+  forced router basename plumbing, forced the `404.html` hack for SPA
+  routes), gave no PR preview environment, and cannot serve custom
+  response headers. The "preview environments per PR" criterion alone
+  rules it out for a portfolio project where the reviewer should be
+  able to click a link in the PR check and see the change.
+
+### What is deferred
+
+- **`wrangler.toml` / infra-as-code.** Settings live in the Cloudflare
+  dashboard. Codifying them in `wrangler.toml` so the repo carries the
+  full build/env configuration is a future feature (`wrangler-iac`); at
+  this tier the dashboard is the source of truth and a portfolio
+  project does not need to survive an account loss.
+- **Content-Security-Policy header.** CSP is non-trivial to get right
+  with a cross-origin backend on `chess-backend.duckdns.org`, STOMP
+  over WSS, and `@fontsource/inter` shipping font files from the
+  bundle. Captured as a future feature (`csp-policy`). The other four
+  baseline security headers (`Strict-Transport-Security`,
+  `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`) ship
+  in `public/_headers` today.
+- **Custom domain.** The site serves on `*.pages.dev` until the user
+  wires a domain in the Cloudflare dashboard. No code change required.
+
+### Cross-repo coordination
+
+The backend's CORS allowlist must include the Cloudflare URLs:
+production (`https://chess-frontend.pages.dev`) and the preview pattern
+(`https://*.chess-frontend.pages.dev`). The change lands on the
+`chess-backend-java` repo (`CorsProperties.allowedOriginPatterns`). The
+old GH Pages origin can stay allowed during the smoke-test window and
+be dropped in a follow-up.
 
 ## Layered architecture
 
@@ -143,8 +220,10 @@ game topic lands in feature 5 (`stomp-live-updates`).
 
 ### Allowed origins (CORS for the WebSocket handshake)
 
-- `https://dariogguillen.github.io` — production frontend
-  (GitHub Pages).
+- `https://chess-frontend.pages.dev` — production frontend
+  (Cloudflare Pages). Preview deployments land on
+  `https://<commit-hash>.chess-frontend.pages.dev` and must be
+  allowed via a pattern on the backend side.
 - `http://localhost:*` — development frontend on any localhost
   port.
 
@@ -204,8 +283,8 @@ A future hardening could add a drift-check (regenerate, `diff`
 against committed) — out of scope for the initial integration.
 
 **Why snapshot, not build-time fetch?** Build-time fetch would make
-CI (GitHub Pages) depend on a reachable backend at build time. The
-backend is hosted on AWS Free Tier and may be down for unrelated
+the Cloudflare Pages build depend on a reachable backend at build time.
+The backend is hosted on AWS Free Tier and may be down for unrelated
 reasons; coupling the frontend deploy to the backend's uptime is the
 wrong default. Snapshot + manual refresh keeps the frontend
 deployable independently and makes contract drift visible as a diff
@@ -277,12 +356,12 @@ ever applying the move locally.
 `src/api/client.ts` resolves the base URL from `backendUrl` in
 `src/utils/config.default.ts`, which reads `import.meta.env.VITE_BACKEND_URL`
 (set at build time by Vite) with a fallback to `http://localhost:8080`.
-The GitHub Pages deploy workflow injects the production value
+The Cloudflare Pages build injects the production value
 (`https://chess-backend.duckdns.org`) via the `VITE_BACKEND_URL`
-repository variable. The same env var also drives the STOMP/WebSocket
-endpoint (see "STOMP integration" below): one config knob, two derived
-URLs, because the REST surface and the WebSocket surface live on the
-same origin.
+environment variable configured in the Cloudflare dashboard. The same
+env var also drives the STOMP/WebSocket endpoint (see "STOMP
+integration" below): one config knob, two derived URLs, because the
+REST surface and the WebSocket surface live on the same origin.
 
 ### CORS
 
@@ -534,13 +613,13 @@ loaders for future REST integrations, and a cleaner separation between
   /about           → <WIP str="About" />
 ```
 
-**Basename and deployment.** The app is served from the sub-path
-`/chess-frontend/` on GitHub Pages. Vite injects
-`import.meta.env.BASE_URL` (which ends with a trailing slash) from the
-`base` setting in `vite.config.ts`. The router strips that trailing
-slash and passes the result as `basename` to `createBrowserRouter`. Dev
-mode (`/`) and production (`/chess-frontend/`) both work without
-per-environment configuration.
+**Basename and deployment.** The app is served at the site root in both
+dev (`http://localhost:5173/`) and production (Cloudflare Pages). Vite
+exposes `import.meta.env.BASE_URL` (`'/'` here, since no `base` is set
+in `vite.config.ts`); the router strips the trailing slash and passes
+the result as `basename` to `createBrowserRouter`. The trim survives a
+hypothetical future move back to a sub-path, but right now both
+environments resolve to `basename: ''` and routes mount at `/`.
 
 **User identity.** A discriminated union `Identity =
 { kind: 'guest'; displayName } | { kind: 'authenticated'; userId;
@@ -560,9 +639,10 @@ the default theme typings.
 A short list of decisions that are intentionally **provisional** and
 expected to evolve in later features:
 
-- **Hosting on GitHub Pages**: works today, lacks preview deployments
-  per PR. A migration to Vercel or Cloudflare Pages is a candidate
-  feature once we want preview environments and richer env management.
+- **Hosting on Cloudflare Pages**: works today with preview deployments
+  per PR. Settings live in the Cloudflare dashboard; a future
+  `wrangler-iac` feature could codify them as a `wrangler.toml` in the
+  repo if we ever want infra-as-code parity. See "Hosting" below.
 - **MUI 6 as the UI library**: bundled component library, good
   defaults, modest tree-shaking. The alternative (`shadcn/ui` +
   Tailwind) is mainstream in modern React but means rebuilding the

@@ -513,12 +513,34 @@ The local `engines: { node: ">=20", npm: ">=11.7" }` declaration in
 the floor on every developer machine. CI runners do not inherit a
 contributor's local npm: `actions/setup-node` lands the runtime that
 ships with the requested Node version, which is npm 10.x for Node
-20.x — below our floor. To bridge that gap, the GitHub Pages deploy
-workflow has an explicit `npm install -g npm@11` step immediately
-after `setup-node`, before `npm ci`. The pinned major is deliberate:
-`npm@latest` would silently jump to npm 12+ once it ships and break
-the deploy without warning. If the local floor in `engines` ever bumps
-to npm 12+, the workflow step must bump in lockstep.
+20.x — below our floor. To bridge that gap, the canonical CI workflow
+(`.github/workflows/e2e.yml`) has an explicit `npm install -g npm@11`
+step immediately after `setup-node`, before `npm ci`. The pinned major
+is deliberate: `npm@latest` would silently jump to npm 12+ once it
+ships and break CI without warning. If the local floor in `engines`
+ever bumps to npm 12+, the workflow step must bump in lockstep. Any
+future deploy automation added to `.github/workflows/` must inherit
+the same npm-bump pattern — deployment is handled by Cloudflare Pages
+today (see `docs/architecture.md`), so no in-repo deploy workflow
+exists, but the rule stands for whatever lands next.
+
+### Cloudflare Pages build environment
+
+Cloudflare Pages currently runs npm 10.8.2 in its build environment
+(bundled with Node 20.19), which is below the `"npm": ">=11.7"` floor
+declared in `package.json`. To prevent `engine-strict=true` from
+failing the install, we set `NPM_CONFIG_ENGINE_STRICT=false` as an
+env var in the CF Pages dashboard, which overrides the project
+`.npmrc` for that one build environment via npm's standard
+`NPM_CONFIG_*` → config mapping. The trade-off: `min-release-age=7`
+requires npm 11.7+, so the policy is silently ignored on CF Pages
+builds. The control still enforces everywhere it binds — local
+developer machines and GH Actions both run npm 11.7+, and
+`min-release-age` only matters when adding or bumping a dep, which
+happens locally first and lands a fully-pinned lockfile that CF then
+installs verbatim via `npm ci`. If CF Pages ever ships a newer
+default npm at or above our floor, the env var can be removed and
+the policy becomes uniform across all environments.
 
 ## Verification protocol
 

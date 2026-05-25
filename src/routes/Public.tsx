@@ -8,12 +8,13 @@ const NewGame = lazy(() => import('../pages/NewGame'));
 const Play = lazy(() => import('../pages/Play'));
 
 /**
- * Strip a single trailing slash from a basename so that
- * `createBrowserRouter`'s pattern (`/chess-frontend`, not
- * `/chess-frontend/`) matches the GitHub Pages sub-path served by Vite.
+ * Normalise Vite's `import.meta.env.BASE_URL` into the form
+ * `createBrowserRouter` expects as `basename` (no trailing slash).
  *
- * Vite exposes `import.meta.env.BASE_URL` ending with `/`; the router
- * wants the form without it. We normalise here so both forms work.
+ * Cloudflare Pages serves the SPA at the root, so `BASE_URL` is `/`
+ * and the trim is a no-op in production. The defensive strip is kept
+ * so any future base-path configuration (e.g. serving under a
+ * sub-path again) works without touching this file.
  */
 const stripTrailingSlash = (value: string): string => {
   if (value.length > 1 && value.endsWith('/')) return value.slice(0, -1);

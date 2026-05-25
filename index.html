@@ -2,28 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/chess-frontend/chess-room.svg" />
+    <link rel="icon" type="image/svg+xml" href="/chess-room.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Online chess. Share a room ID, play live." />
     <meta name="theme-color" content="#18181B" />
     <meta property="og:title" content="Chess Room" />
     <meta property="og:description" content="Online chess. Share a room ID, play live." />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://dariogguillen.github.io/chess-frontend/" />
-    <meta property="og:image" content="/chess-frontend/chess-room.svg" />
+    <meta property="og:url" content="https://chess-frontend-52i.pages.dev/" />
+    <meta property="og:image" content="/chess-room.svg" />
     <title>Chess Room</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      (() => {
-        const redirect = sessionStorage.redirect;
-        delete sessionStorage.redirect;
-        if (redirect && redirect !== location.href) {
-          history.replaceState(null, null, redirect);
-        }
-      })();
-    </script>
   </body>
 </html>

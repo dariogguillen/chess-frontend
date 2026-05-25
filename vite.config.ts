@@ -13,12 +13,14 @@ import react from '@vitejs/plugin-react';
 // `ws: true` on `/ws` enables the WebSocket upgrade through the proxy so
 // STOMP/SockJS works over the same channel.
 //
-// Production builds (`npm run build`) emit a static bundle without a dev
-// server — `VITE_BACKEND_URL` set in the deploy workflow points at the
-// real backend origin and the SPA talks to it directly over CORS.
+// Production builds (`npm run build`) emit a static bundle served at the
+// site root by Cloudflare Pages. No `base` is set: emitted `<script>` and
+// `<link>` URLs in `index.html` resolve to `/assets/...` and React Router
+// mounts at `/`. `VITE_BACKEND_URL` set in the Cloudflare dashboard points
+// the bundle at the real backend origin; the SPA talks to it directly over
+// CORS.
 export default defineConfig({
   plugins: [react()],
-  base: '/chess-frontend/',
   server: {
     proxy: {
       '/api': {

@@ -2,6 +2,50 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Hosting
+
+The production SPA is served by [Cloudflare Pages](https://pages.cloudflare.com).
+The static bundle (`dist/`) is uploaded by Cloudflare's GitHub integration on
+every push to `main` and on every pull request. The previous GitHub Pages
+deploy workflow has been retired.
+
+- **Production:** every push to `main` triggers a new production build. The
+  app is served at the root of the project's Pages subdomain (typically
+  `https://chess-frontend.pages.dev` until a custom domain is wired up;
+  the current production URL lives in the Cloudflare dashboard under
+  Pages → chess-frontend).
+- **Preview deployments:** every pull request triggers a unique preview
+  build at a per-commit subdomain
+  (`https://<commit-hash>.chess-frontend.pages.dev`). The reviewer clicks
+  the preview link from the PR check, which removes the "you have to clone
+  the branch to see the change" friction.
+- **Environment variables:** `VITE_BACKEND_URL` lives in the Cloudflare
+  dashboard under Pages → Settings → Environment variables, not in GitHub
+  repository variables. The value is inlined at build time by Vite
+  (`import.meta.env.VITE_BACKEND_URL`).
+- **SPA fallback (`public/_redirects`):** Cloudflare serves the static
+  bundle directly; without `/*  /index.html  200`, a direct hit to
+  `/play` would return 404 because there is no file at that path. The
+  redirects file rewrites every unmatched path to `index.html` (status
+  `200`, not `301`, so the browser keeps the original URL and React
+  Router picks it up client-side).
+- **Security headers (`public/_headers`):** Cloudflare Pages applies
+  HSTS, `X-Content-Type-Options`, `X-Frame-Options`, and `Referrer-Policy`
+  to every response. Content-Security-Policy is intentionally deferred
+  (see `docs/architecture.md` → "Hosting" for the rationale).
+
+### Brave browser users
+
+The Spring Boot backend uses STOMP over a WebSocket
+(`wss://chess-backend.duckdns.org/ws`). Brave's Shields treats cross-origin
+WebSockets as a fingerprinting vector and blocks them by default. Symptom:
+the page loads but real-time updates never arrive — moves you submit work
+locally but the opponent never sees them, and you never see theirs.
+
+Workaround: lower Shields for this site (click the lion icon in the
+address bar → "Shields are UP" → toggle off for this site), or use any
+other browser (Firefox, Chromium, Safari).
+
 ## Local end-to-end testing
 
 For end-to-end local testing against the live backend (two browsers, real

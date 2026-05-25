@@ -134,7 +134,7 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
   await pageA.getByRole('link', { name: 'New Game' }).first().click();
   await pageA.getByLabel('Nickname').fill('Alice');
   await pageA.getByRole('button', { name: 'Start' }).click();
-  await expect(pageA).toHaveURL(/\/chess-frontend\/play$/);
+  await expect(pageA).toHaveURL(/\/play$/);
   await expect(pageA.getByText(`Room ID: ${ROOM_ID}`)).toBeVisible();
   await expect(pageA.getByText('Waiting for opponent')).toBeVisible();
 
@@ -155,7 +155,7 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
   await pageB.getByRole('checkbox').first().check();
   await pageB.getByLabel('Room ID').fill(ROOM_ID);
   await pageB.getByRole('button', { name: 'Join game' }).click();
-  await expect(pageB).toHaveURL(/\/chess-frontend\/play$/);
+  await expect(pageB).toHaveURL(/\/play$/);
   await expect(pageB.getByText(`Room ID: ${ROOM_ID}`)).toBeVisible();
 
   // --- Step 3: Broker tells A about the join; A transitions to the game ---

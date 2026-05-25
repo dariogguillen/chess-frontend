@@ -11,10 +11,10 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Notes on URL shape:
  *
- *  - Vite is configured with `base: '/chess-frontend/'` in `vite.config.ts`,
- *    so `vite preview` serves the app under that sub-path. Tests therefore
- *    navigate to `baseURL + '/'`, which resolves to
- *    `http://127.0.0.1:4173/chess-frontend/`.
+ *  - Vite has no `base` configured, so `vite preview` serves the SPA at
+ *    the site root. Tests navigate to `baseURL + '/'`, which resolves to
+ *    `http://127.0.0.1:4173/`. The same shape will be served in production
+ *    by Cloudflare Pages (`https://<host>/...`, no sub-path).
  *  - `127.0.0.1` (not `localhost`) keeps the host string stable across
  *    Linux distributions where `/etc/hosts` may resolve `localhost`
  *    differently for IPv4 vs IPv6.
@@ -37,7 +37,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['html'], ['list']] : 'list',
   use: {
-    baseURL: 'http://127.0.0.1:4173/chess-frontend',
+    baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
   },
   projects: [
@@ -48,7 +48,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
-    url: 'http://127.0.0.1:4173/chess-frontend/',
+    url: 'http://127.0.0.1:4173/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

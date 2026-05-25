@@ -369,7 +369,7 @@
     "id": "hosting-migration",
     "title": "Migrate hosting (or evaluate alternatives)",
     "description": "Evaluate moving from GitHub Pages to Vercel or Cloudflare Pages for preview deployments per PR, env var management, and edge CDN. If we go with the migration, set up the new host, update the README, and either retire the GitHub Pages workflow or keep it as a mirror. If we decide to stay on Pages, document the rationale.",
-    "status": "pending",
+    "status": "in_progress",
     "priority": 8,
     "acceptance": [
       "Decision documented in docs/architecture.md with rationale.",

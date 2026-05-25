@@ -11,10 +11,10 @@ import { mockCreateRoom, mockGetRoomState } from './fixtures/mockRest';
  * mounts) so the bundle can connect without a real backend.
  *
  * This is the minimum-end-to-end check: it proves that the production
- * bundle renders, the router takes us from `/` (basename
- * `/chess-frontend`) through the `/home` redirect, navigation via the
- * permanent drawer (default desktop viewport) works, and the create-
- * room flow flips the user into the Play page.
+ * bundle renders, the router takes us from `/` through the `/home`
+ * redirect, navigation via the permanent drawer (default desktop
+ * viewport) works, and the create-room flow flips the user into the
+ * Play page.
  *
  * What is intentionally NOT asserted:
  *
@@ -52,14 +52,14 @@ test('smoke: create-room flow lands on the Play page', async ({ page }) => {
   await installStompMock(page);
 
   await page.goto('/');
-  // Root route in the SPA redirects `/` → `/home`. The basename strips
-  // out the GitHub Pages sub-path, so the URL the browser sees is
-  // `/chess-frontend/home`.
-  await expect(page).toHaveURL(/\/chess-frontend\/home$/);
+  // Root route in the SPA redirects `/` → `/home`. The SPA mounts at
+  // the site root on Cloudflare Pages, so the URL the browser sees is
+  // `/home`.
+  await expect(page).toHaveURL(/\/home$/);
 
   // Drawer entries render as NavLinks; pick by accessible name.
   await page.getByRole('link', { name: 'New Game' }).first().click();
-  await expect(page).toHaveURL(/\/chess-frontend\/new$/);
+  await expect(page).toHaveURL(/\/new$/);
 
   await page.getByLabel('Nickname').fill('Smoke');
   await page.getByRole('button', { name: 'Start' }).click();
@@ -67,7 +67,7 @@ test('smoke: create-room flow lands on the Play page', async ({ page }) => {
   // After a successful POST /api/rooms the page navigates to /play.
   // The Room ID label is the most stable signature of the Play surface
   // (it carries the canonical room id we mocked above).
-  await expect(page).toHaveURL(/\/chess-frontend\/play$/);
+  await expect(page).toHaveURL(/\/play$/);
   await expect(page.getByText('Room ID: SMOKE1')).toBeVisible();
   await expect(page.getByText('Waiting for opponent')).toBeVisible();
 });
