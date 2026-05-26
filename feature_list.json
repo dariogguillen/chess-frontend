@@ -369,7 +369,7 @@
     "id": "hosting-migration",
     "title": "Migrate hosting (or evaluate alternatives)",
     "description": "Evaluate moving from GitHub Pages to Vercel or Cloudflare Pages for preview deployments per PR, env var management, and edge CDN. If we go with the migration, set up the new host, update the README, and either retire the GitHub Pages workflow or keep it as a mirror. If we decide to stay on Pages, document the rationale.",
-    "status": "in_progress",
+    "status": "done",
     "priority": 8,
     "acceptance": [
       "Decision documented in docs/architecture.md with rationale.",
@@ -382,7 +382,7 @@
     "id": "readme-polish",
     "title": "Polished README with project overview",
     "description": "Final README pass: project overview, stack, how to run locally, link to the backend repo, link to the deployed app, link to OpenAPI spec, architecture diagram (Mermaid). The artifact a recruiter or collaborator reads first.",
-    "status": "pending",
+    "status": "done",
     "priority": 9,
     "acceptance": [
       "README explains what the project is and how to run it in under 5 minutes.",

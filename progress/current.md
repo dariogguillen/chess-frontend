@@ -1,241 +1,121 @@
 # Current session
 
-**Feature:** `hosting-migration` (priority 8)
-**Status:** in_progress — plan drafted, awaiting user approval.
+**Status:** ORIGINAL ROADMAP COMPLETE — no feature in progress.
 
-## Decisions (already taken with the user)
+Last closed: `readme-polish` (priority 9) on 2026-05-25. Project now
+MIT-licensed. See `progress/history.md` for the full closing entry +
+the timeline of all 23 features.
 
-1. **Migrate from GitHub Pages to Cloudflare Pages.** Rationale: preview
-   deployments per PR, no bandwidth cap on free tier, edge CDN, custom
-   headers via `_headers`, root domain (no `/chess-frontend/` sub-path),
-   future Workers integration available if ever needed.
-2. **Retire the GitHub Pages workflow.** `.github/workflows/deploy-frontend.yml`
-   gets deleted. Single source of truth for deploys post-migration.
-3. **No `wrangler.toml`.** All Cloudflare Pages settings live in the
-   dashboard (build command, env vars, branch deploys). Adding a
-   wrangler.toml would be IaC-style infra-as-code; out of scope at this
-   tier. Captured as a potential follow-up if we ever want to pin
-   settings in the repo.
+## Counts
 
-## Context
+- **Done:** 23 (priorities 0 → 9). **All original-scope features
+  shipped.**
+- **Pending:** 0.
 
-GitHub Pages today serves the SPA at
-`https://dariogguillen.github.io/chess-frontend/`. The `/chess-frontend`
-sub-path forced `vite.config.ts` to set `base: '/chess-frontend/'`,
-which propagated into `playwright.config.ts` (`baseURL` includes the
-sub-path) and `package.json`'s `homepage`. Migrating to Cloudflare
-Pages (which serves at the project root) lets us drop the sub-path
-everywhere.
+## Production state
 
-The backend at `https://chess-backend.duckdns.org` whitelists CORS by
-origin pattern. Today's pattern allows `https://dariogguillen.github.io`.
-After the move, the backend must also allow the Cloudflare URL — this
-is the only cross-repo coordination this feature needs.
+| | |
+|---|---|
+| Frontend | `https://chess-frontend-52i.pages.dev/` (Cloudflare Pages) |
+| Backend | `https://chess-backend.duckdns.org/` (AWS EC2 + Caddy + Postgres + Redis) |
+| OpenAPI | `https://chess-backend.duckdns.org/v3/api-docs` |
+| Swagger UI | `https://chess-backend.duckdns.org/swagger-ui.html` |
+| License | MIT |
+| Frontend repo | `dariogguillen/chess-frontend` |
+| Backend repo | `dariogguillen/chess-backend-java` |
 
-## What this feature ships
+Tests: 137 Vitest + 2 Playwright. Bundle initial-load: 471.25 kB.
 
-### Repo changes (implementer)
+## ⚠️ Cross-repo blockers (production E2E)
 
-**Modified:**
+The frontend deploy is functional but REST + STOMP calls from the
+CF-hosted SPA still fail with CORS preflight rejection. Backend
+must update `CorsProperties.allowedOriginPatterns` to include:
 
-- `vite.config.ts` — drop `base: '/chess-frontend/'`. The dev `server.proxy`
-  block stays untouched (still useful for `npm run dev` against a local
-  backend). Update the file's leading comment to remove the
-  GitHub-Pages-specific reasoning.
-- `playwright.config.ts` — change `baseURL` from
-  `'http://127.0.0.1:4173/chess-frontend'` to `'http://127.0.0.1:4173'`.
-  Change `webServer.url` from `'http://127.0.0.1:4173/chess-frontend/'`
-  to `'http://127.0.0.1:4173/'`. Update the "URL shape" doc comment to
-  reflect that the SPA now serves at the root and the sub-path is gone.
-- `package.json` — remove the `homepage` field. Cloudflare Pages does
-  not use it (was a Create-React-App relic that GitHub Pages also
-  honoured for `<base>` injection in `index.html`).
-- `README.md` — replace any reference to GitHub Pages and the old URL
-  with the Cloudflare deployment story. New "Hosting" section: brief
-  overview of where the app is served, how preview deployments work
-  per PR, how to set env vars in CF dashboard. Folds in the
-  `readme-brave-note` carry-over (Brave Shields paragraph) since this
-  is the first README pass that touches hosting.
-- `docs/architecture.md` — new "Hosting" section under deployment
-  context. Documents the decision: GH Pages → CF Pages, the four
-  alternatives weighed (CF Pages, Vercel, stay), and the rationale.
-- `CHECKPOINTS.md` — drop any GH-Pages-specific reference if present;
-  the deploy gate becomes "CF Pages preview deployment for PRs +
-  production deployment for main" (the user validates post-push).
+- `https://chess-frontend-52i.pages.dev` (production)
+- `https://*.chess-frontend-52i.pages.dev` (preview deploys per PR)
 
-**Deleted:**
+User coordinates this with the backend agent at
+`~/Documents/code/chess-backend-java/`.
 
-- `.github/workflows/deploy-frontend.yml` — GitHub Pages workflow
-  retired. Decision documented in `docs/architecture.md`.
+## Carry-overs ready for scope-add
 
-**New:**
+The user said "terminando agregamos más" — these are candidate
+features to prioritise in the next session.
 
-- `public/_redirects` — Cloudflare Pages SPA fallback. One line:
-  `/*  /index.html  200`. Required because CF Pages does not have
-  React Router's history-mode support out of the box — without this
-  file, hitting `/play` directly returns 404 because there is no
-  file at that path. The fallback rewrites every unmatched path to
-  `index.html` (status 200, not 301 — important so the URL stays as
-  the user typed). React Router picks it up client-side.
-- `public/_headers` — Cloudflare Pages security headers. Four headers
-  worth shipping at this scope:
-  - `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
-  - `X-Content-Type-Options: nosniff`
-  - `X-Frame-Options: DENY`
-  - `Referrer-Policy: strict-origin-when-cross-origin`
-  Content-Security-Policy is deliberately out of scope — getting CSP
-  right with a chess backend at a different origin, STOMP over WS,
-  and font/image embedding from `@fontsource/inter` is non-trivial.
-  Captured as carry-over.
-- `notes/08-hosting-migration.md` — feature note following
-  `notes/_template.md`. Reader is the Scala/Typelevel engineer.
+### Spawned from the migration / hosting work
 
-### Setup the user does (out of repo)
+- **`backend-cors-cf`** — cross-repo. Add CF Pages URLs to backend
+  `CorsProperties.allowedOriginPatterns`. **Blocks production
+  E2E.** Highest priority among carry-overs.
+- **`csp-policy`** — Content-Security-Policy header in
+  `public/_headers`. Non-trivial with cross-origin backend +
+  STOMP/WS + font embedding from `@fontsource/inter`. Worth a
+  dedicated feature.
+- **`og-url-templating`** — make `og:url` in `index.html`
+  env-var-driven so custom-domain switches are diff-free.
+- **`wrangler-iac`** — pin CF Pages config in repo via
+  `wrangler.toml`. Settings live in dashboard today; IaC would
+  make them diff-able.
 
-The implementer cannot do these; they require Cloudflare account
-access. Document them in the README and in the feature note.
+### README polish follow-ups (spawned from feature 9)
 
-1. Cloudflare Dashboard → Pages → Create application → Connect to Git.
-2. Select the `chess-frontend` repository.
-3. Build settings:
-   - Framework preset: **Vite**.
-   - Build command: `npm run build`.
-   - Build output directory: `dist`.
-   - Root directory: `/`.
-   - Node version: `20.19` (matches `.nvmrc`).
-4. Environment variable (Production):
-   - `VITE_BACKEND_URL=https://chess-backend.duckdns.org`
-5. Trigger initial deploy. Build will succeed; runtime API calls will
-   fail with CORS until backend is updated (see cross-repo section).
-6. Note the production URL: typically `https://chess-frontend.pages.dev`
-   (or a project-specific subdomain). Forward to the leader to update
-   docs.
-7. **Optional:** Disable GitHub Pages in the repo settings
-   (Settings → Pages → Source: None) so the old URL stops serving a
-   stale build.
+- **`readme-og-image`** — author a 1200×630 OG social card SVG so
+  Twitter / LinkedIn / Discord cards render wide instead of
+  reusing the favicon.
+- **`readme-badges`** — build status, license, version,
+  test-count badges. Noise unless each has a clear story.
+- **`readme-screenshots`** — recorded GIF or static screenshots
+  of the running app. Recording is real work; the architecture
+  diagram is the primary visual today.
 
-### Cross-repo coordination — REQUIRED before E2E works
+### Pre-existing standing carry-overs
 
-Backend `chess-backend-java` must update
-`CorsProperties.allowedOriginPatterns` (typically wired through
-`application.yml` or the `CHESS_CORS_ALLOWED_ORIGIN_PATTERNS` env var
-on EC2) to include the Cloudflare URL(s):
+- **`a11y-pass`** — surfaced during feature 7: "Join an existing
+  game" checkbox in `src/pages/NewGame/` lacks `aria-label`. Also
+  pre-existing observation: per-route document titles still
+  absent. Multi-bug a11y audit pass.
+- **`roomresponse-role-narrowing-cleanup`** — cross-repo. Drop
+  the `narrowRole` shim once backend ships `allowableValues` on
+  `RoomResponse.role`. Quick once unblocked.
+- **`ux-polish-pass`** — open bucket. Includes the "Connecting to
+  live updates" tooltip polish UX nit from feature 6 ui-reviewer.
+- **`harness-tooling-pass`** — open bucket. Includes things like
+  the workflow path-filter omissions (`.npmrc`,
+  `prettier.config.*`, `vitest.config.ts` not in trigger paths
+  for `e2e.yml`), tsconfig.e2e.json, etc.
 
-- **Production:** `https://chess-frontend.pages.dev` (or the exact
-  subdomain the user is allocated).
-- **Previews:** `https://*.chess-frontend.pages.dev` (preview URLs
-  follow the pattern `https://<commit-hash>.chess-frontend.pages.dev`).
+### Stretch / portfolio-grade follow-ups (not previously listed)
 
-The current allowed pattern (`https://dariogguillen.github.io`) can
-stay or be removed depending on whether the user wants the GH Pages
-URL to keep working during the migration. Recommendation: keep both
-allowed while CF is being smoke-tested; remove the GH Pages pattern
-in a follow-up cleanup once CF is the canonical production URL.
+These were not in the original roadmap but make sense as
+post-MVP scope:
 
-The backend agent in `~/Documents/code/chess-backend-java/` is the
-counterpart; the user coordinates the change there.
+- **`e2e-integration`** — real-backend E2E tier via docker
+  compose. Today Playwright uses mocked `page.route()` /
+  `page.routeWebSocket()` (hermetic). A real-backend tier would
+  catch contract drift between frontend mocks and backend
+  reality. Adds CI complexity (docker, cross-repo image).
+- **`replay-mode`** or **`game-history-ui`** — render the move
+  list / PGN export / replay. chess.js has the moves locally and
+  the backend has them in `GameStateResponse`; the rendering is
+  the work.
+- **`game-rooms-discovery`** — landing-page surface listing open
+  rooms (rooms in `WAITING_FOR_PLAYER` status). Today the only
+  entry is "create room" or "join by code". A directory page
+  would need a backend endpoint.
+- **`spectator-mode`** — already partially supported by the
+  `/topic/games/{id}/viewers` count. A read-only spectator role
+  that subscribes to the move feed without owning a player slot.
+- **`light-theme-polish`** — the theme toggle works but the
+  light palette is less curated than dark. Audit.
+- **`custom-domain`** — wire `chess.dariogguillen.dev` (or
+  similar) in Cloudflare. User-side DNS work, then update
+  `og:url` (overlaps with `og-url-templating`).
 
-## Approach
+## Next session
 
-Order of operations for the implementer:
-
-1. Drop `base: '/chess-frontend/'` in `vite.config.ts`.
-2. Update `playwright.config.ts` URLs and doc comment.
-3. Remove `homepage` from `package.json`.
-4. Delete `.github/workflows/deploy-frontend.yml`.
-5. Add `public/_redirects` and `public/_headers`.
-6. Update `README.md`, `docs/architecture.md`, `CHECKPOINTS.md`.
-7. Run `./init.sh` and `RUN_E2E=true ./init.sh` to verify.
-8. Write the feature note.
-
-The build should produce a `dist/` where `index.html` references
-assets via `/assets/...` (absolute root) rather than
-`/chess-frontend/assets/...`. The implementer should spot-check
-`dist/index.html` after the build to confirm.
-
-## Verification
-
-- `./init.sh` green end-to-end (without `RUN_E2E`).
-- `RUN_E2E=true ./init.sh` green end-to-end (Playwright specs still
-  pass with the updated baseURL).
-- `npm run build` emits a `dist/` with no `/chess-frontend/` prefix
-  anywhere. Spot-check `dist/index.html` (no `<base href="...">` with
-  the old prefix; all `<script>` and `<link>` srcs start with `/`).
-- `npm run preview` serves at `http://127.0.0.1:4173/` (not
-  `/chess-frontend/`).
-- 137 Vitest + 2 Playwright tests pass.
-- Bundle delta: essentially zero. The base-path change does not affect
-  bundle contents — only the runtime URL prefix injection. Hashes may
-  change slightly if Vite encodes the base into the chunk header (it
-  does not normally), so the implementer reports observed sizes.
-- Manual post-push smoke (the user, out-of-band):
-  - Cloudflare dashboard shows a green production deploy.
-  - Production URL loads the SPA and renders the home page.
-  - Once backend CORS is updated, end-to-end create-room → join → move
-    works against the CF-hosted frontend.
-
-## Concepts to highlight in the feature note
-
-- **SPA fallback via `_redirects` (the platform-side convention).**
-  How and why `/*  /index.html  200` makes client-side routing work on
-  static hosts. The status-code distinction (`200` vs `301`) matters.
-  Compare with `try_files` in nginx, the `404.html` hack on GitHub
-  Pages, and Vercel's `rewrites` config.
-- **Security headers via `_headers` (the platform-side convention).**
-  Static-asset hosts that support response-header injection without a
-  build step. Why these specific headers, what each one prevents, and
-  why CSP is deferred.
-- **Vite `base` and what it actually controls.** The injected prefix
-  on emitted asset URLs in `index.html` and runtime imports; how it
-  interacts with `vite preview`; the trap of forgetting that React
-  Router has its own basename concept (we never set it because the
-  React Router routes are mounted at `/` either way).
-- **Preview deployments per PR — the workflow shift.** The mental
-  model change from "one prod environment + manual local checks" to
-  "every PR has a unique preview URL the reviewer clicks". Compare
-  with the Scala equivalent: ephemeral SBT-stage builds wired to a
-  test cluster.
-- **Cloudflare Pages vs Vercel vs GitHub Pages — the trade-offs.**
-  Short decision table covering bandwidth, edge presence, headers,
-  custom domain, vendor lock-in, free tier limits. Reasoning behind
-  picking CF for this project.
-
-## README and architecture updates
-
-- `README.md`: yes — new "Hosting" section + replace old GH Pages
-  references. Folds in `readme-brave-note` carry-over.
-- `docs/architecture.md`: yes — new "Hosting" section documenting the
-  CF Pages decision and the alternatives weighed.
-- `docs/conventions.md`: no changes expected.
-- `CHECKPOINTS.md`: minor — update any GH-Pages-specific reference.
-
-## Cross-repo
-
-**Yes — backend CORS update required for E2E to work.** Flagged above
-in detail. The user takes this to the backend agent. The frontend
-side ships independently; CORS only matters once both halves are
-live.
-
-## Out-of-scope
-
-- `wrangler.toml` / IaC-style CF Pages config in the repo. Settings
-  stay in the dashboard at this tier. Carry-over candidate.
-- Content-Security-Policy header. Non-trivial to get right with cross-
-  origin backend + WS + font embedding. Carry-over candidate.
-- Custom domain (e.g. `chess.dariogguillen.dev` or similar). Out of
-  scope; user can wire this in the CF dashboard later without code
-  changes.
-- Cleanup of the old GH Pages URL (disabling the GitHub Pages source
-  in repo settings). User-side action, not a repo change.
-- Tightening the backend's `allowedOriginPatterns` to drop
-  `https://dariogguillen.github.io` once CF is the canonical URL.
-  Future cross-repo cleanup.
-
-## Carry-overs still on the radar
-
-- `readme-brave-note` — **folded into this feature's README section**.
-- `roomresponse-role-narrowing-cleanup` — cross-repo, deferred.
-- `a11y-pass` — open bucket from feature 7.
-- `ux-polish-pass`, `harness-tooling-pass` — open buckets.
-- "Connecting to live updates" tooltip polish — UX nit from feature 6.
-- **New from this session**: `csp-policy`, `wrangler-iac`.
+The leader proposes a prioritisation when the user opens the
+scope-add session. Recommended starting point: triage the
+backend cross-repo coordination (`backend-cors-cf`) since it
+unblocks production E2E, then pick from the polish buckets in
+priority order.

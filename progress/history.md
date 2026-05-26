@@ -2521,3 +2521,335 @@ cross-repo tier when wanted.
   ui-reviewer).
 - **New from this session**: `a11y-pass` candidate,
   potential workflow path-filter pass.
+
+---
+
+## 2026-05-25 — Feature 8 `hosting-migration` closed
+
+Migrated production hosting from **GitHub Pages**
+(`https://dariogguillen.github.io/chess-frontend/`) to **Cloudflare
+Pages** (`https://chess-frontend-52i.pages.dev/`). Three implementer
+rounds, both reviewers (ui-reviewer + regular) approved, validated
+against the live deploy.
+
+**Decision rationale** (documented in `docs/architecture.md` "Hosting"):
+Preview deployments per PR, no bandwidth cap on free tier, edge CDN
+global, custom headers via `_headers`, root domain (no `/chess-frontend/`
+sub-path), future Workers integration available. Cloudflare chosen
+over Vercel (100GB/mo bandwidth cap) and over staying on GH Pages
+(no previews, no per-env vars, base-path lock-in).
+
+**Round 1 — core migration:**
+
+- `vite.config.ts` dropped `base: '/chess-frontend/'`.
+- `playwright.config.ts` `baseURL` and `webServer.url` dropped the
+  sub-path; URL-shape doc comment rewritten for root-served model.
+- `package.json` removed `homepage` field.
+- `index.html` un-prefixed favicon + OG paths; placeholder `og:url`
+  set to the Cloudflare hostname.
+- Created `public/_redirects` (single rule `/*  /index.html  200` —
+  status 200 not 301 so URL stays as typed and React Router picks
+  it up).
+- Created `public/_headers` with four security headers (HSTS with
+  preload, X-Content-Type-Options nosniff, X-Frame-Options DENY,
+  Referrer-Policy strict-origin-when-cross-origin). CSP deferred —
+  non-trivial with cross-origin backend + WS + font embedding.
+- `README.md` new "Hosting" section + folded in `readme-brave-note`
+  carry-over (Brave Shields WSS quirk paragraph).
+- `docs/architecture.md` new "Hosting" section with decision record
+  + alternatives table.
+- Deleted `.github/workflows/deploy-frontend.yml` (single source of
+  truth for deploys post-migration).
+- Deleted `public/404.html` (GH Pages SPA-redirect hack — actively
+  harmful on Cloudflare because it would have redirected every 404
+  to `/chess-frontend`, a 404 on the new host).
+- `e2e/smoke.spec.ts` + `e2e/two-player.spec.ts` URL regexes dropped
+  the `/chess-frontend/` prefix.
+
+**Round 2 — stale-reference cleanup** (leader-ruled scope expansion):
+
+- `docs/conventions.md` CI engine paragraph repointed at
+  `.github/workflows/e2e.yml` (deploy workflow no longer exists).
+- `index.html` removed the dead `sessionStorage.redirect` IIFE at
+  end of `<body>` (paired with the deleted `public/404.html`).
+- `src/routes/Public.tsx` JSDoc on `stripTrailingSlash` rewritten —
+  no longer references `/chess-frontend/`. Comment-only change;
+  behaviour unchanged.
+
+**Round 3 — post-deploy polish** (after real Cloudflare deploy):
+
+- `index.html` `og:url` updated from placeholder
+  `https://chess-frontend.pages.dev/` to the real assigned URL
+  `https://chess-frontend-52i.pages.dev/` (CF added the `-52i` suffix
+  because `chess-frontend.pages.dev` was already taken).
+- `notes/08-hosting-migration.md` added "Gotchas" entry documenting
+  the `NPM_CONFIG_ENGINE_STRICT=false` workaround discovered during
+  the actual deploy.
+- `docs/conventions.md` Supply chain hygiene section added a "CF
+  Pages build environment" subsection capturing the same policy
+  exception.
+
+**Notable decisions:**
+
+- **No `wrangler.toml`.** All Cloudflare Pages settings live in the
+  dashboard (build command, output dir, env vars, framework preset).
+  Adding a wrangler.toml would be IaC-style infra-as-code; out of
+  scope at this tier. Carry-over candidate.
+- **CSP header deferred.** Cross-origin backend + STOMP/WS + font
+  embedding makes CSP non-trivial. Carry-over `csp-policy`.
+- **Status code `200` not `301` on the SPA fallback.** Important so
+  the URL the user typed survives in the address bar; React Router
+  reads it and renders the matching route. A `301` would rewrite
+  the URL to `/index.html` before React Router runs.
+- **`og:url` not env-var-templated.** Hardcoded to the production
+  CF hostname. If a custom domain is wired later (CF dashboard,
+  user-side), update by hand. Carry-over candidate.
+
+**Operational gotchas discovered during the real deploy (NEW):**
+
+1. **`NPM_VERSION` env var is NOT honored by Cloudflare Pages.**
+   CF Pages installs the npm version bundled with the Node version
+   it picks (npm 10.8.2 with Node 20.19.6). The build failed with
+   `EBADENGINE` because `package.json` engines require npm >= 11.7
+   and `.npmrc` has `engine-strict=true`.
+
+2. **The working escape hatch is `NPM_CONFIG_ENGINE_STRICT=false`**
+   as an env var in the CF Pages dashboard (Production + Preview).
+   This relies on npm's standard `NPM_CONFIG_*`-to-config mapping;
+   env vars take precedence over project `.npmrc`. Local dev and
+   GH Actions stay strict (no `.npmrc` change).
+
+3. **Trade-off**: `min-release-age=7` policy is degraded in the CF
+   Pages build env (requires npm 11.7+ to enforce). Practical impact
+   minimal because `npm ci` only installs what's in the committed
+   lockfile, and `min-release-age` matters when adding or bumping
+   a dep (which happens locally first, where `engine-strict=true`
+   blocks it).
+
+**Files touched (across 3 rounds, 16 total):**
+
+New (3):
+- `public/_redirects`
+- `public/_headers`
+- `notes/08-hosting-migration.md`
+
+Modified (10):
+- `vite.config.ts`
+- `playwright.config.ts`
+- `package.json`
+- `README.md`
+- `index.html`
+- `e2e/smoke.spec.ts`
+- `e2e/two-player.spec.ts`
+- `docs/architecture.md`
+- `docs/conventions.md`
+- `src/routes/Public.tsx` (comment-only)
+
+Deleted (2):
+- `.github/workflows/deploy-frontend.yml`
+- `public/404.html`
+
+**Metrics (verified independently by reviewer + post-deploy curl):**
+
+- Vitest: **137** (unchanged from baseline).
+- Playwright: **2** (smoke ~500 ms, two-player ~3.0 s).
+- `npm audit --audit-level=moderate`: 0 vulnerabilities.
+- Bundle: `dist/index.html` 1.00 kB / 0.45 kB gz. Initial-load JS
+  total: 471.25 kB (matches pre-migration baseline). Per-route
+  chunks unchanged.
+- Production deploy validated via `curl`:
+  - `https://chess-frontend-52i.pages.dev/` → HTTP 200, HTML has
+    root-relative paths (`/chess-room.svg`, `/assets/...`), no
+    `/chess-frontend/` prefix anywhere.
+  - `https://chess-frontend-52i.pages.dev/play` → HTTP 200 (SPA
+    fallback `_redirects` working).
+- Commit on main: `9df8a29 chore: deploying to cloudflare instead
+  of github pages`.
+
+**Feature note:** `notes/08-hosting-migration.md`.
+
+**Cross-repo coordination still pending (CARRY-OVER):**
+
+Backend `chess-backend-java` must update
+`CorsProperties.allowedOriginPatterns` to include:
+- `https://chess-frontend-52i.pages.dev` (production).
+- `https://*.chess-frontend-52i.pages.dev` (preview deploys per PR).
+
+Until shipped, the frontend deployed on CF will fail every REST and
+STOMP call to the backend with a CORS preflight rejection. The user
+coordinates this with the backend agent at
+`~/Documents/code/chess-backend-java/`. The current pattern
+`https://dariogguillen.github.io` can stay during smoke-test or be
+removed in a follow-up cleanup once CF is the canonical URL.
+
+**Out-of-scope observations:**
+
+- `wrangler.toml` IaC for CF Pages — carry-over `wrangler-iac`.
+- Content-Security-Policy header — carry-over `csp-policy`.
+- Custom domain (e.g. `chess.dariogguillen.dev`) — user-side action
+  in CF dashboard; no code change required.
+- Cleanup of the old GH Pages URL serving (disable Pages in repo
+  Settings → Pages → Source: None) — user-side action.
+- Tightening backend `allowedOriginPatterns` to drop
+  `https://dariogguillen.github.io` once CF is canonical — future
+  cross-repo cleanup.
+
+**Carry-overs still on the radar:**
+
+- `csp-policy` — Content-Security-Policy header for `_headers`.
+- `wrangler-iac` — pin CF Pages config in repo via `wrangler.toml`.
+- `og-url-templating` — make `og:url` env-var-driven so custom
+  domain switches are diff-free.
+- `backend-cors-cf` — backend coordination flag (cross-repo,
+  blocking E2E in production).
+- `roomresponse-role-narrowing-cleanup` — cross-repo.
+- `a11y-pass`, `ux-polish-pass`, `harness-tooling-pass` — open
+  buckets.
+- "Connecting to live updates" tooltip polish.
+- Workflow path-filter pass.
+
+---
+
+## 2026-05-25 — Feature 9 `readme-polish` closed — ORIGINAL ROADMAP COMPLETE
+
+The final feature of the priority 0 → 9 roadmap. Two implementer
+rounds, reviewer approved round 1, leader spot-check approved
+round 2 (text-only license swap — no reviewer pass needed for
+that surface).
+
+**Round 1 — full README rewrite + feature note:**
+
+- `README.md` fully rewritten top-down: Overview → Live demo →
+  Architecture (Mermaid diagram + prose) → Stack → Quick start →
+  Engineering process (harness) → Hosting → Testing → Supply
+  chain hygiene → Documentation → License.
+- Vite scaffold default header (old lines 1-3) deleted.
+- Vite scaffold ESLint config + plugin list block (old lines
+  98-143) deleted entirely.
+- One Mermaid `flowchart TB` shipped — 4 subgraphs (Clients, CDN,
+  EC2, Data), 6 edges, three traffic paths (HTTPS-bundle,
+  HTTPS-REST, WSS-STOMP). Rendered independently by the reviewer
+  via `mmdc` CLI v11.12.0 → 21 KB SVG, no syntax errors.
+- Engineering-process section links all canonical harness files:
+  `CLAUDE.md`, `AGENTS.md`, `feature_list.json`, `progress/`,
+  `CHECKPOINTS.md`, `.claude/agents/`, `notes/`.
+- Brave Shields paragraph preserved verbatim.
+- New `notes/09-readme-polish.md` written for the Scala/Typelevel
+  reader — 5 decisions documented with alternatives weighed,
+  comparisons to http4s/tapir README shape, `Resource[IO, Server]`
+  boundary diagram analogy, `openapi-typescript` ↔
+  `tapir-openapi-docs`, `./init.sh` ↔ `IOApp.main` boundary.
+
+**Round 2 — license swap GPL-3.0 → MIT** (user-surfaced scope
+extension after round 1 reviewer approval):
+
+- `LICENSE` file: GPL-3.0 (35 kB GNU text) replaced with canonical
+  MIT License (Copyright (c) 2026 Darío Guillén).
+- `package.json`: added `"license": "MIT"` (field did not exist
+  previously).
+- `README.md`: License section prose changed from `[GPL-3.0]` to
+  `[MIT]`.
+- `notes/09-readme-polish.md`: Decision 5 and Gotchas entries
+  updated to record that the swap shipped (no longer "carry-over
+  candidate").
+
+**Notable decisions:**
+
+- **`flowchart TB`** (top-to-bottom) chosen for the Mermaid
+  diagram — matches the layered-stack mental model the prose
+  builds. `LR` was a viable alternative but loses the stack
+  framing.
+- **OG image deferred.** Favicon-as-OG-image at `/chess-room.svg`
+  is acceptable for now. Authoring a 1200×630 SVG that doesn't
+  look amateur exceeds the budget. Carry-over: `readme-og-image`.
+- **No badges.** Out of scope. Carry-over: `readme-badges`.
+- **No screenshots / GIFs.** Out of scope. Carry-over:
+  `readme-screenshots`.
+- **No contributing guide.** Portfolio project, not an open
+  community — the harness files already document the workflow.
+- **License swap done in-round** rather than as a separate
+  feature. User scope-extension surfaced in round 1 review; the
+  swap is mechanical (4 files, text only); folding into round 2
+  of the same feature keeps the audit trail clean.
+
+**Files touched (across 2 rounds, 4 total):**
+
+New (1):
+- `notes/09-readme-polish.md` (round 1)
+
+Modified (3 in round 1, +3 in round 2; overlap at README.md and
+the note):
+- `README.md` (round 1: rewrite; round 2: License section prose)
+- `LICENSE` (round 2: GPL-3.0 → MIT)
+- `package.json` (round 2: added `license` field)
+
+Deleted: none.
+
+**Metrics (verified independently by reviewer in round 1):**
+
+- Vitest: **137** (unchanged).
+- Playwright: **2** (unchanged — smoke + two-player).
+- `./init.sh` (default) and `RUN_E2E=true ./init.sh` both exit 0.
+- `npm audit --audit-level=moderate`: 0 vulnerabilities.
+- Bundle: zero delta (no code touched).
+- External URLs all resolve (frontend deploy, backend repo,
+  Swagger UI, OpenAPI JSON).
+- 5-min self-assessment: ~90 seconds cold read to answer
+  what / where / how.
+
+**Feature note:** `notes/09-readme-polish.md`.
+
+**Cross-repo:** none (pure documentation pass).
+
+**Out-of-scope observations:**
+
+- See "Notable decisions" above for deferred items
+  (`readme-og-image`, `readme-badges`, `readme-screenshots`, no
+  contributing guide).
+
+---
+
+# 🏁 ORIGINAL ROADMAP COMPLETE
+
+23 features shipped across priorities 0 → 9. Numerical timeline:
+
+| # | Feature | Closed |
+|---|---|---|
+| 0 | `harness-setup` | 2026-05-18 |
+| 0.5 | `supply-chain-hardening` | 2026-05-18 |
+| 1 | `test-baseline` | 2026-05-19 |
+| 1.5 | `format-the-world` | 2026-05-19 |
+| 2 | `stomp-client-migration` | 2026-05-19 |
+| 3 | `ui-refresh` | 2026-05-20 |
+| 3.5 | `ci-engine-strict-fix` | 2026-05-20 |
+| 3.7 | `actions-bump` | 2026-05-20 |
+| 3.8 | `deps-bump-medium` | 2026-05-20 |
+| 3.85 | `vite-major-bump` | 2026-05-21 |
+| 3.87 | `eslint-major-bump` | 2026-05-21 |
+| 3.9 | `react-major-bump` | 2026-05-21 |
+| 3.92 | `code-splitting-routes` | 2026-05-21 |
+| 3.94 | `react-chessboard-bump` | 2026-05-21 |
+| 4 | `rest-room-integration` | 2026-05-22 |
+| 5 | `rest-game-integration` | 2026-05-22 |
+| 6 | `stomp-live-updates` | 2026-05-22 |
+| 6.5 | `creator-game-discovery` | 2026-05-22 |
+| 6.7 | `vite-dev-proxy` | 2026-05-22 |
+| 6.8 | `play-ux-fixes` | 2026-05-25 |
+| 7 | `e2e-playwright` | 2026-05-25 |
+| 8 | `hosting-migration` | 2026-05-25 |
+| 9 | `readme-polish` | 2026-05-25 |
+
+**Final stats:**
+
+- 137 Vitest tests + 2 Playwright specs.
+- Bundle initial-load: 471.25 kB.
+- Production: `https://chess-frontend-52i.pages.dev/` (Cloudflare
+  Pages, MIT-licensed).
+- Backend cross-repo: `chess-backend-java` on EC2.
+- Cross-repo coordinations pending: `backend-cors-cf` (allow CF
+  URLs in `CorsProperties.allowedOriginPatterns`),
+  `roomresponse-role-narrowing-cleanup`.
+
+The next session opens scope-add: the user said "terminando
+agregamos más". Carry-over candidates ready for prioritisation
+listed in `progress/current.md`.
