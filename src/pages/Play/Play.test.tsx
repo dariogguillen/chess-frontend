@@ -10,8 +10,16 @@ import type { RoomState } from '../../context/UserContext';
 import { RoomPhase } from '../../context';
 import { TEST_API_BASE_URL, server } from '../../test/msw-server';
 import type { MockStompClient } from '../../utils/ws';
-import type { MoveEvent, RoomEvent, ViewerCountEvent } from '../../api/wsEvents';
-import { RoomEventType } from '../../api/wsEvents';
+import type {
+  GameAbandonedEvent,
+  GameTopicEvent,
+  MoveEvent,
+  PlayerDisconnectedEvent,
+  PlayerReconnectedEvent,
+  RoomEvent,
+  ViewerCountEvent,
+} from '../../api/wsEvents';
+import { GameTopicEventType, RoomEventType } from '../../api/wsEvents';
 import { GameStatus, Side } from '../../api/games';
 import { SESSION_STORAGE_KEY } from '../../utils/sessionStorage';
 import type { StoredSession } from '../../utils/sessionStorage';
@@ -112,6 +120,7 @@ const sampleGameState = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const opponentMoveEvent = (overrides: Partial<MoveEvent> = {}): MoveEvent => ({
+  type: GameTopicEventType.Move,
   gameId: 'game-uuid-1',
   movedBy: 'player-2',
   side: Side.Black,
@@ -124,6 +133,39 @@ const opponentMoveEvent = (overrides: Partial<MoveEvent> = {}): MoveEvent => ({
   turn: Side.White,
   moveNumber: 2,
   playedAt: '2026-05-21T12:00:00.000Z',
+  ...overrides,
+});
+
+const samplePlayerDisconnected = (
+  overrides: Partial<PlayerDisconnectedEvent> = {},
+): PlayerDisconnectedEvent => ({
+  type: GameTopicEventType.PlayerDisconnected,
+  gameId: 'game-uuid-1',
+  playerId: 'player-2',
+  side: Side.Black,
+  disconnectedAt: '2026-05-27T12:00:00.000Z',
+  gracePeriodEndsAt: new Date(Date.now() + 30_000).toISOString(),
+  ...overrides,
+});
+
+const samplePlayerReconnected = (
+  overrides: Partial<PlayerReconnectedEvent> = {},
+): PlayerReconnectedEvent => ({
+  type: GameTopicEventType.PlayerReconnected,
+  gameId: 'game-uuid-1',
+  playerId: 'player-2',
+  side: Side.Black,
+  reconnectedAt: '2026-05-27T12:00:30.000Z',
+  ...overrides,
+});
+
+const sampleGameAbandoned = (overrides: Partial<GameAbandonedEvent> = {}): GameAbandonedEvent => ({
+  type: GameTopicEventType.GameAbandoned,
+  gameId: 'game-uuid-1',
+  abandonedBy: 'player-2',
+  winnerId: 'player-1',
+  finalFen: STARTING_FEN,
+  abandonedAt: '2026-05-27T12:01:00.000Z',
   ...overrides,
 });
 
@@ -380,7 +422,7 @@ describe('Play page', () => {
       // transition under jsdom's zero-width layout (see other tests in
       // this file that keep STARTING_FEN). We're testing the
       // STOMP-event → status flow here, not the board re-render.
-      client.dispatch<MoveEvent>(
+      client.dispatch<GameTopicEvent>(
         '/topic/games/game-uuid-1',
         opponentMoveEvent({ fen: STARTING_FEN, status: GameStatus.Checkmate, turn: Side.White }),
       );
@@ -703,5 +745,146 @@ describe('Play page', () => {
 
     expect(navigateMock).toHaveBeenCalledWith('/new');
     expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  // ---------------------------------------------------------------
+  // disconnect-ux (priority 11)
+  // ---------------------------------------------------------------
+
+  it('shows the OpponentStatus reconnecting chip on PLAYER_DISCONNECTED', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    const client = currentMockClient as MockStompClient;
+
+    act(() => {
+      client.dispatch<GameTopicEvent>('/topic/games/game-uuid-1', samplePlayerDisconnected());
+    });
+
+    expect(await screen.findByLabelText(/opponent reconnecting/i)).toBeInTheDocument();
+  });
+
+  it('hides the OpponentStatus chip and surfaces a reconnect snackbar on PLAYER_RECONNECTED', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    const client = currentMockClient as MockStompClient;
+
+    act(() => {
+      client.dispatch<GameTopicEvent>('/topic/games/game-uuid-1', samplePlayerDisconnected());
+    });
+    expect(await screen.findByLabelText(/opponent reconnecting/i)).toBeInTheDocument();
+
+    act(() => {
+      client.dispatch<GameTopicEvent>('/topic/games/game-uuid-1', samplePlayerReconnected());
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/opponent reconnecting/i)).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText(/opponent reconnected/i)).toBeInTheDocument();
+  });
+
+  it('routes a live GAME_ABANDONED event to the inline banner, not the terminal dialog', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    const client = currentMockClient as MockStompClient;
+
+    act(() => {
+      // Local player wins because the opponent (player-2) abandoned.
+      client.dispatch<GameTopicEvent>(
+        '/topic/games/game-uuid-1',
+        sampleGameAbandoned({ abandonedBy: 'player-2', winnerId: 'player-1' }),
+      );
+    });
+
+    expect(
+      await screen.findByRole('heading', { name: /opponent abandoned the game\. you win\./i }),
+    ).toBeInTheDocument();
+    // The terminal dialog (CustomDialog) must NOT be present — its
+    // sole button is "Continue".
+    expect(screen.queryByRole('button', { name: /continue/i })).not.toBeInTheDocument();
+  });
+
+  it('routes a rehydrated ABANDONED status to the inline banner with the neutral copy', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ status: 'ABANDONED' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    // No `winnerId` was attached via a STOMP event, so the banner picks
+    // the neutral copy.
+    expect(
+      await screen.findByRole('heading', { name: /the game was abandoned\./i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /continue/i })).not.toBeInTheDocument();
+  });
+
+  it('navigates to /new and clears the session when the user clicks the banner CTA', async () => {
+    const session: StoredSession = {
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: Role.White,
+      gameId: 'game-uuid-1',
+      displayName: 'Alice',
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ status: 'ABANDONED' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    const cta = await screen.findByRole('button', { name: /new game/i });
+    const user = userEvent.setup();
+    await user.click(cta);
+
+    expect(navigateMock).toHaveBeenCalledWith('/new');
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('non-ABANDONED terminal statuses still surface the modal (regression guard)', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ status: 'CHECKMATE', turn: 'BLACK' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    // The terminal dialog opens with a Continue button; the abandon
+    // banner is the New game / Home pair.
+    expect(await screen.findByRole('button', { name: /continue/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^new game$/i })).not.toBeInTheDocument();
   });
 });

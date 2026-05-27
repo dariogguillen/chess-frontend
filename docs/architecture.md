@@ -263,6 +263,22 @@ instant) is documented in the backend's `docs/architecture.md` →
 this payload at the seam in `src/utils/ws/` when feature 5 wires
 the subscription.
 
+The game topic also multiplexes the three connection-lifecycle
+events introduced by feature 11 (`disconnect-ux`):
+`PlayerDisconnectedEvent`, `PlayerReconnectedEvent`, and
+`GameAbandonedEvent`. All four variants implement the backend's
+`GameStateEvent` sealed family and carry a leading `type` field
+(constants `MOVE`, `PLAYER_DISCONNECTED`, `PLAYER_RECONNECTED`,
+`GAME_ABANDONED` — mirrored in `src/api/wsEvents.ts` as the
+`GameTopicEventType` const object). Subscribers narrow on `type`
+to pick the right handler; the frontend hook (`useGameStomp`)
+exhausts the union via a `switch` with a `never` default so a
+future variant on either side fails to compile until both line up.
+`PlayerDisconnectedEvent.gracePeriodEndsAt` is an absolute server
+`Instant` (not a remaining-seconds delta) so the client's
+countdown is computed from `gracePeriodEndsAt − Date.now()` on
+every render tick — robust against tab sleep and clock skew.
+
 ### Authentication
 
 There is **no authentication on the WebSocket handshake**. STOMP

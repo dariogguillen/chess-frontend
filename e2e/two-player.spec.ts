@@ -185,6 +185,7 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
 
   // Echo the move on both contexts. A self-filters via movedBy.
   await stompA.pushMoveEvent({
+    type: 'MOVE',
     gameId: GAME_ID,
     movedBy: PLAYER_A,
     side: 'WHITE',
@@ -198,6 +199,7 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
     playedAt: '2026-05-25T00:00:00Z',
   });
   await stompB.pushMoveEvent({
+    type: 'MOVE',
     gameId: GAME_ID,
     movedBy: PLAYER_A,
     side: 'WHITE',
@@ -251,6 +253,7 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
   await dragPiece(pageB, 'e7', 'e5');
 
   await stompA.pushMoveEvent({
+    type: 'MOVE',
     gameId: GAME_ID,
     movedBy: PLAYER_B,
     side: 'BLACK',
@@ -264,6 +267,7 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
     playedAt: '2026-05-25T00:00:01Z',
   });
   await stompB.pushMoveEvent({
+    type: 'MOVE',
     gameId: GAME_ID,
     movedBy: PLAYER_B,
     side: 'BLACK',

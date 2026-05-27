@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ConnectionState } from '../api/wsEvents';
-import type { MoveEvent, ViewerCountEvent } from '../api/wsEvents';
+import { ConnectionState, GameTopicEventType } from '../api/wsEvents';
+import type {
+  GameAbandonedEvent,
+  GameTopicEvent,
+  MoveEvent,
+  OpponentConnectionStatus,
+  PlayerDisconnectedEvent,
+  PlayerReconnectedEvent,
+  ViewerCountEvent,
+} from '../api/wsEvents';
 import { wsUrl } from '../utils/config.default';
 import { createStompClient } from '../utils/ws';
 import type { StompClient, StompClientConfig } from '../utils/ws';
@@ -19,12 +27,20 @@ export type StompClientFactory = (config: StompClientConfig) => StompClient;
  * fields exist for test injection only — production callers omit both
  * and the hook resolves the URL from `src/utils/config.default.ts`
  * (`VITE_BACKEND_URL`-derived) and builds a real stompjs client.
+ *
+ * `onOpponentReconnected` lets the page surface a discreet Snackbar
+ * when the opponent's session is restored. The hook itself is purely
+ * state-driving; UI side-effects ride on this callback.
  */
 export type UseGameStompOptions = Readonly<{
   /** Override the WS URL. Test-only. */
   wsUrl?: string;
   /** Override the client factory. Test-only. */
   clientFactory?: StompClientFactory;
+  /** Fired when the opponent's session is restored (PLAYER_RECONNECTED). */
+  onOpponentReconnected?: () => void;
+  /** Fired when the server abandons the game (GAME_ABANDONED). */
+  onGameAbandoned?: (event: GameAbandonedEvent) => void;
 }>;
 
 /**
@@ -33,9 +49,13 @@ export type UseGameStompOptions = Readonly<{
  *
  * Owns ONE STOMP client connection with TWO subscriptions:
  *
- * - `/topic/games/{gameId}` — moves topic. Carries a `playerId` STOMP
+ * - `/topic/games/{gameId}` — game topic. Carries a `playerId` STOMP
  *   header on the SUBSCRIBE frame so the backend's `ViewerCountTracker`
- *   self-excludes the subscriber from the count.
+ *   self-excludes the subscriber from the count. The topic multiplexes
+ *   four event variants (`MOVE`, `PLAYER_DISCONNECTED`,
+ *   `PLAYER_RECONNECTED`, `GAME_ABANDONED`) discriminated by the `type`
+ *   field; the hook narrows on it and dispatches to the right slice
+ *   (move callback, opponent-status state, abandon callback).
  * - `/topic/games/{gameId}/viewers` — viewer count topic. No header
  *   (the moves topic already carries identity; this one is just a
  *   counter the server pushes whenever it changes).
@@ -56,6 +76,20 @@ export type UseGameStompOptions = Readonly<{
  * `MoveEvent.movedBy === playerId` and skips the echo; only opponent
  * moves reach `onOpponentMove`.
  *
+ * Opponent connection events:
+ * - `PLAYER_DISCONNECTED` for the OPPONENT → opponentStatus flips to
+ *   `disconnected` carrying the absolute `gracePeriodEndsAt`.
+ * - `PLAYER_RECONNECTED` for the OPPONENT → opponentStatus flips back
+ *   to `connected` and the `onOpponentReconnected` callback fires.
+ * - Either event for the LOCAL player is ignored — own-player events
+ *   would land on a reconnect-buffer replay and flickering our own
+ *   chip is not useful.
+ *
+ * `GAME_ABANDONED` is the terminal event; the hook fires
+ * `onGameAbandoned` so the page can route to the inline banner. The
+ * opponent-status chip is moved to its `abandoned` arm at the same
+ * moment so any in-flight countdown stops cleanly.
+ *
  * Reconnect: the underlying stompjs client reconnects every 5 seconds
  * after a drop. The hook's `connectionState` reflects the transitions
  * so the page can render a small affordance.
@@ -69,20 +103,35 @@ export const useGameStomp = (
   connectionState: ConnectionState;
   viewerCount: number;
   errorMessage: string | null;
+  opponentStatus: OpponentConnectionStatus;
 } => {
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     ConnectionState.Disconnected,
   );
   const [viewerCount, setViewerCount] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [opponentStatus, setOpponentStatus] = useState<OpponentConnectionStatus>({
+    kind: 'connected',
+  });
 
-  // Pin the move callback in a ref so a fresh closure does not re-run
-  // the connect effect (subscription identity must be stable). Same
-  // idiom as `useStompSubscription`.
+  // Pin every closure-shaped option in a ref so re-renders that produce
+  // a fresh callback identity do not re-run the connect effect
+  // (subscription identity must be stable). Same idiom as
+  // `useStompSubscription`.
   const onMoveRef = useRef(onOpponentMove);
   useEffect(() => {
     onMoveRef.current = onOpponentMove;
   }, [onOpponentMove]);
+
+  const onOpponentReconnectedRef = useRef(options.onOpponentReconnected);
+  useEffect(() => {
+    onOpponentReconnectedRef.current = options.onOpponentReconnected;
+  }, [options.onOpponentReconnected]);
+
+  const onGameAbandonedRef = useRef(options.onGameAbandoned);
+  useEffect(() => {
+    onGameAbandonedRef.current = options.onGameAbandoned;
+  }, [options.onGameAbandoned]);
 
   // Snapshot the test-injection options on first render. They are only
   // ever passed at mount in production code (test files freeze them up
@@ -114,8 +163,61 @@ export const useGameStomp = (
       },
     });
 
-    let unsubMoves: (() => void) | null = null;
+    let unsubGame: (() => void) | null = null;
     let unsubViewers: (() => void) | null = null;
+
+    const handleMove = (event: MoveEvent): void => {
+      // Self-filter: REST submit returned the new state already;
+      // skip the echo of our own move so the optimistic path stays
+      // authoritative for the player who made the move.
+      if (event.movedBy === playerId) return;
+      onMoveRef.current(event);
+    };
+
+    const handlePlayerDisconnected = (event: PlayerDisconnectedEvent): void => {
+      // Own-player events arrive on reconnect-buffer replay (the local
+      // player WAS the one who dropped). Flickering our own chip is
+      // noise, not signal.
+      if (event.playerId === playerId) return;
+      setOpponentStatus({ kind: 'disconnected', gracePeriodEndsAt: event.gracePeriodEndsAt });
+    };
+
+    const handlePlayerReconnected = (event: PlayerReconnectedEvent): void => {
+      if (event.playerId === playerId) return;
+      setOpponentStatus({ kind: 'connected' });
+      onOpponentReconnectedRef.current?.();
+    };
+
+    const handleGameAbandoned = (event: GameAbandonedEvent): void => {
+      setOpponentStatus({ kind: 'abandoned' });
+      onGameAbandonedRef.current?.(event);
+    };
+
+    const handleGameTopicEvent = (event: GameTopicEvent): void => {
+      switch (event.type) {
+        case GameTopicEventType.Move:
+          handleMove(event);
+          return;
+        case GameTopicEventType.PlayerDisconnected:
+          handlePlayerDisconnected(event);
+          return;
+        case GameTopicEventType.PlayerReconnected:
+          handlePlayerReconnected(event);
+          return;
+        case GameTopicEventType.GameAbandoned:
+          handleGameAbandoned(event);
+          return;
+        default: {
+          // Exhaustiveness guard. A new variant in `GameTopicEvent`
+          // would refuse to compile here until handled above. The
+          // assignment to `never` is the TS analogue of a Scala
+          // `case _ =>` rejection in a sealed-trait match.
+          const _exhaustive: never = event;
+          void _exhaustive;
+          return;
+        }
+      }
+    };
 
     const run = async () => {
       // Move the "we're starting to connect" state transition inside
@@ -129,15 +231,9 @@ export const useGameStomp = (
         await client.connect();
         if (cancelled) return;
 
-        unsubMoves = client.subscribe<MoveEvent>(
+        unsubGame = client.subscribe<GameTopicEvent>(
           `/topic/games/${gameId}`,
-          (event) => {
-            // Self-filter: REST submit returned the new state already;
-            // skip the echo of our own move so the optimistic path stays
-            // authoritative for the player who made the move.
-            if (event.movedBy === playerId) return;
-            onMoveRef.current(event);
-          },
+          handleGameTopicEvent,
           { playerId },
         );
 
@@ -146,7 +242,7 @@ export const useGameStomp = (
           (event) => {
             setViewerCount(event.count);
           },
-          // No `playerId` header here — the moves-topic subscription
+          // No `playerId` header here — the game-topic subscription
           // already declared this connection as a player; the viewer
           // count topic is just a counter.
         );
@@ -165,13 +261,14 @@ export const useGameStomp = (
       // Drop both subscriptions before disconnecting so the broker sees
       // a clean UNSUBSCRIBE for each. `disconnect()` resolves async; we
       // don't await it in cleanup (effects can't return a Promise).
-      unsubMoves?.();
+      unsubGame?.();
       unsubViewers?.();
       void client.disconnect();
       setConnectionState(ConnectionState.Disconnected);
       setViewerCount(0);
+      setOpponentStatus({ kind: 'connected' });
     };
   }, [gameId, playerId]);
 
-  return { connectionState, viewerCount, errorMessage };
+  return { connectionState, viewerCount, errorMessage, opponentStatus };
 };

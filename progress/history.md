@@ -2991,3 +2991,121 @@ placement in context callbacks (refs read at the seam, no
 side-effects in updaters), defensive `JSON.parse` boundary
 (unknown ⇒ T, like `circe.Decoder`), discriminated union narrowing
 across the rehydrate boundary.
+
+---
+
+## 2026-05-27 — Closed `disconnect-ux` (priority 11)
+
+**The trigger**: user smoke-test of feature 10 (`game-session-persistence`)
+exposed a UX gap. User left a tab open while reviewing backend code,
+the WS died (tab sleep / backend timeout), backend's
+`GracePeriodManager` expired and broadcast `GameAbandonedEvent` on
+`/topic/games/{gameId}`, the dormant tab never processed it. On
+refresh, the new feature-10 rehydrate flow fetched
+`status: ABANDONED` and the existing terminal-status modal fired
+with the stale literal "Game abandoned. Game abandoned." (title ==
+body, a bug from feature 5). Verbatim user feedback: "el modal me
+parece algo invasivo, tal vez solo mostrar junto al nombre del
+jugador que se desconecto y poner el link a la vista de crear juego
+o redireccionar en cierto tiempo". Saved as auto-memory feedback
+rule [[feedback-inline-status-over-modals]].
+
+**The diagnosis**: backend (`chess-backend-java` feature 11
+`disconnect-handling`) had ALL the plumbing — `PlayerSessionTracker`
+on `SessionDisconnectEvent`, `GracePeriodManager` with configurable
+`chess.disconnect.grace-period`, `GameAbandonService` flipping to
+`ABANDONED` + archiving + broadcasting. Three events were on the
+wire (`PlayerDisconnectedEvent`, `PlayerReconnectedEvent`,
+`GameAbandonedEvent`) and the frontend was silently dropping all
+three. The first one because `wsEvents.ts` didn't define the shapes;
+the second and third for the same reason. The rehydrate path
+worked accidentally — REST returned the terminal status — but
+routed through the wrong UI.
+
+**Backlog reorganisation before implementation**: `disconnect-ux`
+inserted at priority 11; `board-move-hints` shifted to 11.5; the
+other pending priorities unchanged. Done via `jq` (PreToolUse hook
+blocks direct edits to `feature_list.json`).
+
+**The fix**: three new STOMP events added to `wsEvents.ts` as a
+discriminated union via the existing const-object + derived-type
+pattern. Wire shapes mirror the backend Java records verbatim
+(`MoveEvent`, `PlayerDisconnectedEvent`,
+`PlayerReconnectedEvent`, `GameAbandonedEvent`). The existing
+`MoveEvent` gained an explicit `type: 'MOVE'` discriminator field
+to round out the `GameTopicEvent` union — verified safe against
+production because backend's convenience constructor sets this
+field on every emission. `useGameStomp` extended with an
+exhaustive switch + `never`-default routing the four events to the
+right state slices.
+
+Two new inline components (honouring
+[[feedback-inline-status-over-modals]]):
+
+- `OpponentStatus` (Chip next to opponent display name): three
+  visual states driven by an `OpponentConnectionStatus` ADT
+  (`connected` → hidden; `disconnected` → `[⏱ Reconnecting · 42s]`
+  with countdown derived from `gracePeriodEndsAt - Date.now()`
+  ticking every 1s and clamped at 0; `abandoned` → `[Disconnected]`
+  static). Aria-label is explicit so screen readers announce
+  "Opponent reconnecting, 42 seconds remaining". Clock-skew and
+  malformed-instant edge cases clamp to 0 without crashing.
+- `GameOverByAbandonBanner` (inline banner under the board on
+  ABANDONED): result line keyed off `winnerId` vs local `playerId`
+  with neutral fallback when `winnerId` is absent (rehydrate path —
+  REST does not expose `winnerId`). Primary "New game" CTA +
+  secondary "Home" link + visible 10s auto-redirect countdown
+  ("Redirecting in {N}s…") in an `aria-live="polite"` region. CTA
+  click / unmount / navigation cancels the timer cleanly via a
+  cancel-flag pattern documented in the note.
+
+Terminal-status routing in `Play.tsx` split: `ABANDONED → banner`,
+`{CHECKMATE, STALEMATE, DRAW} → existing CustomDialog`. The dialog
+gate `showTerminalDialog` re-asserts the ABANDONED exclusion
+defensively. The `terminalMessage` ABANDONED arm is now unreachable
+(reviewer-verified) but kept as exhaustive-switch defence.
+
+**Files**:
+
+- New: `src/components/OpponentStatus/` (3 files + tests),
+  `src/components/GameOverByAbandonBanner/` (3 files + tests),
+  `e2e/abandonment.spec.ts`, `notes/11-disconnect-ux.md`.
+- Modified: `src/api/wsEvents.ts` + `.test.ts`,
+  `src/hooks/useGameStomp.ts` + `.test.tsx`,
+  `src/pages/Play/Play.tsx` + `.test.tsx`,
+  `e2e/fixtures/mockStomp.ts` (three new `pushXxxEvent` helpers),
+  `e2e/two-player.spec.ts` (`type: 'MOVE'` added at four push
+  sites), `docs/architecture.md` (one paragraph documenting the
+  new STOMP topic shapes under the existing topic-shapes section).
+
+**Verification**:
+
+- Vitest: 158 → 193 (+35).
+- Playwright: 2 → 3 (added dedicated `abandonment.spec.ts`).
+- Eager bundle (index + modulepreloaded context):
+  472.53 kB → 472.55 kB (+0.02 kB net — essentially zero).
+- Play chunk (lazy): ~194.75 kB → 203.39 kB (+8.6 kB, expected for
+  two new components + three event handlers).
+- `./init.sh` green. `RUN_E2E=true ./init.sh` green.
+- Manual smoke confirmed by user: refresh into ABANDONED game now
+  surfaces banner instead of modal; live disconnect of opponent
+  shows chip with countdown.
+
+**Note**: `notes/11-disconnect-ux.md`. Covers discriminated-union
+extension with `never`-default exhaustiveness (Scala sealed-trait
+pattern match analogue), absolute-instant countdown vs naïve
+local-decrement (drift-resistance under tab sleep + clock skew),
+`useEffect` cleanup for timers (Cats Effect `Resource.make … release`
+analogue), the inline-status-vs-modal UX rule applied for the first
+time (anchored in `feedback-inline-status-over-modals` memory),
+backend-coordination notes (wire shapes mirror Java records
+verbatim; events are STOMP-only and out of the OpenAPI surface).
+
+**Round 1 only**: both reviewers approved without blocking
+observations. Three lower-risk findings documented and accepted as
+in-scope decisions: (a) the test `fireEvent.click` fallback under
+`vi.useFakeTimers` is the standard mitigation; (b) the `winnerId`
+neutral fallback on rehydrate is acceptable until/unless a backend
+DTO change exposes `winnerId` on `GameStateResponse`; (c) the dead
+ABANDONED arm in `terminalMessage` stays for exhaustive-switch
+defence.

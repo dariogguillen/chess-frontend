@@ -17,6 +17,35 @@ import type { components } from './generated/schema';
 import { GameStatus, PromotionPiece, Side } from './games';
 
 /**
+ * STOMP event discriminator constants for `/topic/games/{gameId}`.
+ *
+ * The backend's `GameStateEvent` is a sealed interface with four
+ * variants — `MoveEvent`, `PlayerDisconnectedEvent`,
+ * `PlayerReconnectedEvent`, `GameAbandonedEvent` — that all ride the
+ * same game topic. Every variant carries an explicit `type` field set
+ * by its convenience constructor (rather than `@JsonTypeInfo`), so the
+ * frontend discriminator lives in one const object instead of scattered
+ * magic strings.
+ *
+ * Adding a new variant means extending both this object and the
+ * `GameTopicEvent` union below, in lockstep with the backend record.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/GameStateEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/MoveEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/PlayerDisconnectedEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/PlayerReconnectedEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/GameAbandonedEvent.java`
+ */
+export const GameTopicEventType = {
+  Move: 'MOVE',
+  PlayerDisconnected: 'PLAYER_DISCONNECTED',
+  PlayerReconnected: 'PLAYER_RECONNECTED',
+  GameAbandoned: 'GAME_ABANDONED',
+} as const;
+export type GameTopicEventType = (typeof GameTopicEventType)[keyof typeof GameTopicEventType];
+
+/**
  * Mirror of the backend's `MoveEvent.java` record (Spring messaging
  * payload for `/topic/games/{gameId}`).
  *
@@ -24,6 +53,10 @@ import { GameStatus, PromotionPiece, Side } from './games';
  *   chess-backend-java: `src/main/java/.../websocket/MoveEvent.java`
  *
  * Fields:
+ * - `type`       — discriminator constant `'MOVE'`. Set by the backend
+ *                  record's convenience constructor; the frontend
+ *                  branches on this field to demultiplex the four
+ *                  variants that share the game topic.
  * - `gameId`     — UUID of the game the event belongs to (also encoded
  *                  in the topic path; kept on the payload for defensive
  *                  validation by the consumer).
@@ -47,6 +80,7 @@ import { GameStatus, PromotionPiece, Side } from './games';
  *                  the type for future display / debugging.
  */
 export type MoveEvent = Readonly<{
+  type: typeof GameTopicEventType.Move;
   gameId: string;
   movedBy: string;
   side: Side;
@@ -59,6 +93,170 @@ export type MoveEvent = Readonly<{
   moveNumber: number;
   playedAt: string;
 }>;
+
+/**
+ * Mirror of the backend's `PlayerDisconnectedEvent.java` record
+ * (Spring messaging payload for `/topic/games/{gameId}`).
+ *
+ * Broadcast the moment `PlayerSessionTracker` observes a STOMP session
+ * drop for a player whose game is still non-terminal — i.e. the start
+ * of the grace window. The opponent's UI flips the local
+ * `OpponentConnectionStatus` ADT into its `disconnected` arm and
+ * renders an inline countdown chip derived from `gracePeriodEndsAt`.
+ *
+ * `gracePeriodEndsAt` is an absolute server `Instant` (ISO-8601),
+ * NOT a `secondsRemaining` delta — the value never goes stale on the
+ * wire, and the client computes `remaining = gracePeriodEndsAt - now()`
+ * once per render tick. Same deadline-in-wire pattern Lichess and
+ * chess.com use for clock state; sidesteps the "the int was already
+ * wrong by the time the client saw it" failure mode of a transmitted
+ * delta.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/PlayerDisconnectedEvent.java`
+ *
+ * Fields:
+ * - `type`              — discriminator constant `'PLAYER_DISCONNECTED'`.
+ * - `gameId`            — UUID of the game whose player just dropped.
+ * - `playerId`          — UUID of the player whose STOMP session dropped.
+ *                         Compared to the local `playerId` so we only
+ *                         react to opponent events (self-events arrive
+ *                         on reconnect-buffer replay and would otherwise
+ *                         flicker our own status chip).
+ * - `side`              — `Side.White | Side.Black`, derived server-side
+ *                         from game membership so the client does not
+ *                         repeat the membership lookup.
+ * - `disconnectedAt`    — ISO-8601 instant of when the disconnect was
+ *                         observed. Carried for logging / debugging.
+ * - `gracePeriodEndsAt` — ISO-8601 instant at which the
+ *                         `GameAbandonedEvent` will fire if the player
+ *                         has not reconnected. The chip's countdown is
+ *                         derived from this minus `Date.now()`.
+ */
+export type PlayerDisconnectedEvent = Readonly<{
+  type: typeof GameTopicEventType.PlayerDisconnected;
+  gameId: string;
+  playerId: string;
+  side: Side;
+  disconnectedAt: string;
+  gracePeriodEndsAt: string;
+}>;
+
+/**
+ * Mirror of the backend's `PlayerReconnectedEvent.java` record
+ * (Spring messaging payload for `/topic/games/{gameId}`).
+ *
+ * Broadcast when `PlayerSessionTracker` observes a `SessionSubscribe`
+ * that cancels a pending grace timer — i.e. a player reconnected
+ * within the grace window. The opponent's UI clears the
+ * `disconnected` chip back to `connected` and fires a short
+ * "Opponent reconnected" Snackbar (inline-status preference; see
+ * [[feedback-inline-status-over-modals]]).
+ *
+ * The backend guards the broadcast on the boolean return of
+ * `GracePeriodManager.cancelGracePeriod`: emitted only when a pending
+ * timer was actually cancelled. The "timer just fired" race is
+ * silent on the wire instead of broadcasting `PLAYER_RECONNECTED`
+ * concurrently with the `GAME_ABANDONED` that ended the game.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/PlayerReconnectedEvent.java`
+ *
+ * Fields:
+ * - `type`          — discriminator constant `'PLAYER_RECONNECTED'`.
+ * - `gameId`        — UUID of the game whose player just reconnected.
+ * - `playerId`      — UUID of the player whose STOMP session was
+ *                     restored.
+ * - `side`          — `Side.White | Side.Black`.
+ * - `reconnectedAt` — ISO-8601 instant of when the reconnect was
+ *                     observed. Carried for logging / debugging.
+ */
+export type PlayerReconnectedEvent = Readonly<{
+  type: typeof GameTopicEventType.PlayerReconnected;
+  gameId: string;
+  playerId: string;
+  side: Side;
+  reconnectedAt: string;
+}>;
+
+/**
+ * Mirror of the backend's `GameAbandonedEvent.java` record (Spring
+ * messaging payload for `/topic/games/{gameId}`).
+ *
+ * Broadcast when a game transitions to `GameStatus.Abandoned`
+ * because one player lost their STOMP session and did not resubscribe
+ * within the configured grace period. The receiving client routes the
+ * game into the inline `GameOverByAbandonBanner` (NOT the modal
+ * `CustomDialog`) per the feedback rule that modals are reserved for
+ * states the user caused.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/GameAbandonedEvent.java`
+ *
+ * Fields:
+ * - `type`        — discriminator constant `'GAME_ABANDONED'`.
+ * - `gameId`      — UUID of the game that was abandoned.
+ * - `abandonedBy` — UUID of the player whose session dropped and was
+ *                   not restored before the grace window elapsed. The
+ *                   loser.
+ * - `winnerId`    — UUID of the opponent. Derived server-side so the
+ *                   client does not need a second lookup; the banner
+ *                   compares this against the local player id to pick
+ *                   the result-line copy.
+ * - `finalFen`    — FEN at the moment of abandonment (the position
+ *                   frozen on the board). The game is terminal at this
+ *                   point; this FEN never changes again.
+ * - `abandonedAt` — ISO-8601 instant of when the abandonment was
+ *                   finalised. Carried for logging / debugging.
+ */
+export type GameAbandonedEvent = Readonly<{
+  type: typeof GameTopicEventType.GameAbandoned;
+  gameId: string;
+  abandonedBy: string;
+  winnerId: string;
+  finalFen: string;
+  abandonedAt: string;
+}>;
+
+/**
+ * Discriminated union of every variant on `/topic/games/{gameId}`.
+ *
+ * The receiving subscriber pattern-matches on `event.type` and lets
+ * TypeScript narrow each branch to the corresponding record. Adding a
+ * new variant on the backend's `GameStateEvent` sealed interface
+ * requires (a) a new entry in {@link GameTopicEventType}, (b) a new
+ * arm here, (c) a `switch` arm in the subscriber. The compiler flags
+ * any branch that forgets to handle the new variant via the
+ * `assertNever`-style default in the switch.
+ */
+export type GameTopicEvent =
+  | MoveEvent
+  | PlayerDisconnectedEvent
+  | PlayerReconnectedEvent
+  | GameAbandonedEvent;
+
+/**
+ * Local-only ADT describing how the local UI should render the
+ * opponent's connection status. NOT a wire shape — derived in
+ * `useGameStomp` from the three connection events above.
+ *
+ * Discriminated by `kind`. `disconnected` carries the absolute
+ * `gracePeriodEndsAt` from the originating wire event; the chip's
+ * countdown is computed by subtracting `Date.now()` on every render
+ * tick, NOT by decrementing a local counter. The deadline-in-wire
+ * shape survives tab sleep and clock skew, whereas a decremented
+ * counter drifts.
+ *
+ * `abandoned` is a synthetic arm: when `GameAbandonedEvent` arrives the
+ * game-status flow takes over (the page renders the inline banner),
+ * but until that frame commits the opponent chip can briefly land here
+ * to express "no longer reconnecting; the game is over" without
+ * resurrecting a stale countdown.
+ */
+export type OpponentConnectionStatus =
+  | Readonly<{ kind: 'connected' }>
+  | Readonly<{ kind: 'disconnected'; gracePeriodEndsAt: string }>
+  | Readonly<{ kind: 'abandoned' }>;
 
 /**
  * Mirror of the backend's `ViewerCountEvent.java` record (Spring

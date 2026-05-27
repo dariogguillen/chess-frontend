@@ -17,6 +17,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Chessboard, type PieceDropHandlerArgs, type PieceHandlerArgs } from 'react-chessboard';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
+import { GameOverByAbandonBanner } from '../../components/GameOverByAbandonBanner';
+import { OpponentStatus } from '../../components/OpponentStatus';
 import { PromotionDialog } from '../../components/PromotionDialog';
 import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
 import {
@@ -30,7 +32,7 @@ import {
 import type { GameState, MoveSummary } from '../../api/games';
 import { Role } from '../../api/rooms';
 import { ConnectionState, DiscoveryState } from '../../api/wsEvents';
-import type { MoveEvent } from '../../api/wsEvents';
+import type { GameAbandonedEvent, MoveEvent } from '../../api/wsEvents';
 import { RoomPhase, useUserContext } from '../../context';
 import { useGameStomp } from '../../hooks/useGameStomp';
 import { useRoomDiscovery } from '../../hooks/useRoomDiscovery';
@@ -168,6 +170,17 @@ const Play = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [terminalDialogOpen, setTerminalDialogOpen] = useState<boolean>(false);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
+  // Surfaces a discreet "Opponent reconnected" Snackbar fired by the
+  // STOMP hook when the opponent's session is restored mid-grace. The
+  // inline status chip handles the steady-state UI; this is a one-shot
+  // toast for the transition.
+  const [reconnectToastOpen, setReconnectToastOpen] = useState<boolean>(false);
+  // Captures the `winnerId` carried on the live `GAME_ABANDONED` event so
+  // the banner copy keys off the canonical server-provided field rather
+  // than a client-inferred guess. `null` until the event arrives; the
+  // rehydrate path (status=ABANDONED from REST GET) leaves it `null` and
+  // the banner falls back to the neutral copy.
+  const [abandonedWinnerId, setAbandonedWinnerId] = useState<string | null>(null);
 
   /** Replace local chess.js + FEN with the authoritative server state. */
   const syncFromServer = useCallback(
@@ -175,7 +188,11 @@ const Play = () => {
       chess.load(next.fen);
       setFen(next.fen);
       setGameState(next);
-      if (isTerminalStatus(next.status)) {
+      // ABANDONED routes to the inline `GameOverByAbandonBanner` instead
+      // of the terminal-status modal — see
+      // [[feedback-inline-status-over-modals]]. The CustomDialog stays
+      // for the active terminal states (CHECKMATE, STALEMATE, DRAW).
+      if (isTerminalStatus(next.status) && next.status !== GameStatus.Abandoned) {
         setTerminalDialogOpen(true);
       }
     },
@@ -226,12 +243,41 @@ const Play = () => {
           moves: [...prev.moves, summary],
         };
       });
-      if (isTerminalStatus(event.status)) {
+      // See the rationale in `syncFromServer`: ABANDONED has its own
+      // inline banner; other terminal statuses still use the modal.
+      if (isTerminalStatus(event.status) && event.status !== GameStatus.Abandoned) {
         setTerminalDialogOpen(true);
       }
     },
     [chess],
   );
+
+  /**
+   * Handle a `GAME_ABANDONED` STOMP event by collapsing the local game
+   * state into the `ABANDONED` arm. Mirrors the move-applied path but
+   * for a status-only transition: there is no new FEN to compute (the
+   * board freezes at `event.finalFen`, which equals the current FEN by
+   * construction since no moves can have been played after the
+   * abandon), and no terminal modal opens — the inline banner driven
+   * by `gameState.status === ABANDONED` takes over instead.
+   */
+  const handleGameAbandoned = useCallback(
+    (event: GameAbandonedEvent) => {
+      chess.load(event.finalFen);
+      setFen(event.finalFen);
+      setAbandonedWinnerId(event.winnerId);
+      setGameState((prev) => {
+        if (prev === null) return prev;
+        if (prev.id !== event.gameId) return prev;
+        return { ...prev, fen: event.finalFen, status: GameStatus.Abandoned };
+      });
+    },
+    [chess],
+  );
+
+  const handleOpponentReconnected = useCallback(() => {
+    setReconnectToastOpen(true);
+  }, []);
 
   // Wire the STOMP subscriptions. The hook is a no-op while `gameId` is
   // null (Player A's pre-join state), and tears down both subscriptions
@@ -240,7 +286,11 @@ const Play = () => {
     connectionState,
     viewerCount,
     errorMessage: stompError,
-  } = useGameStomp(gameId ?? null, playerId, applyOpponentMove);
+    opponentStatus,
+  } = useGameStomp(gameId ?? null, playerId, applyOpponentMove, {
+    onOpponentReconnected: handleOpponentReconnected,
+    onGameAbandoned: handleGameAbandoned,
+  });
 
   // Discovery flow for Player A. Active only while we are in a room
   // but the gameId has not yet resolved. Once `setGameId` updates the
@@ -467,23 +517,46 @@ const Play = () => {
 
   const boardOrientation: 'white' | 'black' = role === Role.Black ? 'black' : 'white';
 
+  const isAbandoned = gameState !== null && gameState.status === GameStatus.Abandoned;
+  // The terminal-status modal is suppressed for ABANDONED — the inline
+  // banner takes over. The modal still covers CHECKMATE / STALEMATE /
+  // DRAW.
   const showTerminalDialog =
-    terminalDialogOpen && gameState !== null && isTerminalStatus(gameState.status);
+    terminalDialogOpen &&
+    gameState !== null &&
+    isTerminalStatus(gameState.status) &&
+    gameState.status !== GameStatus.Abandoned;
 
   const displayName = identity.displayName;
+
+  // Helper bound for the inline banner: route the user out of the
+  // abandoned game cleanly. Mirrors the terminal-dialog Continue handler
+  // (clear session, navigate); used both for the explicit CTA and for
+  // the auto-redirect timer.
+  const handleAbandonedNewGame = () => {
+    leaveRoom();
+    navigate('/new');
+  };
+  const handleAbandonedHome = () => {
+    leaveRoom();
+    navigate('/home');
+  };
 
   return (
     <Container maxWidth="xl" sx={{ pt: 4 }}>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 8 }}>
-          <Typography variant="body1">
-            {opponentDisplayName ?? (
-              <Fragment>
-                Waiting for opponent
-                <CircularProgress size="15px" sx={{ ml: 1 }} />
-              </Fragment>
-            )}
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Typography variant="body1">
+              {opponentDisplayName ?? (
+                <Fragment>
+                  Waiting for opponent
+                  <CircularProgress size="15px" sx={{ ml: 1 }} />
+                </Fragment>
+              )}
+            </Typography>
+            <OpponentStatus status={opponentStatus} />
+          </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
@@ -504,6 +577,20 @@ const Play = () => {
                 allowDrawingArrows: true,
               }}
             />
+            {isAbandoned && playerId !== null && (
+              <GameOverByAbandonBanner
+                // The live `GAME_ABANDONED` event carries the canonical
+                // `winnerId`. When we land in the ABANDONED arm via the
+                // rehydrate path (REST GET returns status=ABANDONED with
+                // no surrounding event), we fall back to the empty
+                // string so the banner picks the neutral copy ("The game
+                // was abandoned.") rather than fabricating a winner.
+                winnerId={abandonedWinnerId ?? ''}
+                localPlayerId={playerId}
+                onNewGame={handleAbandonedNewGame}
+                onHome={handleAbandonedHome}
+              />
+            )}
           </Box>
         </Grid>
         <Grid size={{ xs: 12, md: 8 }}>
@@ -567,6 +654,21 @@ const Play = () => {
           variant="filled"
         >
           {errorMessage}
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={reconnectToastOpen}
+        autoHideDuration={4000}
+        onClose={() => setReconnectToastOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          severity="info"
+          onClose={() => setReconnectToastOpen(false)}
+          sx={{ width: '100%' }}
+          variant="filled"
+        >
+          Opponent reconnected
         </Alert>
       </Snackbar>
       {/*

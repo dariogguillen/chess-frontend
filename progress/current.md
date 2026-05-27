@@ -1,34 +1,40 @@
 # Current session
 
-**Status:** closed — `game-session-persistence` (priority 10) shipped
-2026-05-27. Production refresh-mid-game bug fixed.
+**Status:** closed — `disconnect-ux` (priority 11) shipped
+2026-05-27. Opponent disconnect / abandonment UX now lives inline,
+modal reserved for user-caused terminal states.
 
 ## Counts
 
-- **Done:** 24 (priorities 0 → 10).
-- **Pending:** 6 (priorities 11, 12, 13, 14, 20, 21).
+- **Done:** 25 (priorities 0 → 11).
+- **Pending:** 6 (priorities 11.5, 12, 13, 14, 20, 21).
 
 ## What just closed
 
-`game-session-persistence` — typed `sessionStorage` wrapper, lazy
-`useState` initializer for the `room` / `identity.displayName` arms
-in `UserContextProvider`, URL-vs-stored reconciliation on Play
-mount, stale-game 404 / `GAME_ALREADY_ENDED` redirect to `/new`,
-terminal-dialog Continue now clears the session before navigating.
-Two rounds: Round 1 shipped the full flow; Round 2 applied three
-non-blocking reviewer observations (type-only `Role` import to
-restore the lazy `rooms` chunk, JSDoc accuracy on Provider props,
-useRef refactor to remove side-effects from React updaters).
+`disconnect-ux` — three new STOMP events
+(`PlayerDisconnectedEvent`, `PlayerReconnectedEvent`,
+`GameAbandonedEvent`) wired into a discriminated union with the
+existing `MoveEvent`. Two inline components: `OpponentStatus` chip
+(hidden / countdown / static depending on `OpponentConnectionStatus`
+ADT) and `GameOverByAbandonBanner` (inline banner with auto-redirect
+countdown, replaces the modal for ABANDONED). Terminal-status
+routing split: ABANDONED routes to the banner, all other terminals
+keep the existing CustomDialog. Honours the saved feedback memory
+[[feedback-inline-status-over-modals]]: modals only for states the
+user caused.
 
-Initial chunk net delta vs pre-feature-10 baseline: **+1.28 kB**
-(471.25 → 472.53 kB). Vitest 137 → 158 (+21). Playwright 2 → 2
-(`page.reload()` mid-game step folded into the two-player spec).
+Round 1 only — both reviewers approved without blocking
+observations. Vitest 158 → 193 (+35). Playwright 2 → 3 (added
+`abandonment.spec.ts`). Eager bundle delta essentially zero
+(+0.02 kB); Play chunk +8.6 kB (lazy, expected). Stale
+"Game abandoned. Game abandoned." literal is structurally
+unreachable via the new routing.
 
 ## 📋 Remaining lineup
 
 | # | Feature | Scope | Cross-repo |
 |---|---|---|---|
-| **11** | `board-move-hints` ← next | 2-3h | No |
+| **11.5** | `board-move-hints` ← next | 2-3h | No |
 | 12 | `board-themes` | 3-4h | No |
 | 13 | `home-page-real` | 2-3h | No |
 | 14 | `about-page-real` | 1-2h | No |
@@ -42,16 +48,13 @@ Initial chunk net delta vs pre-feature-10 baseline: **+1.28 kB**
 | Frontend | `https://chess-frontend-52i.pages.dev/` (Cloudflare Pages, MIT) |
 | Backend | `https://chess-backend.duckdns.org/` (AWS EC2 + Caddy + Postgres + Redis) |
 | OpenAPI | `https://chess-backend.duckdns.org/v3/api-docs` |
-| Tests | 158 Vitest + 2 Playwright |
-| Bundle initial-load | 472.53 kB |
-| Refresh-mid-game | ✅ Fixed |
+| Tests | 193 Vitest + 3 Playwright |
+| Bundle initial-load (eager) | 472.55 kB |
+| Refresh-mid-game | ✅ Fixed (feature 10) |
+| Opponent disconnect UX | ✅ Inline chip + countdown banner (feature 11) |
 | Brave Shields caveat | Documented in README |
 
 ## Carry-overs still on the radar
-
-The 6 queued features above are the user's explicit scope-add.
-Older carry-overs remain available to slot into priorities 15-19
-when relevant:
 
 ### Tech polish
 - `csp-policy`, `og-url-templating`, `wrangler-iac`,
@@ -67,13 +70,16 @@ when relevant:
 ### Stretch (not yet queued)
 - `spectator-mode`, `light-theme-polish`, `custom-domain`,
   `e2e-integration`, `replay-mode` (folded into `game-reviews`).
+- **`winnerId-on-rest`** (NEW carry-over): expose `winnerId` on
+  `GameStateResponse` so the rehydrate path of feature 11 can show
+  the personalised banner copy ("You win." vs the neutral "The
+  game was abandoned."). Backend DTO change; cross-repo.
 
 ## Next session
 
-Open `board-move-hints` (priority 11) at start of next session.
-The leader workflow auto-picks the lowest-priority `pending`
-feature. Plan should cover the `chess.js`
-`moves({ square, verbose: true })` API + react-chessboard v5
-`customSquareStyles`, integration with the existing `canDragPiece`
-filter (opponent pieces show no hints, per feature 6.8), and the
-hint-clear lifecycle (drop, drag cancel, turn change).
+Open `board-move-hints` (priority 11.5) at start of next session.
+Plan should cover the `chess.js` `moves({ square, verbose: true })`
+API + react-chessboard v5 `customSquareStyles`, integration with the
+existing `canDragPiece` filter (opponent pieces show no hints, per
+feature 6.8), and the hint-clear lifecycle (drop, drag cancel, turn
+change).

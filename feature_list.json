@@ -411,11 +411,33 @@
     ]
   },
   {
+    "id": "disconnect-ux",
+    "title": "Disconnect / abandonment UX (inline status + countdown + auto-redirect)",
+    "description": "Backend (chess-backend-java feature 11 disconnect-handling) already detects STOMP session disconnects, runs a per-(playerId, gameId) grace period via GracePeriodManager, and broadcasts three events on /topic/games/{gameId}: PlayerDisconnectedEvent (with gracePeriodEndsAt), PlayerReconnectedEvent, GameAbandonedEvent. The frontend ignores all three today — so a live opponent disconnect gives the user no feedback, and on rehydrate against an ABANDONED game (the existing flow after feature 10) the generic terminal-dialog fires with 'Game abandoned. Game abandoned.' (title == body, also a bug). User flagged the modal as intrusive for a state they did NOT cause. This feature ships the inline replacement: a chip next to the opponent's display name showing live status (connected: hidden, disconnected: '[⏱ Reconnecting · 42s]' ticking from gracePeriodEndsAt - now(), abandoned: '[Disconnected]'), plus a bottom banner under the board on ABANDONED with primary 'New game' CTA and a visible auto-redirect countdown (~10s) the user can preempt. Terminal-dialog stays for checkmate/stalemate/draw — those are states the user actively caused. Cross-repo: zero (backend exposes everything; we hand-type the events in wsEvents.ts following the existing convention).",
+    "status": "done",
+    "priority": 11,
+    "acceptance": [
+      "src/api/wsEvents.ts adds three new event records — PlayerDisconnectedEvent, PlayerReconnectedEvent, GameAbandonedEvent — using the existing const-object + derived-type discriminator pattern. The type field carries 'PLAYER_DISCONNECTED' / 'PLAYER_RECONNECTED' / 'GAME_ABANDONED' to match the backend's discriminator constants.",
+      "Wire shapes match the backend records verbatim: PlayerDisconnectedEvent {type, gameId, playerId, side, disconnectedAt, gracePeriodEndsAt}; PlayerReconnectedEvent {type, gameId, playerId, side, reconnectedAt}; GameAbandonedEvent {type, gameId, abandonedBy, winnerId, finalFen, abandonedAt}. Field names and JSON casing must match the Java records (UUID strings, Instant ISO-8601).",
+      "useGameStomp (or the existing subscription module) routes each event to the right handler by discriminating on the type field. The MoveAppliedEvent handler stays untouched; the new events ride on the same topic.",
+      "OpponentStatus component (new, src/components/OpponentStatus/) renders a MUI Chip next to the opponent's display name with three visual states: hidden (connected — default), 'Reconnecting · {N}s' (disconnected, derived from gracePeriodEndsAt - now() ticking every 1s; clamps at 0s, never negative), 'Disconnected' (abandoned, static). When clock skew or pre-elapsed gracePeriodEndsAt is detected, render the chip at 0s but do not crash — the GameAbandoned event will follow within seconds.",
+      "GameOverByAbandonBanner component (new, src/components/GameOverByAbandonBanner/) renders below the board when game status === ABANDONED. Content: result message ('Opponent abandoned the game. You win.' or 'The game was abandoned.' based on winnerId vs playerId), primary 'New game' button that navigates to /new immediately + clears the session per feature 10, secondary 'Home' link to /home, and a visible auto-redirect countdown 'Redirecting in {N}s…' starting at 10s. Clicking 'New game', navigating away, or unmounting cancels the timer cleanly (no setState-after-unmount warnings).",
+      "Terminal-status routing in Play.tsx splits: status === ABANDONED renders the banner (modal skipped); status ∈ {CHECKMATE, STALEMATE, DRAW} keeps the existing CustomDialog (untouched). The branching lives in one place; isTerminalStatus stays as is.",
+      "Rehydrate path (feature 10) interaction: when getGameState returns ABANDONED on Play page mount, the rehydrate flow surfaces the new banner instead of the modal. The pre-existing 404 / GAME_ALREADY_ENDED path (Snackbar + navigate /new) is untouched.",
+      "PlayerReconnected: chip hides, discreet Snackbar 'Opponent reconnected' with severity info, autoHide 4000ms (shorter than the 6000ms error pattern).",
+      "Tests cover: each event type updates the right slice of state; chip countdown ticks (use vi.useFakeTimers); auto-redirect timer fires at 10s; auto-redirect cancels on banner CTA click; auto-redirect cancels on unmount; rehydrate-to-ABANDONED shows banner not modal; PlayerReconnected hides chip and shows Snackbar; clock-skew gracePeriodEndsAt < now() renders chip at 0s without crashing.",
+      "The pre-existing 'Game abandoned. Game abandoned.' bug (title == body in the CustomDialog) is no longer reachable because ABANDONED no longer routes through the modal — explicit verification by the reviewer.",
+      "Bundle delta minimal — two small components + three event handler branches; no new deps.",
+      "openapi.json untouched (these events are WS-only, hand-typed per the existing convention; document this in the feature note's 'Decisions' section).",
+      "./init.sh passes; RUN_E2E=true ./init.sh passes (extend two-player.spec.ts or add a dedicated spec for the abandonment flow via mockStomp pushing PlayerDisconnected + GameAbandoned)."
+    ]
+  },
+  {
     "id": "board-move-hints",
     "title": "Show legal move hints when a piece is selected",
     "description": "Render dots/highlights on legal destination squares when the user selects a piece. chess.js exposes the data via chess.moves({ square, verbose: true }) → { to, flags, captured?, promotion? }[]. react-chessboard v5 accepts customSquareStyles to overlay per-square CSS. Hints clear on drop, drag cancel, or turn change. Standard chess UI affordance.",
     "status": "pending",
-    "priority": 11,
+    "priority": 11.5,
     "acceptance": [
       "Selecting a piece (drag-start) populates customSquareStyles for the legal destinations.",
       "Move squares show a centered dot; capture targets show a ring outline (or other visually distinct treatment).",

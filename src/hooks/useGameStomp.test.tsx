@@ -2,8 +2,15 @@ import '@testing-library/jest-dom/vitest';
 import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ConnectionState } from '../api/wsEvents';
-import type { MoveEvent, ViewerCountEvent } from '../api/wsEvents';
+import { ConnectionState, GameTopicEventType } from '../api/wsEvents';
+import type {
+  GameAbandonedEvent,
+  GameTopicEvent,
+  MoveEvent,
+  PlayerDisconnectedEvent,
+  PlayerReconnectedEvent,
+  ViewerCountEvent,
+} from '../api/wsEvents';
 import { GameStatus, Side } from '../api/games';
 import { createMockStompClient } from '../utils/ws';
 import type { MockStompClient } from '../utils/ws';
@@ -15,6 +22,7 @@ const OPPONENT_ID = 'player-2';
 const GAME_ID = 'game-uuid-1';
 
 const sampleMove = (overrides: Partial<MoveEvent> = {}): MoveEvent => ({
+  type: GameTopicEventType.Move,
   gameId: GAME_ID,
   movedBy: OPPONENT_ID,
   side: Side.White,
@@ -32,6 +40,39 @@ const sampleMove = (overrides: Partial<MoveEvent> = {}): MoveEvent => ({
 const sampleViewerCount = (count: number): ViewerCountEvent => ({
   gameId: GAME_ID,
   count,
+});
+
+const samplePlayerDisconnected = (
+  overrides: Partial<PlayerDisconnectedEvent> = {},
+): PlayerDisconnectedEvent => ({
+  type: GameTopicEventType.PlayerDisconnected,
+  gameId: GAME_ID,
+  playerId: OPPONENT_ID,
+  side: Side.Black,
+  disconnectedAt: '2026-05-27T12:00:00.000Z',
+  gracePeriodEndsAt: '2026-05-27T12:01:00.000Z',
+  ...overrides,
+});
+
+const samplePlayerReconnected = (
+  overrides: Partial<PlayerReconnectedEvent> = {},
+): PlayerReconnectedEvent => ({
+  type: GameTopicEventType.PlayerReconnected,
+  gameId: GAME_ID,
+  playerId: OPPONENT_ID,
+  side: Side.Black,
+  reconnectedAt: '2026-05-27T12:00:30.000Z',
+  ...overrides,
+});
+
+const sampleGameAbandoned = (overrides: Partial<GameAbandonedEvent> = {}): GameAbandonedEvent => ({
+  type: GameTopicEventType.GameAbandoned,
+  gameId: GAME_ID,
+  abandonedBy: OPPONENT_ID,
+  winnerId: PLAYER_ID,
+  finalFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+  abandonedAt: '2026-05-27T12:01:00.000Z',
+  ...overrides,
 });
 
 const withMockClient = () => {
@@ -56,6 +97,7 @@ describe('useGameStomp', () => {
     expect(mock.subscriptions).toHaveLength(0);
     expect(result.current.connectionState).toBe(ConnectionState.Disconnected);
     expect(result.current.viewerCount).toBe(0);
+    expect(result.current.opponentStatus).toEqual({ kind: 'connected' });
   });
 
   it('does nothing when playerId is null', () => {
@@ -67,7 +109,7 @@ describe('useGameStomp', () => {
     expect(mock.connectCalls).toBe(0);
   });
 
-  it('connects and subscribes to both topics on mount, with playerId only on the moves topic', async () => {
+  it('connects and subscribes to both topics on mount, with playerId only on the game topic', async () => {
     const { mock, factory } = withMockClient();
     const onMove = vi.fn();
 
@@ -114,7 +156,7 @@ describe('useGameStomp', () => {
 
     const opponentMove = sampleMove({ movedBy: OPPONENT_ID });
     act(() => {
-      mock.dispatch<MoveEvent>(`/topic/games/${GAME_ID}`, opponentMove);
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, opponentMove);
     });
 
     expect(onMove).toHaveBeenCalledTimes(1);
@@ -135,7 +177,7 @@ describe('useGameStomp', () => {
 
     const selfMove = sampleMove({ movedBy: PLAYER_ID });
     act(() => {
-      mock.dispatch<MoveEvent>(`/topic/games/${GAME_ID}`, selfMove);
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, selfMove);
     });
 
     expect(onMove).not.toHaveBeenCalled();
@@ -230,8 +272,130 @@ describe('useGameStomp', () => {
 
     // The freshest closure runs on dispatch.
     act(() => {
-      mock.dispatch<MoveEvent>(`/topic/games/${GAME_ID}`, sampleMove({ moveNumber: 1 }));
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, sampleMove({ moveNumber: 1 }));
     });
     expect(opponentMoveSink).toEqual([expect.objectContaining({ moveNumber: 21 })]);
+  });
+
+  // -------------------------------------------------------------
+  // disconnect-ux (priority 11)
+  // -------------------------------------------------------------
+
+  it('flips opponentStatus to disconnected on a PLAYER_DISCONNECTED event from the opponent', async () => {
+    const { mock, factory } = withMockClient();
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, PLAYER_ID, vi.fn(), { clientFactory: factory }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    act(() => {
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, samplePlayerDisconnected());
+    });
+
+    expect(result.current.opponentStatus).toEqual({
+      kind: 'disconnected',
+      gracePeriodEndsAt: '2026-05-27T12:01:00.000Z',
+    });
+  });
+
+  it('ignores PLAYER_DISCONNECTED events for the LOCAL player', async () => {
+    const { mock, factory } = withMockClient();
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, PLAYER_ID, vi.fn(), { clientFactory: factory }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    act(() => {
+      mock.dispatch<GameTopicEvent>(
+        `/topic/games/${GAME_ID}`,
+        samplePlayerDisconnected({ playerId: PLAYER_ID }),
+      );
+    });
+
+    expect(result.current.opponentStatus).toEqual({ kind: 'connected' });
+  });
+
+  it('flips opponentStatus back to connected on PLAYER_RECONNECTED and fires the optional callback', async () => {
+    const { mock, factory } = withMockClient();
+    const onOpponentReconnected = vi.fn();
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, PLAYER_ID, vi.fn(), {
+        clientFactory: factory,
+        onOpponentReconnected,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    act(() => {
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, samplePlayerDisconnected());
+    });
+    expect(result.current.opponentStatus).toEqual(
+      expect.objectContaining({ kind: 'disconnected' }),
+    );
+
+    act(() => {
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, samplePlayerReconnected());
+    });
+
+    expect(result.current.opponentStatus).toEqual({ kind: 'connected' });
+    expect(onOpponentReconnected).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores PLAYER_RECONNECTED events for the LOCAL player', async () => {
+    const { mock, factory } = withMockClient();
+    const onOpponentReconnected = vi.fn();
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, PLAYER_ID, vi.fn(), {
+        clientFactory: factory,
+        onOpponentReconnected,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    act(() => {
+      mock.dispatch<GameTopicEvent>(
+        `/topic/games/${GAME_ID}`,
+        samplePlayerReconnected({ playerId: PLAYER_ID }),
+      );
+    });
+
+    expect(result.current.opponentStatus).toEqual({ kind: 'connected' });
+    expect(onOpponentReconnected).not.toHaveBeenCalled();
+  });
+
+  it('flips opponentStatus to abandoned and fires onGameAbandoned on GAME_ABANDONED', async () => {
+    const { mock, factory } = withMockClient();
+    const onGameAbandoned = vi.fn();
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, PLAYER_ID, vi.fn(), {
+        clientFactory: factory,
+        onGameAbandoned,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    const event = sampleGameAbandoned();
+    act(() => {
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, event);
+    });
+
+    expect(result.current.opponentStatus).toEqual({ kind: 'abandoned' });
+    expect(onGameAbandoned).toHaveBeenCalledTimes(1);
+    expect(onGameAbandoned).toHaveBeenCalledWith(event);
   });
 });
