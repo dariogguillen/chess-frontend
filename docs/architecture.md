@@ -145,6 +145,29 @@ URL is the source of truth for "what is being shown" (which room,
 which game). Context is the source of truth for "who is showing it"
 and preferences (theme, nickname).
 
+**Session persistence (feature 10).** `UserContext.room` and the
+identity's `displayName` are mirrored to `window.sessionStorage` under a
+single `chess-session` key (`src/utils/sessionStorage.ts`) so refreshing
+`/play?roomId=...` mid-game rehydrates the room membership without
+flashing through the guest fresh-entry path. The choice is
+`sessionStorage`, not `localStorage`: a chess session is naturally
+tab-scoped (closing the tab is a strong "I am done with this game"
+signal) and origin-scoped persistence would resurrect a stale room
+across browser restarts and unrelated tabs, which is worse UX than
+re-entering the room. The future board-themes preference (priority 12)
+will use `localStorage` instead, because a theme IS a long-lived
+origin-scoped preference; the two storage surfaces live behind separate
+typed wrappers and do not share a key. Writes happen as side-effects
+inside the three existing `UserContext` operations (`enterRoom`,
+`setGameId`, `leaveRoom`) — single source of truth, no scattered write
+call sites — and the Provider's lazy `useState` initialiser reads the
+record on first render so the rehydrated state is already on the board
+by the time effects fire. The Play page validates the URL `roomId`
+against the rehydrated `room.roomId` on mount: a mismatch wins for the
+URL and calls `leaveRoom()`; a 404 / `GAME_ALREADY_ENDED` from the
+rehydrate-time `GET /api/games/{id}` clears the session via
+`leaveRoom()` and routes the user back to `/new`.
+
 ## Boundary with `chess-backend-java`
 
 The frontend is a client of the backend's API. The contract is:

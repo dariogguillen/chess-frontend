@@ -222,6 +222,31 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
   await expect.poll(() => pieceAt(pageA, 'e4')).toBeTruthy();
   await expect.poll(() => pieceAt(pageB, 'e4')).toBeTruthy();
 
+  // --- Step 4b (feature 10: game-session-persistence) ---
+  // Player A reloads the page mid-game. The Provider lazy-inits `room`
+  // from sessionStorage (chess-session key written by `enterRoom` /
+  // `setGameId`), the rehydrate-time GET `/api/games/{id}` lands the
+  // current FEN (e4), and the page renders the board WITHOUT the
+  // "Waiting for opponent" shell. Before the reload we re-register the
+  // GET mock so it returns the post-e4 state instead of the starting
+  // position (Playwright's route handlers stack LIFO; the most-recent
+  // registration wins).
+  await mockGetGameState(pageA, afterE4);
+  await pageA.reload();
+
+  // After the reload the new WebSocket re-subscribes to the game topic.
+  await stompA.waitForSubscription(`/topic/games/${GAME_ID}`);
+  // Opponent name re-lands from the GET (mock returns the canonical
+  // game-state response which includes both players).
+  await expect(pageA.getByText('Bob')).toBeVisible();
+  // No "Waiting for opponent" shell — the rehydrate path skipped guest.
+  await expect(pageA.getByText('Waiting for opponent')).toHaveCount(0);
+  // The e4 piece survived the reload (the GET returned the post-e4 FEN).
+  await expect.poll(() => pieceAt(pageA, 'e4')).toBeTruthy();
+  // sessionStorage carries the chess-session record across the reload.
+  const persistedA = await pageA.evaluate(() => window.sessionStorage.getItem('chess-session'));
+  expect(persistedA).not.toBeNull();
+
   // --- Step 5: B plays e7-e5 ---
   await dragPiece(pageB, 'e7', 'e5');
 

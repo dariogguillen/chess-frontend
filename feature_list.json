@@ -391,5 +391,118 @@
       "Links to harness engineering files (CLAUDE.md, AGENTS.md) so reviewers can see the workflow.",
       "./init.sh passes."
     ]
+  },
+  {
+    "id": "game-session-persistence",
+    "title": "Persist game session across page reload",
+    "description": "Fix the UX gap where refreshing /play mid-game drops the user back to 'waiting for opponent' with no gameId because UserContext is in-memory only. Persist playerId, role, gameId, and displayName in sessionStorage (clears on tab close — not localStorage which would persist stale state across sessions) keyed by roomId. On Play page mount, if sessionStorage has matching state for the URL roomId, rehydrate UserContext synchronously and trigger the normal fetchGameState + STOMP subscribe flow. Cleanup on /new navigation and terminal-status dismissal. Handle edge cases: stale gameId (backend returns 404 or GAME_ALREADY_ENDED), different player rehydrating against same roomId, backend unreachable.",
+    "status": "done",
+    "priority": 10,
+    "acceptance": [
+      "sessionStorage holds a typed schema { roomId, playerId, role, gameId, displayName } under a single key (e.g. 'chess-session').",
+      "On Play page mount: if URL roomId matches stored roomId, rehydrate UserContext synchronously (no flicker through guest state) and trigger fetchGameState + useGameStomp / useRoomDiscovery.",
+      "On Play page mount with URL roomId NOT matching stored: clear stale storage and treat as fresh entry.",
+      "Writes happen on enterRoom (post-create/post-join), setGameId (when gameId becomes non-null), and terminal-status detected.",
+      "Cleared on leaveRoom, navigate to /new, terminal-status dialog dismissed.",
+      "Backend 404 / GAME_ALREADY_ENDED on rehydrate-time GET /api/games/{gameId} → friendly Snackbar + navigate to /new + clear storage.",
+      "Tests cover: write on enterRoom, rehydrate match, rehydrate mismatch clears, 404 redirect, cleanup on /new.",
+      "Bundle delta minimal (one new util module + Provider wiring).",
+      "./init.sh passes; RUN_E2E=true ./init.sh passes (extend two-player.spec.ts with a refresh-mid-game step or add a dedicated spec)."
+    ]
+  },
+  {
+    "id": "board-move-hints",
+    "title": "Show legal move hints when a piece is selected",
+    "description": "Render dots/highlights on legal destination squares when the user selects a piece. chess.js exposes the data via chess.moves({ square, verbose: true }) → { to, flags, captured?, promotion? }[]. react-chessboard v5 accepts customSquareStyles to overlay per-square CSS. Hints clear on drop, drag cancel, or turn change. Standard chess UI affordance.",
+    "status": "pending",
+    "priority": 11,
+    "acceptance": [
+      "Selecting a piece (drag-start) populates customSquareStyles for the legal destinations.",
+      "Move squares show a centered dot; capture targets show a ring outline (or other visually distinct treatment).",
+      "Hints respect canDragPiece — opponent pieces show no hints (consistent with feature 6.8 behaviour).",
+      "Hints clear on drop (legal or illegal), drag cancel, turn change.",
+      "Tests: piece-selection state populates customSquareStyles with expected square keys; no selection → empty.",
+      "Bundle delta minimal; no new deps.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "board-themes",
+    "title": "Selectable board themes",
+    "description": "Multiple visual themes for the chessboard (classic brown, wood, midnight, neon, minimal, etc.). Theme selector surfaced in UI (drawer Settings section or Play page control — implementer decides). Persist preference in localStorage (theme is a long-lived aesthetic preference, not session-scoped — different from feature 10). react-chessboard v5 accepts light/dark square style records on the options object.",
+    "status": "pending",
+    "priority": 12,
+    "acceptance": [
+      "At least 3 themes shipped (e.g. classic, wood, midnight). Each is a typed record with light/dark square styles.",
+      "Theme selector component reachable from user's flow; placement is implementer's call.",
+      "Preference persisted in localStorage under a stable key (e.g. 'chess-board-theme').",
+      "On app mount, read persisted theme; default to classic if absent.",
+      "Active theme applies live without page reload (Context or local state).",
+      "Tests: selector renders themes, click changes active theme, persistence read on mount, default fallback.",
+      "Bundle delta minimal; CSS/inline-style records only, no new deps.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "home-page-real",
+    "title": "Build out the home page (replace WIP placeholder)",
+    "description": "Replace the WIP placeholder at src/pages/Home/ with a real landing page. Content to define in plan: hero / value proposition, primary 'Create Room' CTA, secondary nav to /about, possibly recent activity if backend exposes it. Tone matches existing project prose (direct, no marketing fluff). Should NOT duplicate the README — in-app voice is shorter and action-oriented.",
+    "status": "pending",
+    "priority": 13,
+    "acceptance": [
+      "src/pages/Home/ replaces the WIP placeholder with a real landing.",
+      "Content includes hero / value prop + primary CTA to /new + secondary nav to /about.",
+      "Layout responsive (mobile breakpoint).",
+      "Uses MUI components consistent with the rest of the app.",
+      "Tests: page renders, CTA navigates to /new, secondary nav to /about.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "about-page-real",
+    "title": "Build out the about page (replace WIP placeholder)",
+    "description": "Replace the WIP placeholder at src/pages/About/ with a real about page. Content: project background, tech stack overview, links to backend repo (chess-backend-java), license, harness engineering docs (CLAUDE.md / AGENTS.md / progress/). Controlled overlap with the README — in-app voice is more conversational and shorter.",
+    "status": "pending",
+    "priority": 14,
+    "acceptance": [
+      "src/pages/About/ replaces the WIP placeholder.",
+      "Content covers: what the project is, tech stack, links to backend repo + frontend repo + license + harness engineering docs.",
+      "Layout responsive; MUI components consistent with rest of app.",
+      "External links use rel='noopener noreferrer'.",
+      "Tests: page renders, external link is in the DOM (no fetch in tests).",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "user-accounts",
+    "title": "User accounts and authentication",
+    "description": "Move identity from guest (displayName-only) to authenticated accounts. Decision pending on auth strategy: JWT vs session-based vs OAuth (Google / GitHub) vs managed (Auth0 / Clerk). Cross-repo: backend needs auth implementation (Spring Security, user table, session/token model). Frontend: login/signup pages, AuthContext, token storage, refresh flow, route guards. Enables game-reviews (priority 21).",
+    "status": "pending",
+    "priority": 20,
+    "acceptance": [
+      "Auth strategy decided and documented in docs/architecture.md.",
+      "Frontend: login + signup routes, AuthContext exposing user identity + token, login/logout flows, route guards on protected routes.",
+      "Backend (cross-repo): user table, auth endpoints (/auth/login, /auth/signup, /auth/logout, /auth/me), token middleware on protected REST endpoints, equivalent on STOMP CONNECT.",
+      "Existing guest flow either deprecated with migration note or kept functional for backward compat — to decide in plan.",
+      "Tests: login happy path, signup happy path, token expiry handling, route guard redirects, AuthContext provider.",
+      "Cross-repo coordination plan documented before implementation starts.",
+      "./init.sh passes."
+    ]
+  },
+  {
+    "id": "game-reviews",
+    "title": "Game history and replay",
+    "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",
+    "status": "pending",
+    "priority": 21,
+    "acceptance": [
+      "Depends on user-accounts (priority 20) shipping first.",
+      "Backend (cross-repo): GET /api/users/{userId}/games returns the user's past games; GET /api/games/{gameId}/pgn returns PGN text; GET /api/games/{gameId} already exists.",
+      "Frontend: /history route lists games (paginated). Click navigates to /history/{gameId}.",
+      "/history/{gameId} renders a replay board with move navigation (forward, back, jump-to-start, jump-to-end, autoplay).",
+      "PGN download button on the replay view.",
+      "Tests: history list renders, replay viewer navigates moves, PGN download triggers correctly.",
+      "./init.sh passes."
+    ]
   }
 ]

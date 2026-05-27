@@ -2853,3 +2853,141 @@ Deleted: none.
 The next session opens scope-add: the user said "terminando
 agregamos más". Carry-over candidates ready for prioritisation
 listed in `progress/current.md`.
+
+---
+
+## 2026-05-25 — Cross-repo: `backend-cors-cf` resolved (production E2E live)
+
+**Not a frontend feature** — cross-repo coordination outcome.
+Tracked here because it unblocked the production E2E milestone
+that all frontend integration work (features 4 → 8) was aiming at.
+
+**Backend shipped** (`chess-backend-java`, user-driven):
+
+- `CorsProperties.allowedOriginPatterns` updated to allow
+  `https://chess-frontend-52i.pages.dev` (and the Cloudflare
+  preview-deploy pattern).
+- `WebSocketConfig.registerStompEndpoints().setAllowedOriginPatterns(...)`
+  updated in lockstep — STOMP CORS is configured separately from
+  REST CORS and would have silently failed otherwise.
+- Previous origin `https://dariogguillen.github.io` removed
+  (confirmed via curl: now returns `403 Forbidden`, as expected).
+- AWS EC2 deploy pipeline ran and shipped the change.
+
+**Frontend validation** (zero code change):
+
+- `curl -X OPTIONS https://chess-backend.duckdns.org/api/rooms`
+  with `Origin: https://chess-frontend-52i.pages.dev` → `HTTP 200`
+  with `access-control-allow-origin`,
+  `access-control-allow-headers: Content-Type, X-Player-Id`,
+  `access-control-allow-methods: GET,POST,PUT,DELETE,OPTIONS`,
+  `vary: Origin`.
+- `curl --http1.1` WS upgrade with `Origin:` header from the CF
+  Pages URL → `HTTP/1.1 101 Switching Protocols`. STOMP endpoint
+  is also correctly allow-listed.
+- Same WS upgrade from the old GH Pages origin → `HTTP/1.1 403
+  Forbidden` (correct — backend rejected the stale origin).
+- Manual two-browser smoke against
+  `https://chess-frontend-52i.pages.dev/`: REST create / join /
+  move work; STOMP `/topic/games/{id}` propagates moves between
+  browsers; STOMP `/topic/rooms/{id}` delivers `RoomJoinedEvent`;
+  terminal-status dialog navigates correctly.
+
+**Brave Shields quirk re-surfaced** during the user smoke:
+WSS cross-origin blocked by Shields anti-fingerprinting; same
+behaviour observed during the GH Pages deploy in feature 8. The
+README's "Brave browser users" section already documents the
+workaround (lower Shields for the site). Not a frontend bug.
+
+**Status**: production end-to-end is functional. Carry-over
+`backend-cors-cf` removed from `progress/current.md` (resolved).
+
+# 🏁 PRODUCTION MILESTONE LIVE
+
+`https://chess-frontend-52i.pages.dev/` is a fully functional
+multiplayer chess game in production. REST + STOMP + cross-origin
+all green. Brave users follow the one-line note in the README.
+
+---
+
+## 2026-05-27 — Closed `game-session-persistence` (priority 10)
+
+**The bug**: refreshing `/play` mid-game dropped the user back to a
+guest state with `room.phase === 'none'` because `UserContext` lived
+entirely in React state. The Play page rendered the "waiting for
+opponent" shell with no `gameId`, no `playerId`, no `role` — UI lost
+the game even though the backend game was still alive. User-flagged
+as the most important pending fix during the scope-add session.
+
+**The fix**: a typed `sessionStorage` wrapper at `src/utils/sessionStorage.ts`
+holding `{ roomId, playerId, role, gameId, displayName }` under a
+single key (`chess-session`). `UserContextProvider` lazy-inits `room`
+and `identity.displayName` from storage on first render via
+`useState(() => readSession() ?? default)` — no flicker through
+guest state. Writes are side-effects inside `enterRoom`, `setGameId`,
+and `leaveRoom`. Play page validates URL `roomId` against
+rehydrated `room.roomId`: match → trust state and trigger existing
+`useGameStomp`/`useRoomDiscovery`; mismatch → `leaveRoom()` then
+fresh entry; backend 404 / `GAME_ALREADY_ENDED` on rehydrate-time
+`getGameState` → Snackbar + `leaveRoom()` + `navigate('/new')`.
+Terminal-dialog "Continue" now also calls `leaveRoom()` before
+navigating, extending the no-zombie-session rule symmetrically.
+
+`sessionStorage` chosen over `localStorage` because a chess game
+matches a tab lifetime exactly; closing the tab is a strong "I'm
+done" signal. `localStorage` is reserved for the future
+board-themes feature (priority 12), documented in
+`docs/architecture.md`.
+
+**Round 1**: shipped the full flow. ui-reviewer and reviewer both
+approved with three non-blocking observations: (a) `sessionStorage.ts`
+value-imported `Role` from `../api/rooms`, which collapsed the
+previously-lazy 33.7 kB `rooms` chunk into the eager `context` chunk
+(+11.27 kB raw on the initial); (b) JSDoc on `initialRoom`/
+`initialIdentity` props was stale; (c) `enterRoom`/`setGameId` used a
+side-effect-in-updater trick to read `displayName` without depending
+on `identity`, which works under StrictMode but violates React's
+"updater functions should be pure" guideline.
+
+**Round 2**: applied all three. `sessionStorage.ts` now type-imports
+`Role` and uses an inline `Set<string>(['WHITE','BLACK'])` for the
+runtime guard — the lazy `rooms` chunk reappeared at 33.70 kB raw.
+JSDoc rewritten to describe the new precedence (explicit prop >
+sessionStorage > hardcoded default). `identityRef` and `roomRef`
+introduced inside `UserContextProvider`, synced via `useEffect`,
+read at the seam by `enterRoom`/`setGameId`. All `setRoomState`/
+`setIdentityState` calls now pass pure next-state values; no
+side-effects in updaters. The single `setIdentity` + `enterRoom`
+pairing in the call graph (`NewGame.tsx`) is separated by an
+awaited HTTP round-trip, so the ref-by-one-commit lag is not
+observable.
+
+**Files**:
+
+- New: `src/utils/sessionStorage.ts` + `.test.ts`,
+  `notes/10-game-session-persistence.md`.
+- Modified: `src/context/UserContext.tsx` + `.test.tsx`,
+  `src/pages/Play/Play.tsx` + `.test.tsx`,
+  `e2e/two-player.spec.ts` (added `page.reload()` mid-game step),
+  `e2e/fixtures/mockStomp.ts` (per-connection subscription tracking
+  via `WeakMap` so the reload step is deterministic),
+  `docs/architecture.md` (one paragraph under State management).
+
+**Verification**:
+
+- Vitest: 137 → 158 (+21 new specs).
+- Playwright: 2 → 2 (two-player spec absorbed the reload step).
+- Initial chunk: 471.25 kB → 472.53 kB (+1.28 kB net vs baseline,
+  after Round 2 restored the lazy `rooms` chunk).
+- `./init.sh` green. `RUN_E2E=true ./init.sh` green.
+- Manual smoke: refresh-mid-game preserves gameId, role, board state;
+  refresh with mismatched URL roomId clears and treats as fresh;
+  stale-game error path Snackbars and redirects correctly.
+
+**Note**: `notes/10-game-session-persistence.md`. Covers
+sessionStorage-vs-localStorage semantics, lazy `useState(() => …)`
+initializer (analogous to `lazy val`), side-effect-at-the-seam
+placement in context callbacks (refs read at the seam, no
+side-effects in updaters), defensive `JSON.parse` boundary
+(unknown ⇒ T, like `circe.Decoder`), discriminated union narrowing
+across the rehydrate boundary.

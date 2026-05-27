@@ -13,7 +13,7 @@ import {
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chessboard, type PieceDropHandlerArgs, type PieceHandlerArgs } from 'react-chessboard';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
@@ -93,9 +93,18 @@ const terminalMessage = (status: GameStatus, turn: Side): string => {
  *
  * Failure mode: any POST error reverts the chess.js position to the
  * pre-move snapshot and surfaces the mapped error in a Snackbar.
+ *
+ * Session rehydrate (feature 10):
+ *   - On mount, `UserContext` has already lazy-initialised `room` from
+ *     sessionStorage (if present). We reconcile the URL `?roomId=...`
+ *     with the rehydrated `room.roomId`: a mismatch wins for the URL
+ *     and triggers a `leaveRoom()` so the fresh-entry path runs.
+ *   - If the rehydrate-time `GET /api/games/{id}` returns 404 or
+ *     `GAME_ALREADY_ENDED`, we Snackbar the message, clear the
+ *     persisted session via `leaveRoom()`, and navigate back to `/new`.
  */
 const Play = () => {
-  const { identity, room, setGameId } = useUserContext();
+  const { identity, room, leaveRoom, setGameId } = useUserContext();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const roomIdFromUrl = searchParams.get('roomId') || undefined;
@@ -107,6 +116,36 @@ const Play = () => {
   const playerId = room.phase === RoomPhase.InRoom ? room.playerId : null;
   const gameId = room.phase === RoomPhase.InRoom ? room.gameId : null;
   const role = room.phase === RoomPhase.InRoom ? room.role : null;
+
+  // URL-vs-stored reconciliation. Fires once on mount: if the user
+  // navigated to `/play?roomId=Y` while the rehydrated context holds
+  // room X, the URL wins and we drop the stale context. The `none` arm
+  // and the matching-id arm both pass through untouched.
+  //
+  // `useRef` guards against re-entry when StrictMode double-invokes the
+  // mount effect: `leaveRoom` flips `room.phase` to `none` between the
+  // two passes, so the second pass would see a different branch and we
+  // do not want it to re-run any work either way.
+  const reconciledRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (reconciledRef.current) return;
+    reconciledRef.current = true;
+    if (
+      room.phase === RoomPhase.InRoom &&
+      roomIdFromUrl !== undefined &&
+      room.roomId !== roomIdFromUrl
+    ) {
+      // Mismatch: the URL is authoritative for "which room". Clear the
+      // rehydrated state; the fresh-entry path (no in-room context)
+      // takes over on the next render.
+      leaveRoom();
+    }
+    // Intentionally only depend on the mount-time inputs. `room` and
+    // `roomIdFromUrl` are read once via the ref guard; we do not want
+    // the reconciliation to re-fire if `room` later changes through
+    // normal in-page navigation (e.g. `setGameId`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // chess.js instance kept stable across renders via `useState`'s lazy
   // initializer. We mutate the instance in place and re-render by
@@ -228,6 +267,13 @@ const Play = () => {
 
   // Initial load: fetch the game state when we mount with a known gameId.
   // AbortController cancels the in-flight request on unmount.
+  //
+  // Rehydrate failure path: if the server reports `GAME_NOT_FOUND` or
+  // `GAME_ALREADY_ENDED` (the gameId we rehydrated from storage no
+  // longer points to a live game), surface a Snackbar, drop the
+  // persisted session via `leaveRoom`, and navigate back to `/new`.
+  // Other errors (network, validation) keep the user on the page so
+  // they can retry.
   useEffect(() => {
     if (gameId === null || gameId === undefined) return;
     const ac = new AbortController();
@@ -241,6 +287,13 @@ const Play = () => {
         if (cancelled || ac.signal.aborted) return;
         const code = cause instanceof ApiError ? cause.code : ApiErrorCode.UnknownError;
         setErrorMessage(messageFor(code));
+        if (code === ApiErrorCode.GameNotFound || code === ApiErrorCode.GameAlreadyEnded) {
+          // The rehydrated session points at a game the server no
+          // longer knows about. Clear it so a subsequent refresh does
+          // not loop, and send the user back to `/new`.
+          leaveRoom();
+          navigate('/new');
+        }
       }
     };
     void load();
@@ -248,7 +301,7 @@ const Play = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [gameId, syncFromServer]);
+  }, [gameId, syncFromServer, leaveRoom, navigate]);
 
   /**
    * Send a move to the server with an optimistic chess.js update. On
@@ -491,9 +544,13 @@ const Play = () => {
           // wants to start a new game next, so navigate to `/new`. The
           // local dialog state is reset defensively — the page is about
           // to unmount, but a future reuse of `<Play />` should not
-          // inherit a stale terminal flag. Room cleanup via REST is
-          // still TODO(feature-4+).
+          // inherit a stale terminal flag.
+          //
+          // Session cleanup (feature 10): a terminal game means the
+          // rehydrate path should NOT resurrect this session next time
+          // the user lands on `/play`. Clear it before navigating.
           setTerminalDialogOpen(false);
+          leaveRoom();
           navigate('/new');
         }}
       />

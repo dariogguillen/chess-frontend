@@ -1,8 +1,21 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactNode } from 'react';
-import { Role } from '../api/rooms';
-import type { RoomResponse } from '../api/rooms';
+import type { Role, RoomResponse } from '../api/rooms';
 import { Opponent } from '../pages/NewGame/utils';
+import {
+  clearSession,
+  readSession,
+  writeSession,
+  type StoredSession,
+} from '../utils/sessionStorage';
 
 /**
  * Identity discriminant values. The const-object + derived-type pattern
@@ -87,16 +100,20 @@ export type UserContextValue = Readonly<{
   setOpponent: (opponent: Opponent) => void;
   /**
    * Promote `room` to the `in-room` arm from a server `RoomResponse`.
-   * Called after a successful `createRoom` / `joinRoom`.
+   * Called after a successful `createRoom` / `joinRoom`. Also writes
+   * the persisted session (sessionStorage) so a refresh rehydrates the
+   * same room without flashing through guest state.
    */
   enterRoom: (response: RoomResponse) => void;
-  /** Demote `room` back to the `none` arm. */
+  /** Demote `room` back to the `none` arm and clear the persisted session. */
   leaveRoom: () => void;
   /**
    * Update only `room.gameId` once the discovery flow learns it
    * (`useRoomDiscovery` → REST or STOMP). Defensive: a no-op when
    * `room.phase` is not `InRoom` (the field doesn't exist on the
-   * `None` arm, so writing it would be incoherent).
+   * `None` arm, so writing it would be incoherent). Also updates
+   * the persisted session so a refresh after the gameId resolves
+   * still rehydrates with the gameId set.
    */
   setGameId: (gameId: string) => void;
 }>;
@@ -113,46 +130,151 @@ export const useUserContext = (): UserContextValue => {
 
 export type UserContextProviderProps = Readonly<{
   children: ReactNode;
-  /** Initial identity. Defaults to a guest with an empty display name. */
+  /**
+   * Initial identity. Precedence: an explicit value here always wins;
+   * otherwise the Provider rehydrates a `GuestIdentity` from the
+   * persisted session in `sessionStorage` (only the `displayName`
+   * survives — guest is the only identity kind today); if no session
+   * is persisted, falls back to `defaultGuest` (`'Guest'`).
+   */
   initialIdentity?: Identity;
   /** Initial opponent type. Defaults to Friend. */
   initialOpponent?: Opponent;
-  /** Initial room state. Defaults to `{ phase: 'none' }`. */
+  /**
+   * Initial room state. Precedence: an explicit value here always
+   * wins; otherwise the Provider rehydrates the in-room arm from the
+   * persisted session in `sessionStorage`; if no session is persisted,
+   * falls back to `{ phase: 'none' }`.
+   */
   initialRoom?: RoomState;
 }>;
 
 const defaultGuest: GuestIdentity = { kind: IdentityKind.Guest, displayName: 'Guest' };
 const defaultRoom: RoomState = { phase: RoomPhase.None };
 
+/**
+ * Translate a `StoredSession` into a `RoomState` on the `in-room` arm.
+ * Pure; called from the lazy `useState` initialiser so the first render
+ * carries the rehydrated room without going through `useEffect`.
+ */
+const roomFromSession = (session: StoredSession): RoomState => ({
+  phase: RoomPhase.InRoom,
+  roomId: session.roomId,
+  playerId: session.playerId,
+  role: session.role,
+  gameId: session.gameId,
+});
+
 export const UserContextProvider = ({
   children,
-  initialIdentity = defaultGuest,
+  initialIdentity,
   initialOpponent = Opponent.Friend,
-  initialRoom = defaultRoom,
+  initialRoom,
 }: UserContextProviderProps) => {
-  const [identity, setIdentityState] = useState<Identity>(initialIdentity);
+  // Lazy `useState` initialisers: the function runs exactly once per
+  // Provider instance, on first render. Reading from storage here (as
+  // opposed to a post-mount `useEffect`) seeds the first render with
+  // the rehydrated state — no flicker through guest. The Scala/Typelevel
+  // analogue is `lazy val`: the value is computed on first access and
+  // then memoised for the lifetime of the enclosing scope.
+  //
+  // Explicit `initialIdentity` / `initialRoom` props (used by tests
+  // and by future controlled wrappers) ALWAYS win over storage. This
+  // keeps the test surface controllable and preserves the existing
+  // contract that "if you passed it, I use it".
+  const [identity, setIdentityState] = useState<Identity>(() => {
+    if (initialIdentity !== undefined) return initialIdentity;
+    const session = readSession();
+    if (session === null) return defaultGuest;
+    return { kind: IdentityKind.Guest, displayName: session.displayName };
+  });
   const [opponent, setOpponentState] = useState<Opponent>(initialOpponent);
-  const [room, setRoomState] = useState<RoomState>(initialRoom);
+  const [room, setRoomState] = useState<RoomState>(() => {
+    if (initialRoom !== undefined) return initialRoom;
+    const session = readSession();
+    return session === null ? defaultRoom : roomFromSession(session);
+  });
+
+  // `identityRef` mirrors the current `identity` so the persistence
+  // callbacks (`enterRoom`, `setGameId`) can read `displayName` without
+  // listing `identity` as a `useCallback` dep — which would otherwise
+  // bust the callback identity every time the user typed in the
+  // nickname field on the NewGame page.
+  //
+  // Why a ref and not the previous `setIdentityState((prev) => { …; return prev; })`
+  // updater-side-effect trick? React's documentation specifies that
+  // state updater functions must be pure; StrictMode invokes them twice
+  // to surface that contract violation. Our `writeSession` is idempotent
+  // so it was safe in practice, but it was still a smell. The ref + sync
+  // effect is the textbook escape hatch for "read latest state from a
+  // stable callback".
+  //
+  // Race-condition note: `identityRef` is updated in an effect, so it
+  // lags the React state by one commit. The only call site that pairs
+  // `setIdentity` + `enterRoom` is `NewGame.handleStart`, where they
+  // are separated by an awaited HTTP round-trip — React has long since
+  // committed the identity update and flushed effects before the
+  // `enterRoom` callback runs. No risk of a stale `displayName` reaching
+  // storage in the current call graph.
+  const identityRef = useRef<Identity>(identity);
+  useEffect(() => {
+    identityRef.current = identity;
+  }, [identity]);
+  // `roomRef` mirrors `room` for the same reason: `setGameId` needs to
+  // read the current room arm and write a derived record to storage,
+  // both without listing `room` as a dep. Pairing with the ref also
+  // removes the previous side-effect-inside-`setRoomState`-updater
+  // pattern, which StrictMode would otherwise invoke twice and write
+  // to storage twice (idempotent, but a smell).
+  const roomRef = useRef<RoomState>(room);
+  useEffect(() => {
+    roomRef.current = room;
+  }, [room]);
 
   const setIdentity = useCallback((next: Identity) => setIdentityState(next), []);
   const setOpponent = useCallback((next: Opponent) => setOpponentState(next), []);
 
   const enterRoom = useCallback((response: RoomResponse) => {
-    setRoomState({
+    const next: RoomState = {
       phase: RoomPhase.InRoom,
       roomId: response.roomId,
       playerId: response.playerId,
       role: response.role,
       gameId: response.gameId,
+    };
+    setRoomState(next);
+    // Side-effect-at-the-seam: persist on every transition into the
+    // in-room arm. `displayName` is read off `identityRef.current` so
+    // this callback keeps a `[]` dep list.
+    writeSession({
+      roomId: next.roomId,
+      playerId: next.playerId,
+      role: next.role,
+      gameId: next.gameId,
+      displayName: identityRef.current.displayName,
     });
   }, []);
 
   const leaveRoom = useCallback(() => {
     setRoomState({ phase: RoomPhase.None });
+    clearSession();
   }, []);
 
   const setGameId = useCallback((gameId: string) => {
-    setRoomState((prev) => (prev.phase === RoomPhase.InRoom ? { ...prev, gameId } : prev));
+    const prev = roomRef.current;
+    if (prev.phase !== RoomPhase.InRoom) return;
+    const next: RoomState = { ...prev, gameId };
+    setRoomState(next);
+    // Mirror the in-memory update to storage. `displayName` and the
+    // current room snapshot come from refs, so this callback keeps a
+    // `[]` dep list and the `setRoomState` updater stays pure.
+    writeSession({
+      roomId: next.roomId,
+      playerId: next.playerId,
+      role: next.role,
+      gameId: next.gameId,
+      displayName: identityRef.current.displayName,
+    });
   }, []);
 
   const value = useMemo<UserContextValue>(

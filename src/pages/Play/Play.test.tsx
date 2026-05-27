@@ -13,6 +13,9 @@ import type { MockStompClient } from '../../utils/ws';
 import type { MoveEvent, RoomEvent, ViewerCountEvent } from '../../api/wsEvents';
 import { RoomEventType } from '../../api/wsEvents';
 import { GameStatus, Side } from '../../api/games';
+import { SESSION_STORAGE_KEY } from '../../utils/sessionStorage';
+import type { StoredSession } from '../../utils/sessionStorage';
+import { Role } from '../../api/rooms';
 
 // Capture the options object passed to <Chessboard /> on each render so
 // the new Bug A/B/C tests can drive the `onPieceDrop` and `canDragPiece`
@@ -138,6 +141,7 @@ beforeEach(() => {
   mockClients = [];
   lastChessboardOptions = null;
   navigateMock.mockReset();
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -146,6 +150,7 @@ afterEach(() => {
   currentMockClient = null;
   mockClients = [];
   lastChessboardOptions = null;
+  window.sessionStorage.clear();
 });
 
 describe('Play page', () => {
@@ -519,5 +524,184 @@ describe('Play page', () => {
     await user.click(continueButton);
 
     expect(navigateMock).toHaveBeenCalledWith('/new');
+  });
+
+  // ---------------------------------------------------------------
+  // game-session-persistence (priority 10)
+  // ---------------------------------------------------------------
+
+  it('rehydrates from a matching URL roomId without calling leaveRoom or refetching the room', async () => {
+    // Seed storage with a session for K7M3X9 → the Provider lazy-inits
+    // room to the in-room arm for that roomId, and the URL also says
+    // K7M3X9. We expect the normal in-room flow to proceed: the
+    // initial GET runs, the opponent name lands, and no GET to
+    // /api/rooms/{id} is needed because gameId is already set.
+    const session: StoredSession = {
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: Role.White,
+      gameId: 'game-uuid-1',
+      displayName: 'Alice',
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+    let roomGetCalls = 0;
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () => {
+        roomGetCalls += 1;
+        return HttpResponse.json(
+          {
+            roomId: 'K7M3X9',
+            players: [
+              { id: 'player-1', displayName: 'Alice', role: 'WHITE' },
+              { id: 'player-2', displayName: 'Bob', role: 'BLACK' },
+            ],
+            gameId: 'game-uuid-1',
+            status: 'ACTIVE',
+          },
+          { status: 200 },
+        );
+      }),
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    // No explicit initialRoom — the Provider rehydrates from storage.
+    render(
+      <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
+        <UserContextProvider>
+          <Play />
+        </UserContextProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+    // Session not cleared.
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).not.toBeNull();
+    // No discovery roundtrip — gameId was already set.
+    expect(roomGetCalls).toBe(0);
+  });
+
+  it('rehydrate mismatch (URL roomId != stored) clears the session', async () => {
+    // Storage holds room K7M3X9 but the URL says OTHER1. The Play
+    // page reconciles by calling leaveRoom, which clears storage.
+    const session: StoredSession = {
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: Role.White,
+      gameId: 'game-uuid-1',
+      displayName: 'Alice',
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+    render(
+      <MemoryRouter initialEntries={['/play?roomId=OTHER1']}>
+        <UserContextProvider>
+          <Play />
+        </UserContextProvider>
+      </MemoryRouter>,
+    );
+
+    // The reconciliation effect runs on mount → leaveRoom → clearSession.
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+    });
+    // After clearing, the page falls through to the fresh-entry path —
+    // no in-room context, no game GET, no opponent name. The identity
+    // displayName (rehydrated from the session) is still rendered as
+    // the local "who you are" label.
+    expect(screen.getByText(/^Alice$/)).toBeInTheDocument();
+  });
+
+  it('clears the session and navigates to /new when the rehydrate GET returns GAME_NOT_FOUND', async () => {
+    const session: StoredSession = {
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: Role.White,
+      gameId: 'game-uuid-1',
+      displayName: 'Alice',
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json({ error: 'GAME_NOT_FOUND', message: 'no such game' }, { status: 404 }),
+      ),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
+        <UserContextProvider>
+          <Play />
+        </UserContextProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/new');
+    });
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByText(/that game does not exist/i)).toBeInTheDocument();
+  });
+
+  it('clears the session and navigates to /new when the rehydrate GET returns GAME_ALREADY_ENDED', async () => {
+    const session: StoredSession = {
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: Role.White,
+      gameId: 'game-uuid-1',
+      displayName: 'Alice',
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json({ error: 'GAME_ALREADY_ENDED', message: 'over' }, { status: 410 }),
+      ),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
+        <UserContextProvider>
+          <Play />
+        </UserContextProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/new');
+    });
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('terminal-dialog continue clears the persisted session before navigating to /new', async () => {
+    // Seed the session so we can observe it being cleared by the
+    // terminal-dialog continue handler.
+    const session: StoredSession = {
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: Role.White,
+      gameId: 'game-uuid-1',
+      displayName: 'Alice',
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ status: 'CHECKMATE', turn: 'BLACK' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    const continueButton = await screen.findByRole('button', { name: /continue/i });
+    const user = userEvent.setup();
+    await user.click(continueButton);
+
+    expect(navigateMock).toHaveBeenCalledWith('/new');
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
   });
 });
