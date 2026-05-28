@@ -48,6 +48,23 @@ export interface StompClient {
 export type StompClientConfig = Readonly<{
   url: string;
   onError?: (err: unknown) => void;
+  /**
+   * Fires every time the underlying STOMP `CONNECTED` frame is observed,
+   * including after an automatic reconnect. Distinct from the
+   * `connect()` promise — that resolves only on the first CONNECTED;
+   * subsequent reconnects do not re-resolve a long-resolved promise.
+   *
+   * Callers that want to react to "we are live again after a drop"
+   * (e.g. re-fetching authoritative REST state) wire this here.
+   */
+  onConnect?: () => void;
+  /**
+   * Fires when the underlying WebSocket closes — clean or unclean. The
+   * stompjs library schedules its own reconnect timer (configured via
+   * `reconnectDelay`) immediately after. Callers that surface a
+   * "Reconnecting…" affordance to the user observe this transition.
+   */
+  onClose?: () => void;
   reconnectDelay?: number;
 }>;
 

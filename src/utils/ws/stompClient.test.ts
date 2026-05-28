@@ -23,6 +23,7 @@ const makeFakeClientCtor = () => {
     onDisconnect: (frame: FakeFrame) => void = () => {};
     onStompError: (frame: FakeFrame) => void = () => {};
     onWebSocketError: (evt: unknown) => void = () => {};
+    onWebSocketClose: (evt: unknown) => void = () => {};
 
     activateCalls = 0;
     deactivateCalls = 0;
@@ -213,5 +214,50 @@ describe('createStompClient', () => {
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  it('fires onConnect for the initial CONNECTED frame', async () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    const onConnect = vi.fn();
+    const stomp = createStompClient({ url: 'ws://test/ws', onConnect }, { ClientCtor: Ctor });
+
+    const p = stomp.connect();
+    created[0].onConnect({ body: '' });
+    await p;
+
+    expect(onConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onConnect again on a subsequent CONNECTED frame (stompjs auto-reconnect)', async () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    const onConnect = vi.fn();
+    const stomp = createStompClient({ url: 'ws://test/ws', onConnect }, { ClientCtor: Ctor });
+    const p = stomp.connect();
+    created[0].onConnect({ body: '' });
+    await p;
+    expect(onConnect).toHaveBeenCalledTimes(1);
+
+    // stompjs's auto-reconnect path re-invokes `onConnect` after the
+    // CONNECTED of a fresh socket. The wrapper must keep the steady-state
+    // observer wired so callers see every re-entry into Connected.
+    created[0].onConnect({ body: '' });
+
+    expect(onConnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('fires onClose on a WebSocket close', async () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    const onClose = vi.fn();
+    const stomp = createStompClient({ url: 'ws://test/ws', onClose }, { ClientCtor: Ctor });
+    const p = stomp.connect();
+    created[0].onConnect({ body: '' });
+    await p;
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The wrapped client surfaces every WS close (clean or unclean) so
+    // callers can flip a "Reconnecting…" affordance.
+    created[0].onWebSocketClose({});
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

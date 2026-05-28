@@ -153,6 +153,14 @@ export const useGameStomp = (
     const factory = optionsRef.current.clientFactory ?? createStompClient;
 
     let cancelled = false;
+    // `firstConnect` gates the steady-state lifecycle observers: the
+    // first CONNECTED is driven by the `await client.connect()` path
+    // below (which also subscribes), so reacting to it via the config
+    // callback would be a duplicate setState. From the SECOND CONNECTED
+    // onwards — i.e. stompjs's automatic reconnect after a WS drop — we
+    // flip connectionState back to `Connected`, which feeds the Play
+    // page's resync-on-reconnect effect.
+    let firstConnect = true;
     const client = factory({
       url,
       reconnectDelay: 5000,
@@ -160,6 +168,29 @@ export const useGameStomp = (
         if (cancelled) return;
         setConnectionState(ConnectionState.Error);
         setErrorMessage(err instanceof Error ? err.message : String(err));
+      },
+      onConnect: () => {
+        if (cancelled) return;
+        if (firstConnect) {
+          firstConnect = false;
+          return;
+        }
+        // Reconnect: the broker accepted a fresh CONNECT after a drop.
+        // The subscriptions issued by `await client.connect()` below
+        // were tied to the prior socket and are gone on stompjs side;
+        // re-issuing them is out of scope for this feature. The Play
+        // page's resync effect re-fetches authoritative state on this
+        // transition so the user sees the latest position regardless.
+        setConnectionState(ConnectionState.Connected);
+        setErrorMessage(null);
+      },
+      onClose: () => {
+        if (cancelled) return;
+        // Treat clean closes the same as transport drops: surface a
+        // `Disconnected` blip so the page can render its reconnecting
+        // affordance, and the resync effect arms its sentinel for the
+        // next `Connected` transition.
+        setConnectionState(ConnectionState.Disconnected);
       },
     });
 

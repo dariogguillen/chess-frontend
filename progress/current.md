@@ -1,34 +1,31 @@
 # Current session
 
-**Status:** closed — `disconnect-ux` (priority 11) shipped
-2026-05-27. Opponent disconnect / abandonment UX now lives inline,
-modal reserved for user-caused terminal states.
+**Status:** closed — `rehydrate-resync` (priority 11.1) shipped
+2026-05-27. State-divergence bug after Ctrl+Shift+T / WS drop is
+fixed; board reconciles to backend authoritative state on any
+STOMP reconnect.
 
 ## Counts
 
-- **Done:** 25 (priorities 0 → 11).
+- **Done:** 26 (priorities 0 → 11.1).
 - **Pending:** 6 (priorities 11.5, 12, 13, 14, 20, 21).
 
 ## What just closed
 
-`disconnect-ux` — three new STOMP events
-(`PlayerDisconnectedEvent`, `PlayerReconnectedEvent`,
-`GameAbandonedEvent`) wired into a discriminated union with the
-existing `MoveEvent`. Two inline components: `OpponentStatus` chip
-(hidden / countdown / static depending on `OpponentConnectionStatus`
-ADT) and `GameOverByAbandonBanner` (inline banner with auto-redirect
-countdown, replaces the modal for ABANDONED). Terminal-status
-routing split: ABANDONED routes to the banner, all other terminals
-keep the existing CustomDialog. Honours the saved feedback memory
-[[feedback-inline-status-over-modals]]: modals only for states the
-user caused.
+`rehydrate-resync` — observer `useEffect` on `connectionState`
+transitions. On any (Disconnected / Reconnecting / Error) →
+Connected transition, fires `getGameState(gameId)` +
+`syncFromServer(state)`. Guard via `useRef<ConnectionState | null>`
+suppresses the initial-mount transition (initial-load effect
+covers it). To make the abstraction match reality, also wired
+`onConnect` / `onClose` callbacks through `StompClientConfig` →
+`createStompClient` → `useGameStomp` so transitions actually fire
+on real WS drops.
 
 Round 1 only — both reviewers approved without blocking
-observations. Vitest 158 → 193 (+35). Playwright 2 → 3 (added
-`abandonment.spec.ts`). Eager bundle delta essentially zero
-(+0.02 kB); Play chunk +8.6 kB (lazy, expected). Stale
-"Game abandoned. Game abandoned." literal is structurally
-unreachable via the new routing.
+observations. Vitest 193 → 204 (+11). Playwright 3 → 4 (added
+`resync.spec.ts`, 9.0s). Eager bundle unchanged. Play chunk
++0.67 kB. User-reported divergence bug verified fixed.
 
 ## 📋 Remaining lineup
 
@@ -48,10 +45,11 @@ unreachable via the new routing.
 | Frontend | `https://chess-frontend-52i.pages.dev/` (Cloudflare Pages, MIT) |
 | Backend | `https://chess-backend.duckdns.org/` (AWS EC2 + Caddy + Postgres + Redis) |
 | OpenAPI | `https://chess-backend.duckdns.org/v3/api-docs` |
-| Tests | 193 Vitest + 3 Playwright |
+| Tests | 204 Vitest + 4 Playwright |
 | Bundle initial-load (eager) | 472.55 kB |
 | Refresh-mid-game | ✅ Fixed (feature 10) |
 | Opponent disconnect UX | ✅ Inline chip + countdown banner (feature 11) |
+| State re-sync on WS reconnect | ✅ Fixed (feature 11.1) |
 | Brave Shields caveat | Documented in README |
 
 ## Carry-overs still on the radar
@@ -67,19 +65,30 @@ unreachable via the new routing.
 ### Harness / infra
 - `harness-tooling-pass`.
 
+### Networking robustness (NEW)
+- **`reconnect-resubscribe`** (NEW carry-over from feature 11.1
+  reviewer): stompjs does NOT re-issue SUBSCRIBE frames on auto-
+  reconnect (`_subscriptions` reinitialised to `{}` on the new
+  `StompHandler`). The resync GET from feature 11.1 covers the
+  state gap at reconnect-time, but the live-event stream gap is
+  uncovered — opponent moves after a reconnect are silently
+  dropped until the user re-mounts the Play page. Fix: re-
+  register subscriptions in the steady-state `onConnect` handler
+  of the wrapper, OR add a `reconnectSubscriptions` field to
+  `StompClientConfig`. Zero cross-repo.
+
 ### Stretch (not yet queued)
 - `spectator-mode`, `light-theme-polish`, `custom-domain`,
   `e2e-integration`, `replay-mode` (folded into `game-reviews`).
-- **`winnerId-on-rest`** (NEW carry-over): expose `winnerId` on
-  `GameStateResponse` so the rehydrate path of feature 11 can show
-  the personalised banner copy ("You win." vs the neutral "The
-  game was abandoned."). Backend DTO change; cross-repo.
+- `winnerId-on-rest` — expose `winnerId` on `GameStateResponse`
+  so the feature 11 rehydrate path can show personalised banner
+  copy. Backend DTO change; cross-repo.
 
 ## Next session
 
 Open `board-move-hints` (priority 11.5) at start of next session.
 Plan should cover the `chess.js` `moves({ square, verbose: true })`
-API + react-chessboard v5 `customSquareStyles`, integration with the
-existing `canDragPiece` filter (opponent pieces show no hints, per
-feature 6.8), and the hint-clear lifecycle (drop, drag cancel, turn
-change).
+API + react-chessboard v5 `customSquareStyles`, integration with
+the existing `canDragPiece` filter (opponent pieces show no hints,
+per feature 6.8), and the hint-clear lifecycle (drop, drag cancel,
+turn change).

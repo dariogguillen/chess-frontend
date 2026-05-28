@@ -20,6 +20,7 @@ export interface ClientLike {
   onDisconnect: (frame: StompFrameLike) => void;
   onStompError: (frame: StompFrameLike) => void;
   onWebSocketError: (evt: unknown) => void;
+  onWebSocketClose: (evt: unknown) => void;
   activate(): void;
   deactivate(): Promise<void>;
   subscribe(
@@ -72,6 +73,13 @@ export const createStompClient = (
   client.onWebSocketError = (evt: unknown) => {
     config.onError?.(evt);
   };
+  // `onWebSocketClose` fires on every WS closure, clean or unclean. The
+  // stompjs library schedules its own reconnect timer immediately after
+  // (see `reconnectDelay`); callers that need to flip a UI affordance to
+  // "Reconnecting…" wire it via the config callback.
+  client.onWebSocketClose = () => {
+    config.onClose?.();
+  };
 
   const connect = (): Promise<void> =>
     new Promise<void>((resolve, reject) => {
@@ -83,6 +91,18 @@ export const createStompClient = (
         // "fail the connect promise" behaviour during the connect window.
         client.onStompError = originalError;
         client.onWebSocketError = originalWsError;
+        // Replace the connect-time `onConnect` with the steady-state
+        // observer so subsequent reconnects (which stompjs handles
+        // internally and re-fires this callback for) reach the caller.
+        client.onConnect = () => {
+          config.onConnect?.();
+        };
+        // Fire the steady-state callback for the FIRST CONNECTED too —
+        // callers want to observe every transition into Connected,
+        // including the initial one. The `connect()` promise already
+        // resolved (below) so any caller awaiting it can still rely on
+        // that signal independently.
+        config.onConnect?.();
         resolve();
       };
       client.onStompError = (frame: StompFrameLike) => {

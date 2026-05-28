@@ -464,6 +464,28 @@ covers transient failures with a 5-second flat retry. Custom
 exponential backoff is out of scope; the reconnect UI surfaces the
 state and the user can refresh if attempts run long.
 
+**Resync-on-connect-transition invariant (feature 11.1).** STOMP frames
+are fire-and-forget on the broker side: any `MoveEvent` published
+during a gap when the local client is not subscribed (tab restored,
+wake-from-sleep, transient WS drop) is lost. The Play page closes that
+gap with a `useEffect` that observes `useGameStomp().connectionState`
+and, on every transition from a non-Connected state back into
+`Connected` after the initial mount, fires `GET /api/games/{gameId}` +
+`syncFromServer`. The initial-load effect owns the first GET; this
+resync effect owns every subsequent reconcile. A `useRef<ConnectionState
+| null>` carries the previous value across renders so the gate fires
+only on transitions (not on every value), and the `null` sentinel
+guards the first Connected to avoid double-fetching alongside the
+initial-load effect. The underlying `connectionState` actually
+transitions on production WS drops because `createStompClient` wires
+stompjs's `onWebSocketClose` and post-handshake `onConnect` callbacks
+through `StompClientConfig.onClose` / `onConnect`, which `useGameStomp`
+maps to `setConnectionState(Disconnected)` / `setConnectionState(Connected)`.
+Stale subscriptions on the reconnected socket are out of scope for this
+fix — the resync GET is the chokepoint, and `applyOpponentMove`'s
+`prev === null` early-return relies on it (the comment in
+`applyOpponentMove` cross-references this section).
+
 **Room discovery (`useRoomDiscovery`).** The Play page also owns a
 second, short-lived STOMP client while Player A is waiting for an
 opponent. When `room.phase === InRoom && room.gameId === null`, the

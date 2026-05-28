@@ -3109,3 +3109,115 @@ neutral fallback on rehydrate is acceptable until/unless a backend
 DTO change exposes `winnerId` on `GameStateResponse`; (c) the dead
 ABANDONED arm in `terminalMessage` stays for exhaustive-switch
 defence.
+
+---
+
+## 2026-05-27 — Closed `rehydrate-resync` (priority 11.1)
+
+**Bug report**: immediately after closing feature 11 (`disconnect-ux`),
+the user smoke-tested the deployed flow and surfaced a state-divergence
+bug. Steps: open two tabs in a game, make moves, close one tab,
+restore via Ctrl+Shift+T while the opponent continues moving in the
+other tab. Restored tab kept the board in the initial position even
+though feature 10's rehydrate flow restored `roomId`, `role`,
+`playerId`, and `gameId` from sessionStorage. The two clients then
+silently diverged — moves rejected with "That move is not legal" on
+one side while the other thought the board was still in opening
+position. Screenshots #27, #28, #29 captured all three phases:
+mid-grace (chip + countdown visible), restored-tab-stuck-at-initial,
+and post-reconnect-with-divergent-boards.
+
+**Root cause (two compounding gaps)**:
+
+1. Feature 10's initial-load effect at
+   `src/pages/Play/Play.tsx:327-354` fetched
+   `GET /api/games/{gameId}` exactly once on mount (deps
+   `[gameId, ...]`). Subsequent STOMP reconnects, tab restores, and
+   wake-from-sleep never re-triggered the effect because `gameId`
+   did not change.
+2. `applyOpponentMove` at `Play.tsx:218-227` silently dropped
+   MoveEvents when `prev === null` with a comment promising "the
+   next GET (or the next event) will catch up". The promise was
+   hollow — no next GET was scheduled.
+
+Additionally surfaced during implementation: `useGameStomp`'s
+`connectionState` did NOT transition on real production WS drops.
+`createStompClient` never wired `onWebSocketClose` or the steady-
+state `onConnect`, so the hook's state cell was static after the
+first connect. The "observe connectionState transitions" plan
+required first making transitions actually happen.
+
+**The fix**:
+
+- Extended `StompClientConfig` (`src/utils/ws/types.ts`) with
+  optional `onConnect` and `onClose` callbacks. Both forwarded
+  through `createStompClient` (`src/utils/ws/stompClient.ts`); the
+  steady-state `onConnect` is re-installed after the first
+  CONNECTED frame so 2nd, 3rd, Nth reconnects all fire the callback.
+- `useGameStomp.ts` wired the new callbacks to transition
+  `connectionState` correctly on WS drop / reconnect.
+- `Play.tsx` added a `useEffect` that observes the hook's
+  `connectionState`. On a transition from any non-Connected state
+  (Disconnected / Reconnecting / Error) INTO Connected, fires
+  `getGameState(gameId)` + `syncFromServer(state)`. Gate via
+  `useRef<ConnectionState | null>` (approach B from the plan): the
+  first Connected transition (from the `null` sentinel) is
+  suppressed because the initial-load effect already covers it;
+  the ref is advanced branch-locally to avoid the "burned the
+  sentinel" bug the implementer hit on their first pass.
+- Error path on resync mirrors feature 10's initial-load:
+  `GAME_NOT_FOUND` or `GAME_ALREADY_ENDED` → Snackbar +
+  `leaveRoom()` + `navigate('/new')`. Other errors stay on the
+  page.
+- Updated the misleading "next GET will catch up" comment in
+  `applyOpponentMove` to cross-reference the new resync effect.
+- New `mockStomp.closeConnection()` helper in
+  `e2e/fixtures/mockStomp.ts` simulates a real WS drop (no
+  graceful STOMP DISCONNECT, just a socket close); per-connection
+  WeakMap cleanup handles the disconnect correctly.
+
+**Files**:
+
+- New: `src/pages/Play/Play.resync.test.tsx` (8 tests),
+  `e2e/resync.spec.ts` (9.0s wall time),
+  `notes/11.1-rehydrate-resync.md`.
+- Modified: `src/pages/Play/Play.tsx` (resync effect + comment
+  update), `src/hooks/useGameStomp.ts` (wired callbacks),
+  `src/utils/ws/types.ts` (config surface),
+  `src/utils/ws/stompClient.ts` (callback plumbing) +
+  `.test.ts` (3 new tests),
+  `e2e/fixtures/mockStomp.ts` (closeConnection helper),
+  `docs/architecture.md` (one paragraph under STOMP/reconnect
+  section).
+
+**Verification**:
+
+- Vitest: 193 → 204 (+11: 8 resync + 3 stompClient).
+- Playwright: 3 → 4 (added `e2e/resync.spec.ts`).
+- Eager bundle: 472.55 → 472.55 kB (no change).
+- Play chunk: 203.39 → 204.06 kB (+0.67 kB).
+- `./init.sh` green. `RUN_E2E=true ./init.sh` green.
+- User manual smoke: reproduce the exact bug scenario (Ctrl+Shift+T
+  mid-game with opponent moving) — board sync recovers within the
+  5s reconnect window.
+
+**Note**: `notes/11.1-rehydrate-resync.md`. Covers the "next GET
+will catch up" anti-pattern (deferred-correctness promises never
+honoured; `Future.flatMap` that never resolves analogue), the
+`useRef<previousValue>` transition-observer pattern
+(`fs2.Stream.scan` / `zipWithPrevious` analogue), the
+"burned-the-sentinel" gotcha from the first implementer pass,
+guard-approach B vs A trade-off, and the deliberate decision to
+keep the `prev === null` drop in `applyOpponentMove` (single
+chokepoint principle).
+
+**Real follow-up identified by reviewer**: stompjs does NOT
+re-issue SUBSCRIBE frames on auto-reconnect (`_subscriptions` is
+reinitialised to `{}` on the new `StompHandler`). The resync GET
+covers the STATE gap at the moment of reconnect, but the LIVE
+event stream gap (subsequent opponent moves after the reconnect)
+is NOT covered — those messages are silently dropped by stompjs
+until the user navigates away and back. For the reported bug
+(restored-tab-stays-at-initial) this is fully sufficient. For
+long-running sessions with multiple drops, a follow-up
+`reconnect-resubscribe` feature is queued as carry-over.

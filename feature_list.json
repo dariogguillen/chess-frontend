@@ -433,6 +433,26 @@
     ]
   },
   {
+    "id": "rehydrate-resync",
+    "title": "Re-sync game state on STOMP reconnect (fix board divergence after restore-tab / sleep / network drop)",
+    "description": "User reported reproducible bug 2026-05-27: after closing one of two playing tabs, restoring it via Ctrl+Shift+T (or after browser tab sleep / network drop) leaves the restored tab's chess.js in the initial position while the other tab keeps the real game state. The two clients then diverge silently — moves made on one side are rejected as 'not legal' on the other, and no banner / error surfaces the divergence. Root cause: feature 10's initial-load effect fetches GET /api/games/{gameId} once on mount (deps [gameId, ...]) and never re-fetches. The applyOpponentMove path silently drops MoveEvents that arrive before the initial GET resolves (with a comment promising 'the next GET will catch up' that is never honoured), and the STOMP client's built-in 5s reconnect doesn't trigger a re-fetch. Fix: observe useGameStomp's connectionState in Play.tsx; on any transition INTO Connected (from Disconnected / Reconnecting / Error), fire getGameState(gameId) + syncFromServer(state). Skip the first transition from Disconnected → Connected on initial mount (the initial-load effect already covers it). Backend is already the source of truth — no cross-repo work.",
+    "status": "done",
+    "priority": 11.1,
+    "acceptance": [
+      "src/pages/Play/Play.tsx adds a useEffect that observes useGameStomp's connectionState. On a transition INTO ConnectionState.Connected from any non-Connected state (Disconnected, Reconnecting, Error), fires `getGameState(gameId)` + `syncFromServer(state)`. The initial mount transition is gated so it does not double-fetch with the existing initial-load effect.",
+      "Gate strategy: a useRef<boolean> 'hasFetchedOnce' initialized to false; the initial-load effect flips it true on success; the connectionState-transition effect only fires when hasFetchedOnce && previousConnectionState !== Connected && currentConnectionState === Connected. Implementer may choose an equivalent guard if cleaner — document the choice in the feature note.",
+      "Error path: if the resync GET returns GAME_NOT_FOUND / GAME_ALREADY_ENDED, route to the existing 404-path (leaveRoom() + navigate('/new')). Other errors keep the user on the page with a Snackbar (do NOT redirect on transient network errors).",
+      "Race-condition handling: if a MoveEvent arrives via STOMP after the resync GET starts but before it resolves, applyOpponentMove still drops it when prev === null. After the resync GET resolves, state is correct (the GET response includes all moves up to that point). Confirm the existing `applyOpponentMove` early-return on `prev === null` is still safe and remove the misleading 'next GET will catch up' comment in favour of a comment that points to the new resync effect.",
+      "Tests (Vitest): connectionState transition from Reconnecting → Connected fires a second getGameState call; transition Disconnected → Connected on initial mount does NOT double-fire (only the initial-load effect runs); GAME_NOT_FOUND on resync navigates to /new and clears session; resync after a move-in-flight reconciles to the latest server state; previousConnectionState ref does not leak across unmount/remount.",
+      "E2E (Playwright): new spec or extension of an existing one that simulates a STOMP disconnect mid-game (close + reopen the WS connection via mockStomp helper), opponent makes a move during the disconnect, then asserts the restored client's board reflects the move after reconnect. Use the existing mockStomp's onClose hook + a new onReconnect helper if needed.",
+      "Bundle delta minimal — one new useEffect + one useRef in Play.tsx; no new components, no new deps.",
+      "openapi.json untouched.",
+      "docs/architecture.md gains one paragraph under the STOMP / reconnect section documenting the resync-on-connect-transition invariant.",
+      "notes/11.1-rehydrate-resync.md follows the existing note template; covers: the 'next GET will catch up' anti-pattern and why it doesn't work; the connectionState transition observer pattern (Scala/Typelevel analogue: Stream.flatMap with a state machine); the deliberate decision to NOT also fix the prev===null path (kept simple — the resync covers the same ground).",
+      "./init.sh passes; RUN_E2E=true ./init.sh passes."
+    ]
+  },
+  {
     "id": "board-move-hints",
     "title": "Show legal move hints when a piece is selected",
     "description": "Render dots/highlights on legal destination squares when the user selects a piece. chess.js exposes the data via chess.moves({ square, verbose: true }) → { to, flags, captured?, promotion? }[]. react-chessboard v5 accepts customSquareStyles to overlay per-square CSS. Hints clear on drop, drag cancel, or turn change. Standard chess UI affordance.",

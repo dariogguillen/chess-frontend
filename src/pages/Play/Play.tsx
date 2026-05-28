@@ -218,11 +218,10 @@ const Play = () => {
       setGameState((prev) => {
         if (prev === null) {
           // No prior REST snapshot. The opponent's move arrived before
-          // the initial GET resolved, which is the same race the
-          // `cancelled` flag in the initial-load effect guards against
-          // from the other direction. We skip rather than fabricate a
-          // half-typed state; the next GET (or the next event) will
-          // catch up.
+          // the initial GET resolved. The resync-on-STOMP-reconnect
+          // effect (this file, search 'resync') guarantees a fresh
+          // GET after any (re)connect transition, so we drop here and
+          // rely on the next GET to deliver the correct state.
           return prev;
         }
         if (prev.id !== event.gameId) {
@@ -352,6 +351,94 @@ const Play = () => {
       ac.abort();
     };
   }, [gameId, syncFromServer, leaveRoom, navigate]);
+
+  // Resync on STOMP (re)connect — search 'resync' to find the sibling
+  // comment in `applyOpponentMove` that points back here.
+  //
+  // The initial-load effect above is one-shot per `gameId`. STOMP frames
+  // are fire-and-forget on the broker side: any MoveEvent published
+  // during a gap when the local client is not subscribed (tab closed
+  // and restored, wake-from-sleep, transient network drop) is lost. The
+  // fix is a frontend invariant: every time the live-updates client
+  // (re)enters the `Connected` state, we re-fetch authoritative state
+  // from REST. The backend is the source of truth and always responds
+  // with the current FEN / status / moves; the GET closes the gap that
+  // the missed MESSAGE frames left.
+  //
+  // Why a `useRef<ConnectionState | null>`: we want to react to a
+  // *transition* into Connected, not to the value itself. React's
+  // `useEffect` always observes the current value; the previous value
+  // has to be carried across renders manually. The first time
+  // `connectionState === Connected`, `previousConnectionState.current`
+  // is `null` (the initial sentinel) so we suppress the resync —
+  // the initial-load effect already issued the GET. From the second
+  // transition onwards (Disconnected/Connecting/Error → Connected),
+  // we fire the resync. Decoupling this from the initial-load effect
+  // (rather than sharing a `hasFetchedOnce` boolean) keeps both effects
+  // single-purpose: the initial-load owns the first GET; this effect
+  // owns every subsequent reconcile.
+  //
+  // Error path mirrors the initial-load: a 404 / GAME_ALREADY_ENDED on
+  // the resync GET clears the session and routes to `/new` (the game
+  // ended while we were offline); other errors snackbar only.
+  const previousConnectionState = useRef<ConnectionState | null>(null);
+  useEffect(() => {
+    const previous = previousConnectionState.current;
+    if (gameId === null || gameId === undefined) return;
+
+    if (connectionState === ConnectionState.Connected) {
+      if (previous === ConnectionState.Connected) {
+        // Idempotent re-render at Connected (e.g. a sibling state cell
+        // updated). Nothing to do.
+        return;
+      }
+      // First observed Connected wins us the sentinel flip: from now on
+      // the ref tracks the most recent Connected we have seen, so the
+      // next non-Connected → Connected transition is recognised as a
+      // re-entry. The ref is advanced AFTER the gate so the suppression
+      // logic stays branch-local: `previous === null` means "we have
+      // never seen Connected for this mount", and only the very first
+      // Connected pass can satisfy it.
+      previousConnectionState.current = connectionState;
+      if (previous === null) {
+        // Initial Connected for this mount — the initial-load effect
+        // already issued the GET. Suppress the duplicate.
+        return;
+      }
+      // Genuine non-Connected → Connected transition. Re-fetch.
+      const ac = new AbortController();
+      let cancelled = false;
+      const resync = async () => {
+        try {
+          const state = await getGameState(gameId);
+          if (cancelled || ac.signal.aborted) return;
+          syncFromServer(state);
+        } catch (cause) {
+          if (cancelled || ac.signal.aborted) return;
+          const code = cause instanceof ApiError ? cause.code : ApiErrorCode.UnknownError;
+          setErrorMessage(messageFor(code));
+          if (code === ApiErrorCode.GameNotFound || code === ApiErrorCode.GameAlreadyEnded) {
+            leaveRoom();
+            navigate('/new');
+          }
+        }
+      };
+      void resync();
+      return () => {
+        cancelled = true;
+        ac.abort();
+      };
+    }
+
+    // Not Connected. Only record the non-Connected state if we have
+    // ALREADY seen Connected at least once — i.e. we are mid-drop on a
+    // live session. Recording before the first Connected would burn
+    // the `null` sentinel that the initial-suppression branch relies
+    // on.
+    if (previous !== null) {
+      previousConnectionState.current = connectionState;
+    }
+  }, [connectionState, gameId, syncFromServer, leaveRoom, navigate]);
 
   /**
    * Send a move to the server with an optimistic chess.js update. On
