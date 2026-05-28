@@ -3221,3 +3221,112 @@ until the user navigates away and back. For the reported bug
 (restored-tab-stays-at-initial) this is fully sufficient. For
 long-running sessions with multiple drops, a follow-up
 `reconnect-resubscribe` feature is queued as carry-over.
+
+---
+
+## 2026-05-28 — Closed `board-move-hints` (priority 11.5)
+
+**What we built**: legal-move hints on the chessboard. Dragging
+one of your own pieces highlights legal destination squares with
+a centered dot (move target) or an inset ring (capture target).
+Hints clear on drop (legal / illegal / off-board / same-square),
+on opponent move, on REST sync, on terminal status, and on
+Escape keydown. The Role gate from feature 6.8 is reused so
+opponent pieces don't paint hints.
+
+**Approach**:
+
+- New pure hook `src/hooks/useMoveHints.ts` exporting a
+  `buildMoveHintStyles(primaryMain)` factory and a `useMoveHints(chess,
+  selectedSquare)` hook that derives `Record<string,
+  React.CSSProperties>` from `chess.moves({ square, verbose: true })`.
+- `useTheme()` + `alpha()` keep the dot/ring colours theme-aware:
+  `alpha(palette.primary.main, 0.35)` for move dots,
+  `alpha(palette.primary.main, 0.55)` for capture rings. No hex
+  literals.
+- The factory replaces the planned `MOVE_STYLE`/`CAPTURE_STYLE`
+  const objects — const objects can't read the active theme at
+  module load. Tests instantiate the factory against
+  `createAppTheme('dark').palette.primary.main` for an exact-equality
+  source-of-truth.
+- `useMemo` keyed on `[fen, selectedSquare, theme.palette.primary.main]`.
+  The chess.js instance is mutable; the FEN string is the natural
+  identity hash. Every chess.js mutation in `Play.tsx` is paired
+  with a `setFen(...)` in the same callback — confirmed by the
+  reviewer that no stale-hint race exists.
+
+**The lint-rule pivot**: the original plan called for
+`useEffect(() => setSelectedSquare(null), [fen, status])` to clear
+the selection on turn changes. Blocked by `react-hooks/set-state-in-effect`
+in `eslint-plugin-react-hooks@7.1.1` (recommended preset, severity
+error: "Calling setState synchronously within an effect can
+trigger cascading renders"). Refactored to inline `setSelectedSquare(null)`
+calls inside `syncFromServer`, `applyOpponentMove`, `handleGameAbandoned`,
+and `revertTo`, plus `onDrop` early-clears at line 539 (a fifth
+clearing path the note initially undercounted; reviewer caught
+this as a cosmetic note finding). The Escape `useEffect` listener
+remains — it owns an external resource (window listener), which
+is what `useEffect` is for.
+
+**Round 1 → reviewers**:
+
+- ui-reviewer: APPROVE with one paper-cut flag: `cursor: 'pointer'`
+  on both style records was misleading. The pointer cursor showed
+  on empty squares (move targets) and on opponent pieces (capture
+  targets), but clicking these squares did nothing — click-to-select
+  was explicitly out of scope. Web convention says a pointer cursor
+  on a non-clickable element is misleading; the dot/ring already
+  communicates affordance.
+- reviewer: APPROVE with two out-of-scope observations:
+  (1) right-click drag cancel via react-chessboard's
+  `RightClickCancelSensor` is not handled (react-chessboard does
+  not re-expose @dnd-kit's `onDragCancel` to consumers); hints
+  linger until next state change.
+  (2) `pointercancel` (touch interruption) similarly not handled.
+  Both are edge cases; documented in the note as a v5/@dnd-kit
+  limitation. Queued as carry-over `drag-cancel-edge-cases`.
+
+**Round 2** (minimal): dropped `cursor: 'pointer'` from both style
+records produced by `buildMoveHintStyles`. Test file imports the
+factory and compares against `expected.move` / `expected.capture`
+directly, so it stayed in sync automatically — no test changes
+needed. Updated the note's "Decisions taken" section. Bundle delta
+effectively zero (~60 bytes uncompressed → 0 after gzip).
+
+**Files**:
+
+- New: `src/hooks/useMoveHints.ts` + `.test.ts` (7 hook tests),
+  `notes/11.5-board-move-hints.md`.
+- Modified: `src/pages/Play/Play.tsx` (selectedSquare state,
+  handlePieceDrag, inline clearing in 4 callbacks + onDrop,
+  Escape useEffect, useMoveHints invocation, squareStyles +
+  onPieceDrag added to Chessboard options), `Play.test.tsx`
+  (6 new tests).
+
+**Verification**:
+
+- Vitest: 204 → 217 (+13: 7 hook + 6 Play page).
+- Playwright: 4 → 4 (E2E skipped — @dnd-kit's PointerSensor
+  requires the drag gesture to run as one continuous sequence;
+  pausing mid-drag to read the style attribute introduces a flake
+  window. Documented in note.).
+- Eager bundle: 472.55 → 472.55 kB (no change — hook lives in
+  Play lazy chunk).
+- Play chunk: 204.06 → 204.84 kB (+0.78 kB).
+- `./init.sh` green. `RUN_E2E=true ./init.sh` green.
+- Manual smoke: legal hints render correctly; opponent pieces
+  show no hints; all clearing transitions work.
+
+**Note**: `notes/11.5-board-move-hints.md`. Covers
+`chess.moves({ verbose: true })` API + `Move` typed shape, the
+`useMemo`-keyed-on-FEN pattern (Eq[Position] from FEN analogue),
+the global `keydown` Escape listener pattern (Resource.eval +
+onFinalize from Cats Effect analogue), `alpha()` from MUI for
+theme-aware colours (relevant for upcoming feature 12
+`board-themes`), the lint-rule pivot from `useEffect` to inline
+clearing, and the Round 2 cursor:pointer removal.
+
+**Carry-over identified**: `drag-cancel-edge-cases` — handle
+right-click and pointercancel drag aborts so hints don't persist
+until next state change. Minor UX paper-cut; deferred per Round 1
+reviewer's out-of-scope flag.

@@ -35,6 +35,7 @@ import { ConnectionState, DiscoveryState } from '../../api/wsEvents';
 import type { GameAbandonedEvent, MoveEvent } from '../../api/wsEvents';
 import { RoomPhase, useUserContext } from '../../context';
 import { useGameStomp } from '../../hooks/useGameStomp';
+import { useMoveHints } from '../../hooks/useMoveHints';
 import { useRoomDiscovery } from '../../hooks/useRoomDiscovery';
 
 /** The optimistic-state snapshot we keep so we can revert on POST failure. */
@@ -181,6 +182,13 @@ const Play = () => {
   // rehydrate path (status=ABANDONED from REST GET) leaves it `null` and
   // the banner falls back to the neutral copy.
   const [abandonedWinnerId, setAbandonedWinnerId] = useState<string | null>(null);
+  // The square the user has currently started dragging from. Drives the
+  // legal-move hint overlay via {@link useMoveHints}. Lives in Play so
+  // turn-change and Escape clear paths are colocated with the rest of
+  // the page-level state machine. Cleared on drop, on Escape, and when
+  // the position changes (own or opponent move) or the game reaches a
+  // terminal status.
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
 
   /** Replace local chess.js + FEN with the authoritative server state. */
   const syncFromServer = useCallback(
@@ -188,6 +196,9 @@ const Play = () => {
       chess.load(next.fen);
       setFen(next.fen);
       setGameState(next);
+      // The position changed under us (own-move ACK, initial GET, or
+      // resync) — any drag-time selection is now stale.
+      setSelectedSquare(null);
       // ABANDONED routes to the inline `GameOverByAbandonBanner` instead
       // of the terminal-status modal — see
       // [[feedback-inline-status-over-modals]]. The CustomDialog stays
@@ -215,6 +226,10 @@ const Play = () => {
     (event: MoveEvent) => {
       chess.load(event.fen);
       setFen(event.fen);
+      // Position changed (opponent moved or game ended) — clear any
+      // stale drag-time selection. Drives the move-hints overlay reset
+      // without needing a state-setting useEffect.
+      setSelectedSquare(null);
       setGameState((prev) => {
         if (prev === null) {
           // No prior REST snapshot. The opponent's move arrived before
@@ -265,6 +280,9 @@ const Play = () => {
       chess.load(event.finalFen);
       setFen(event.finalFen);
       setAbandonedWinnerId(event.winnerId);
+      // Game ended via abandonment — no more dragging. Clear any
+      // in-flight selection so the hints overlay disappears too.
+      setSelectedSquare(null);
       setGameState((prev) => {
         if (prev === null) return prev;
         if (prev.id !== event.gameId) return prev;
@@ -310,6 +328,9 @@ const Play = () => {
     (snapshot: PendingSnapshot) => {
       chess.load(snapshot.fen);
       setFen(snapshot.fen);
+      // The optimistic move was rolled back — any stale hint selection
+      // from the same drag goes with it.
+      setSelectedSquare(null);
     },
     [chess],
   );
@@ -509,6 +530,14 @@ const Play = () => {
 
   const onDrop = useCallback(
     ({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean => {
+      // Clear any drag-time move hints before deciding on the drop.
+      // Covers legal drops (about to mutate the board), illegal drops
+      // (we'll bail below), same-square "cancel" drops, and off-board
+      // drops. Hints are a drag-time affordance only; the moment the
+      // pointer is released we want a clean board for the next
+      // selection.
+      setSelectedSquare(null);
+
       // v5 widens targetSquare to nullable; null means the piece was
       // dropped off the board — reject silently.
       if (targetSquare === null) return false;
@@ -597,6 +626,43 @@ const Play = () => {
     [role],
   );
 
+  /**
+   * Drag-start handler. Populates {@link selectedSquare} so the
+   * legal-move hints render via {@link useMoveHints}.
+   *
+   * Gated on the same `canDragPiece` predicate that already blocks
+   * dragging opponent pieces (feature 6.8). Even though react-chessboard
+   * would refuse the drag itself, we still mirror the gate here so the
+   * hint state never reflects a piece the user is not allowed to move.
+   */
+  const handlePieceDrag = useCallback(
+    ({ piece, square }: PieceHandlerArgs): void => {
+      if (square === null) return;
+      if (!canDragPiece({ isSparePiece: false, piece, square })) return;
+      setSelectedSquare(square as Square);
+    },
+    [canDragPiece],
+  );
+
+  // Global Escape-to-cancel. react-chessboard v5 + @dnd-kit doesn't
+  // surface a drag-cancel callback, so we layer this on top: while a
+  // square is selected, listening for `Escape` mirrors the convention
+  // used across desktop chess UIs. The effect cleans up its listener
+  // on unmount and on `selectedSquare` flipping back to null.
+  useEffect(() => {
+    if (selectedSquare === null) return;
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setSelectedSquare(null);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [selectedSquare]);
+
+  // Derived: the per-square style record consumed by react-chessboard.
+  // `{}` while nothing is selected — react-chessboard treats the absence
+  // of a key as "no override", so an empty record is the cheap no-op.
+  const moveHints = useMoveHints(chess, selectedSquare);
+
   const opponentDisplayName: string | undefined = useMemo(() => {
     if (gameState === null || role === null) return undefined;
     return role === Role.White ? gameState.black.displayName : gameState.white.displayName;
@@ -659,9 +725,11 @@ const Play = () => {
               options={{
                 position: fen,
                 onPieceDrop: onDrop,
+                onPieceDrag: handlePieceDrag,
                 canDragPiece,
                 boardOrientation,
                 allowDrawingArrows: true,
+                squareStyles: moveHints,
               }}
             />
             {isAbandoned && playerId !== null && (

@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import type { CSSProperties } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { act, render, screen, waitFor } from '@testing-library/react';
@@ -37,12 +38,18 @@ type ChessboardCaptureOptions = {
     targetSquare: string | null;
     piece: { isSparePiece: boolean; position: string; pieceType: string };
   }) => boolean;
+  onPieceDrag?: (args: {
+    isSparePiece: boolean;
+    piece: { pieceType: string };
+    square: string | null;
+  }) => void;
   canDragPiece?: (args: {
     isSparePiece: boolean;
     piece: { pieceType: string };
     square: string | null;
   }) => boolean;
   boardOrientation?: 'white' | 'black';
+  squareStyles?: Record<string, CSSProperties>;
 };
 let lastChessboardOptions: ChessboardCaptureOptions | null = null;
 
@@ -871,6 +878,242 @@ describe('Play page', () => {
 
     expect(navigateMock).toHaveBeenCalledWith('/new');
     expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  // ---------------------------------------------------------------
+  // board-move-hints (priority 11.5)
+  // ---------------------------------------------------------------
+
+  it('drag-start on an own piece populates squareStyles for its legal destinations', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(lastChessboardOptions).not.toBeNull();
+    });
+    // Wait for the GET so chess.js is synced to the canonical FEN.
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      lastChessboardOptions!.onPieceDrag!({
+        isSparePiece: false,
+        piece: { pieceType: 'wP' },
+        square: 'e2',
+      });
+    });
+
+    // Re-render flushed: the latest options must carry the hint record.
+    await waitFor(() => {
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles).sort()).toEqual(['e3', 'e4']);
+    });
+  });
+
+  it('drag-start on an opponent piece does not populate squareStyles (canDragPiece gate)', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(lastChessboardOptions).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      // Local player is WHITE; e7 is a black pawn.
+      lastChessboardOptions!.onPieceDrag!({
+        isSparePiece: false,
+        piece: { pieceType: 'bP' },
+        square: 'e7',
+      });
+    });
+
+    // No re-render with non-empty styles. The defaults from the initial
+    // render carry through.
+    const styles = lastChessboardOptions!.squareStyles ?? {};
+    expect(styles).toEqual({});
+  });
+
+  it('drop clears squareStyles', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+      http.post(`${TEST_API_BASE_URL}/api/games/:id/moves`, () =>
+        HttpResponse.json(
+          sampleGameState({
+            fen: POST_E4_FEN,
+            turn: 'BLACK',
+            moves: [{ from: 'e2', to: 'e4', promotion: null }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(lastChessboardOptions).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      lastChessboardOptions!.onPieceDrag!({
+        isSparePiece: false,
+        piece: { pieceType: 'wP' },
+        square: 'e2',
+      });
+    });
+
+    await waitFor(() => {
+      expect(Object.keys(lastChessboardOptions!.squareStyles ?? {}).length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      lastChessboardOptions!.onPieceDrop({
+        sourceSquare: 'e2',
+        targetSquare: 'e4',
+        piece: { isSparePiece: false, position: 'e2', pieceType: 'wP' },
+      });
+    });
+
+    await waitFor(() => {
+      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+    });
+  });
+
+  it('opponent MoveEvent clears squareStyles via the fen-change effect', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      lastChessboardOptions!.onPieceDrag!({
+        isSparePiece: false,
+        piece: { pieceType: 'wP' },
+        square: 'e2',
+      });
+    });
+    await waitFor(() => {
+      expect(Object.keys(lastChessboardOptions!.squareStyles ?? {}).length).toBeGreaterThan(0);
+    });
+
+    const client = currentMockClient as MockStompClient;
+    act(() => {
+      client.dispatch<GameTopicEvent>(
+        '/topic/games/game-uuid-1',
+        opponentMoveEvent({ fen: POST_E4_FEN }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+    });
+  });
+
+  it('Escape clears squareStyles', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(lastChessboardOptions).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      lastChessboardOptions!.onPieceDrag!({
+        isSparePiece: false,
+        piece: { pieceType: 'wP' },
+        square: 'e2',
+      });
+    });
+    await waitFor(() => {
+      expect(Object.keys(lastChessboardOptions!.squareStyles ?? {}).length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+
+    await waitFor(() => {
+      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+    });
+  });
+
+  it('terminal-status transition clears squareStyles', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    act(() => {
+      lastChessboardOptions!.onPieceDrag!({
+        isSparePiece: false,
+        piece: { pieceType: 'wP' },
+        square: 'e2',
+      });
+    });
+    await waitFor(() => {
+      expect(Object.keys(lastChessboardOptions!.squareStyles ?? {}).length).toBeGreaterThan(0);
+    });
+
+    const client = currentMockClient as MockStompClient;
+    act(() => {
+      // CHECKMATE arrives — even though fen is unchanged here, the
+      // `gameState.status` arm of the clearing effect fires.
+      client.dispatch<GameTopicEvent>(
+        '/topic/games/game-uuid-1',
+        opponentMoveEvent({ fen: STARTING_FEN, status: GameStatus.Checkmate, turn: Side.White }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+    });
   });
 
   it('non-ABANDONED terminal statuses still surface the modal (regression guard)', async () => {

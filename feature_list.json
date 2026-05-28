@@ -456,7 +456,7 @@
     "id": "board-move-hints",
     "title": "Show legal move hints when a piece is selected",
     "description": "Render dots/highlights on legal destination squares when the user selects a piece. chess.js exposes the data via chess.moves({ square, verbose: true }) → { to, flags, captured?, promotion? }[]. react-chessboard v5 accepts customSquareStyles to overlay per-square CSS. Hints clear on drop, drag cancel, or turn change. Standard chess UI affordance.",
-    "status": "pending",
+    "status": "done",
     "priority": 11.5,
     "acceptance": [
       "Selecting a piece (drag-start) populates customSquareStyles for the legal destinations.",
