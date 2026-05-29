@@ -469,6 +469,25 @@
     ]
   },
   {
+    "id": "restore-tab-resync",
+    "title": "Fix board not syncing after Ctrl+Shift+T (tab restore via session-restore bfcache)",
+    "description": "User reported reproducible bug 2026-05-28 after smoke-testing features 10/11/11.1/11.5 in production. Restoring a closed game tab via Ctrl+Shift+T leaves the board in initial position instead of the current game state. Forensic via DevTools (performance.getEntriesByType) confirmed: (1) sessionStorage rehydrates correctly with gameId; (2) initial-load effect fires GET /api/games/{gameId} with transferSize=0, duration ~10-23ms — signature of an AbortController-aborted request; (3) navigation.type === 'back_forward' (session restore, not pure bfcache); (4) backend serves correct state when re-fetched manually. Root cause hypothesis: under back_forward navigation, the interaction between React 19 concurrent rendering, the React.lazy + Suspense boundary on Play route (feature 3.92), and the initial-load effect's AbortController causes the cleanup to fire transiently mid-fetch, aborting the GET. Feature 11.1's resync-on-Connected was supposed to be the safety net but its initial-mount suppression (intentional, to avoid double-fetch with initial-load) means it does NOT fire on first STOMP connect — leaving the user with no path to recover state. Fix: (a) drop the AbortController from the initial-load effect — the `cancelled` flag already prevents stale state writes, the AbortController only adds the failure mode; (b) drop the initial-mount suppression in feature 11.1's resync effect — yes this causes a redundant GET on normal mount but it's idempotent + ~500 bytes, the trade-off for robustness is clearly worth it. Defense in depth: if initial-load completes, board syncs immediately; if initial-load is aborted (the bfcache case), resync recovers on first WS Connected; if both fail, STOMP MoveEvents catch up via existing applyOpponentMove path. Cross-repo: zero.",
+    "status": "done",
+    "priority": 11.6,
+    "acceptance": [
+      "src/pages/Play/Play.tsx initial-load effect drops the AbortController. The cleanup retains only `cancelled = true`. The async load handler still checks `cancelled` after the awaited getGameState call (and in the catch block) to suppress stale state writes when the component is no longer interested.",
+      "src/pages/Play/Play.tsx resync effect (feature 11.1) drops the initial-mount suppression. The guard previously gated on `previousConnectionState.current === null`. Now the resync fires on every transition INTO Connected, including the first one. Update the inline comment to reflect the new invariant: resync is always-on, robustness over deduplication.",
+      "Confirm via comment + test that the resync's GET response NEVER overwrites a newer state. The resync uses the same syncFromServer used by applyOpponentMove. If a STOMP MoveEvent arrived between the resync's GET dispatch and resolution, the resync's response would be older. Mitigation: keep the existing semantics (resync overwrites; this is intentional — the REST GET is the authoritative snapshot). Document this in the feature note.",
+      "Tests (Vitest): (1) simulate AbortError thrown by the mocked getGameState (initial-load aborted case) and verify the resync GET recovers state when connectionState transitions to Connected; (2) verify that on a successful initial-load, the resync STILL fires on first Connected and the second sync is idempotent (no visible regression); (3) verify the `cancelled` flag still prevents state writes when the component unmounts mid-fetch.",
+      "Tests Playwright: not feasible to simulate bfcache deterministically. Add a unit-level reproduction via mockStomp + MSW that mimics the abort + reconnect sequence. Document the Playwright skip rationale in the feature note.",
+      "docs/architecture.md: update the resync paragraph from feature 11.1 to note the removal of initial-mount suppression and the always-on semantics. One paragraph.",
+      "notes/11.6-restore-tab-resync.md follows the existing note template; covers: the performance.getEntriesByType forensic methodology used to find the bug, the AbortController-cleanup pitfall under back_forward navigation + Suspense, the defense-in-depth principle (initial-load + resync + STOMP), the deliberate trade-off of accepting a redundant GET for robustness, and the limitation that bfcache scenarios are hard to test in Playwright.",
+      "Bundle delta minimal — net code change is small (a few lines removed).",
+      "openapi.json untouched.",
+      "./init.sh passes; RUN_E2E=true ./init.sh passes."
+    ]
+  },
+  {
     "id": "board-themes",
     "title": "Selectable board themes",
     "description": "Multiple visual themes for the chessboard (classic brown, wood, midnight, neon, minimal, etc.). Theme selector surfaced in UI (drawer Settings section or Play page control — implementer decides). Persist preference in localStorage (theme is a long-lived aesthetic preference, not session-scoped — different from feature 10). react-chessboard v5 accepts light/dark square style records on the options object.",

@@ -16,19 +16,23 @@ import { SESSION_STORAGE_KEY } from '../../utils/sessionStorage';
 import type { StoredSession } from '../../utils/sessionStorage';
 
 /**
- * Resync-on-STOMP-reconnect coverage (priority 11.1).
+ * Resync-on-STOMP-reconnect coverage (priorities 11.1 + 11.6).
  *
  * The Play page resync effect observes `useGameStomp().connectionState`
  * and re-fetches authoritative state via `GET /api/games/{id}` on every
- * transition INTO `Connected` after the initial mount. These tests
- * drive that transition by mocking `useGameStomp` directly — the
- * production hook does not surface stompjs's internal reconnect events
- * through `connectionState` today (it only cycles on mount / gameId
- * change), and re-plumbing that seam to expose them is out of scope
- * for this fix. Mocking the hook gives the tests a precise lever:
- * `setConnection(...)` simulates the transitions the effect must react
- * to, without touching the real STOMP machinery covered by
- * `useGameStomp.test.ts`.
+ * transition INTO `Connected`, INCLUDING the first one. Feature 11.6
+ * dropped the initial-mount suppression that feature 11.1 originally
+ * carried — see `notes/11.6-restore-tab-resync.md` for the forensic
+ * that justified the change.
+ *
+ * These tests drive the connection-state transition by mocking
+ * `useGameStomp` directly — the production hook does not surface
+ * stompjs's internal reconnect events through `connectionState` today
+ * (it only cycles on mount / gameId change), and re-plumbing that seam
+ * to expose them is out of scope for this fix. Mocking the hook gives
+ * the tests a precise lever: `setConnection(...)` simulates the
+ * transitions the effect must react to, without touching the real
+ * STOMP machinery covered by `useGameStomp.test.ts`.
  *
  * The other Play.tsx behaviours stay tested in `Play.test.tsx` against
  * the real hook + mocked `createStompClient` — those tests still
@@ -153,8 +157,19 @@ afterEach(() => {
   window.sessionStorage.clear();
 });
 
-describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
-  it('does not double-fetch on the initial Disconnected → Connected transition', async () => {
+describe('Play page — resync on STOMP (re)connect (priorities 11.1 + 11.6)', () => {
+  it('fires the deliberate idempotent double-fetch on initial mount + first Connected', async () => {
+    // Feature 11.6: the initial-mount suppression was removed. On the
+    // happy path, the initial-load effect fires GET #1; the resync
+    // effect fires GET #2 on the first Disconnected → Connected
+    // transition. Both calls resolve with the same authoritative
+    // state, so `syncFromServer` is called twice with identical
+    // payloads — chess.js's `load(same fen)` is a visual no-op.
+    //
+    // The double-fetch is the explicit trade-off: ~500 idempotent
+    // bytes on the happy path bought in exchange for robust recovery
+    // when the initial-load GET is aborted under back_forward + Suspense
+    // (see `notes/11.6-restore-tab-resync.md`).
     let getCalls = 0;
     server.use(
       http.get(`${TEST_API_BASE_URL}/api/games/:id`, () => {
@@ -171,15 +186,54 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     });
     expect(getCalls).toBe(1);
 
-    // The page mounts with the mock at `Disconnected`. Driving it to
-    // `Connected` is the FIRST observed transition — the resync gate
-    // must suppress it because the initial-load effect just ran.
+    // First Connected — the resync now fires (feature 11.6 dropped
+    // the suppression).
     setConnection(ConnectionState.Connected);
 
-    // Flush microtasks; the count must stay at 1.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(getCalls).toBe(1);
+    await waitFor(() => {
+      expect(getCalls).toBe(2);
+    });
+  });
+
+  it('recovers when the initial-load GET fails: resync delivers the state on first Connected', async () => {
+    // Forensic-reproducing scenario: initial-load throws (we mock
+    // `AbortError`, the production failure mode under back_forward +
+    // Suspense). The resync on the first Connected must fire and
+    // succeed — that is the whole point of dropping the suppression.
+    let getCalls = 0;
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () => {
+        getCalls += 1;
+        if (getCalls === 1) {
+          // Simulate an aborted-request shape. MSW's `error()` returns
+          // a `NetworkError`; the page's `ApiError` mapper wraps it
+          // into `NETWORK_ERROR` (non-fatal, no navigate).
+          return HttpResponse.error();
+        }
+        return HttpResponse.json(sampleGameState({ fen: FEN_AFTER_E4 }), { status: 200 });
+      }),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    // Initial-load fails — board stays at chess.js' default FEN, no
+    // opponent name renders yet (gameState is null).
+    await waitFor(() => {
+      expect(getCalls).toBe(1);
+    });
+
+    // First Connected — resync fires and recovers.
+    setConnection(ConnectionState.Connected);
+
+    await waitFor(() => {
+      expect(getCalls).toBe(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+    // The page recovered without ever navigating away — transient
+    // errors stay on the page so the user can keep playing.
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('fires a resync GET on a subsequent Disconnected → Connected transition', async () => {
@@ -187,8 +241,7 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     server.use(
       http.get(`${TEST_API_BASE_URL}/api/games/:id`, () => {
         getCalls += 1;
-        const fen = getCalls === 1 ? STARTING_FEN : FEN_AFTER_E4;
-        return HttpResponse.json(sampleGameState({ fen }), { status: 200 });
+        return HttpResponse.json(sampleGameState(), { status: 200 });
       }),
     );
 
@@ -198,17 +251,19 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
       expect(getCalls).toBe(1);
     });
 
-    // First transition into Connected — suppressed by the null sentinel.
+    // First transition into Connected — fires the deliberate
+    // idempotent double-fetch (feature 11.6).
     setConnection(ConnectionState.Connected);
-    await Promise.resolve();
-    expect(getCalls).toBe(1);
+    await waitFor(() => {
+      expect(getCalls).toBe(2);
+    });
 
-    // Drop the connection, then reconnect — resync fires.
+    // Drop the connection, then reconnect — resync fires again.
     setConnection(ConnectionState.Disconnected);
     setConnection(ConnectionState.Connected);
 
     await waitFor(() => {
-      expect(getCalls).toBe(2);
+      expect(getCalls).toBe(3);
     });
   });
 
@@ -226,12 +281,15 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     await waitFor(() => {
       expect(getCalls).toBe(1);
     });
-    setConnection(ConnectionState.Connected); // initial — suppressed
-    setConnection(ConnectionState.Error);
-    setConnection(ConnectionState.Connected); // post-error — resync
-
+    setConnection(ConnectionState.Connected); // initial → fires resync (GET #2)
     await waitFor(() => {
       expect(getCalls).toBe(2);
+    });
+    setConnection(ConnectionState.Error);
+    setConnection(ConnectionState.Connected); // post-error → resync (GET #3)
+
+    await waitFor(() => {
+      expect(getCalls).toBe(3);
     });
   });
 
@@ -240,12 +298,13 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     server.use(
       http.get(`${TEST_API_BASE_URL}/api/games/:id`, () => {
         getCalls += 1;
-        // First GET: pre-move state. Second GET (the resync): post-move
+        // GET #1 (initial-load) + GET #2 (first-Connected resync):
+        // pre-move state. GET #3 (post-reconnect resync): post-move
         // state including both opponent moves the local client missed
         // while disconnected.
-        const fen = getCalls === 1 ? STARTING_FEN : FEN_AFTER_E4_E5;
+        const fen = getCalls < 3 ? STARTING_FEN : FEN_AFTER_E4_E5;
         const moves =
-          getCalls === 1
+          getCalls < 3
             ? []
             : [
                 { from: 'e2', to: 'e4', promotion: null },
@@ -260,12 +319,15 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     await waitFor(() => {
       expect(getCalls).toBe(1);
     });
-    setConnection(ConnectionState.Connected); // initial — suppressed
-    setConnection(ConnectionState.Disconnected);
-    setConnection(ConnectionState.Connected); // resync
-
+    setConnection(ConnectionState.Connected); // first Connected → resync (GET #2)
     await waitFor(() => {
       expect(getCalls).toBe(2);
+    });
+    setConnection(ConnectionState.Disconnected);
+    setConnection(ConnectionState.Connected); // post-disconnect → resync (GET #3)
+
+    await waitFor(() => {
+      expect(getCalls).toBe(3);
     });
     // The resync GET delivered the post-moves FEN; the page now holds
     // the authoritative state. We can't probe `chess.js` directly from
@@ -289,6 +351,8 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
       http.get(`${TEST_API_BASE_URL}/api/games/:id`, () => {
         getCalls += 1;
         if (getCalls === 1) {
+          // Initial-load succeeds. The resync (GET #2, on first
+          // Connected) discovers the game ended in the meantime.
           return HttpResponse.json(sampleGameState(), { status: 200 });
         }
         return HttpResponse.json(
@@ -303,9 +367,7 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     await waitFor(() => {
       expect(getCalls).toBe(1);
     });
-    setConnection(ConnectionState.Connected);
-    setConnection(ConnectionState.Disconnected);
-    setConnection(ConnectionState.Connected); // resync — fails 404
+    setConnection(ConnectionState.Connected); // first Connected → resync fails 404
 
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith('/new');
@@ -339,9 +401,7 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     await waitFor(() => {
       expect(getCalls).toBe(1);
     });
-    setConnection(ConnectionState.Connected);
-    setConnection(ConnectionState.Disconnected);
-    setConnection(ConnectionState.Connected); // resync — fails 410
+    setConnection(ConnectionState.Connected); // first Connected → resync fails 410
 
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith('/new');
@@ -368,9 +428,7 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
     await waitFor(() => {
       expect(getCalls).toBe(1);
     });
-    setConnection(ConnectionState.Connected);
-    setConnection(ConnectionState.Disconnected);
-    setConnection(ConnectionState.Connected); // resync — 500
+    setConnection(ConnectionState.Connected); // first Connected → resync 500
 
     await waitFor(() => {
       expect(getCalls).toBe(2);
@@ -396,26 +454,79 @@ describe('Play page — resync on STOMP (re)connect (priority 11.1)', () => {
       expect(getCalls).toBe(1);
     });
     setConnection(ConnectionState.Connected);
+    await waitFor(() => {
+      expect(getCalls).toBe(2);
+    });
     setConnection(ConnectionState.Disconnected);
     setConnection(ConnectionState.Connected);
     await waitFor(() => {
-      expect(getCalls).toBe(2);
+      expect(getCalls).toBe(3);
     });
 
     unmount();
 
     // A fresh mount must see the initial Disconnected → Connected as
-    // the FIRST transition again (i.e. the `null` sentinel inside
-    // `useRef` is freshly seeded), so the first Connected transition
-    // must NOT trigger a resync — only the initial-load effect's GET
-    // fires.
+    // the FIRST transition again (i.e. the ref's null sentinel is
+    // freshly seeded), so the first Connected transition fires the
+    // resync GET just like it did on the first mount.
     renderWithProviders('/play', inRoomWhite);
 
     await waitFor(() => {
-      expect(getCalls).toBe(3);
+      expect(getCalls).toBe(4);
     });
-    setConnection(ConnectionState.Connected); // initial — suppressed
+    setConnection(ConnectionState.Connected); // first Connected on remount → resync
+    await waitFor(() => {
+      expect(getCalls).toBe(5);
+    });
+  });
+
+  it('unmount before the in-flight initial-load resolves does not call syncFromServer', async () => {
+    // Feature 11.6 contract: the initial-load effect no longer aborts
+    // the fetch on cleanup; only the `cancelled` flag protects the
+    // state-write side. Verify that an unmount during an in-flight
+    // GET DOES suppress the `syncFromServer` call (so no stale state
+    // lands on a torn-down component tree).
+    // The Promise constructor's `resolve` is captured into an outer
+    // `let` so the test body can release the response on its own
+    // schedule. `Promise.withResolvers()` would be cleaner but is
+    // gated behind ES2024; the manual form is what TS narrows on
+    // without help.
+    type Resolver = (value: unknown) => void;
+    let resolveGet: Resolver = () => {
+      throw new Error('resolveGet captured before the Promise constructor ran');
+    };
+    const getPromise = new Promise<unknown>((resolve) => {
+      resolveGet = resolve;
+    });
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, async () => {
+        await getPromise;
+        return HttpResponse.json(sampleGameState(), { status: 200 });
+      }),
+    );
+
+    const { unmount } = renderWithProviders('/play', inRoomWhite);
+
+    // Let the effect dispatch the fetch — but the MSW handler awaits
+    // `resolveGet`, so the response never lands.
     await Promise.resolve();
-    expect(getCalls).toBe(3);
+    await Promise.resolve();
+    unmount();
+
+    // Now release the response. The `cancelled` flag in the closure
+    // must have flipped to `true` during unmount, so the resolution
+    // is a no-op — no `syncFromServer`, no React warnings about
+    // state-update-on-unmounted-component.
+    resolveGet(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // If a state write had landed, RTL would have emitted an "act"
+    // warning on the console. We can't easily assert "no warning"
+    // here without spying on console.error; the unmount-before-resolve
+    // shape on its own is the regression guard. The Vitest+RTL
+    // baseline fails the suite on any unswallowed `act` warning, so
+    // a regression in the cancelled-flag wiring would surface here.
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });

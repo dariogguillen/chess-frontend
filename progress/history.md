@@ -3330,3 +3330,130 @@ clearing, and the Round 2 cursor:pointer removal.
 right-click and pointercancel drag aborts so hints don't persist
 until next state change. Minor UX paper-cut; deferred per Round 1
 reviewer's out-of-scope flag.
+
+---
+
+## 2026-05-28 — Closed `restore-tab-resync` (priority 11.6)
+
+**Bug report**: user smoke-tested features 10/11/11.1/11.5 in
+production and surfaced a state-divergence bug specific to
+Ctrl+Shift+T tab restore. Steps: open 2 tabs in a game, make
+moves, close one tab, restore via Ctrl+Shift+T → restored tab
+stays at initial chess.js position even though sessionStorage
+correctly rehydrated gameId/roomId/role/playerId. Back-navigation
+(Home → Back) did NOT reproduce — bug specific to session-restore.
+
+**Forensic diagnosis** (the key methodology of this fix): user ran
+DevTools console commands after the restore to capture data
+retrospectively:
+
+- `JSON.parse(sessionStorage.getItem('chess-session'))` → confirmed
+  sessionStorage rehydrated correctly.
+- `performance.getEntriesByType('resource').filter(e => e.name.includes('/api/'))`
+  → captured ONE entry for the GET to /api/games/{gameId} with
+  `transferSize: 0`, `decodedBodySize: 0`, `duration: 9-23ms` —
+  signature of an aborted fetch.
+- `performance.getEntriesByType('navigation')[0].type` →
+  `'back_forward'` (session restore, not pure bfcache).
+- Manual `fetch()` to the same URL returned valid current state
+  with the actual FEN — confirmed backend OK.
+
+**Root cause**: the initial-load effect at `Play.tsx:327-354`
+created an `AbortController` and aborted it in cleanup. Under
+back_forward navigation + the React.lazy + `<Suspense>` boundary
+on Play (feature 3.92 code-splitting-routes) + React 19 concurrent
+rendering, the cleanup fired transiently mid-fetch — `ac.abort()`
+killed the GET (transferSize 0). No re-execution followed.
+
+The resync-on-Connected from feature 11.1 was the intended safety
+net, but its **initial-mount suppression** (gated on
+`previousConnectionState.current === null` to avoid double-fetching
+with the initial-load) meant it did NOT fire on the first STOMP
+Connected transition. So when initial-load was aborted, the resync
+stayed silent. The user's board only eventually recovered when an
+opponent MoveEvent reached `applyOpponentMove` via STOMP — but
+that requires the opponent to move; if both players are idle on a
+restored tab, the board stays stuck.
+
+**The fix**: two surgical changes in `src/pages/Play/Play.tsx`,
+each defensible alone, combined as defense in depth:
+
+1. **Drop `AbortController`** from the initial-load effect. The
+   `cancelled` flag already prevented stale state writes — the
+   `AbortController` only added the failure mode by killing the
+   in-flight fetch even when the component was still mounted and
+   would have wanted the result. Cleanup retains only
+   `cancelled = true`.
+
+2. **Drop the initial-mount suppression** from the resync effect.
+   The previous gate suppressed the first Connected transition;
+   now the resync fires on every transition INTO Connected,
+   including the first one. Trade-off: ~500 bytes redundant GET on
+   the happy-path mount. Benefit: any failure mode of the
+   initial-load is recovered within ~100ms of the first WS
+   Connected.
+
+**Defense in depth**:
+
+| Scenario | Recovery |
+|---|---|
+| Normal mount (initial-load succeeds) | Initial-load syncs board immediately. Resync's GET on first Connected returns idempotent state. No visible flicker. |
+| **Ctrl+Shift+T restore (initial-load aborted)** | Resync fires on first Connected. GET succeeds. Board syncs ~100ms after WS connects. |
+| Network transient on initial-load | Resync retries on each Connected transition (feature 11.1 logic). |
+| Worst case (both fail) | STOMP MoveEvents catch up via existing `applyOpponentMove` path. Same as before the fix. |
+
+**Files**:
+
+- Modified: `src/pages/Play/Play.tsx` (Change 1 + Change 2),
+  `src/pages/Play/Play.resync.test.tsx` (reversed the existing
+  "no double-fetch" test in place to "deliberate double-fetch",
+  added abort-and-recover test via MSW `HttpResponse.error()`,
+  added unmount-during-in-flight-GET test), `docs/architecture.md`
+  (one paragraph replacing the feature 11.1 resync paragraph with
+  always-on semantics).
+- New: `notes/11.6-restore-tab-resync.md`.
+
+**Verification**:
+
+- Vitest: 217 → 219 (+2 net: 1 reversed + 2 added).
+- Playwright: 4 → 4 (bfcache / back_forward cannot be
+  deterministically simulated; documented skip).
+- Eager bundle: 472.55 → 472.55 kB (no change).
+- Play chunk: 204.84 → 204.68 kB (-0.16 kB from less code).
+- `./init.sh` green. `RUN_E2E=true ./init.sh` green.
+- Manual smoke pending user verification post-deploy. The
+  forensic data the user captured pre-fix is exactly the kind we
+  expect to see ABSENT post-fix.
+
+**Implementer decisions** (not pre-decided by the plan):
+
+- `HttpResponse.error()` over `DOMException('AbortError')` for the
+  abort-recovery test. The `wrapNetwork` helper in
+  `src/api/games.ts` catches both surfaces with the same path
+  (snackbar + no navigate). Test fidelity adequate.
+- "no double-fetch" test reversed in place rather than removed.
+  Future implementer reintroducing the suppression breaks the test.
+- TypeScript narrowing on the captured `resolveGet`: throwing-
+  default function pattern (Resolver type) instead of `null` to
+  preserve CFA.
+
+**Note**: `notes/11.6-restore-tab-resync.md`. Covers the
+`performance.getEntriesByType` forensic methodology (recovering
+request data when DevTools wasn't open during the bug;
+`transferSize: 0` as the aborted-fetch signature;
+`getEntriesByType('navigation')` for session-restore detection —
+generally useful for ALL future production bug diagnosis), the
+AbortController + cleanup pitfall under React concurrent rendering
+(Cats Effect `Resource.use` cancellation vs `Deferred[IO, Unit]`
+flag analogue), `back_forward` / bfcache semantics in modern
+browsers, the defense-in-depth trade-off accepting duplicate
+idempotent work (Scala `cats.Monoid` + `combineN` convergence
+analogue), and the race between resync GET and live STOMP events
+(REST-overwrites semantics kept from feature 11.1).
+
+**Carry-over still open from feature 11.1**:
+`reconnect-resubscribe` — stompjs's auto-reconnect does NOT
+re-issue SUBSCRIBE frames; the always-on resync covers the state
+reconciliation but does NOT close the live-event stream gap. For
+long-running sessions with multiple WS drops, opponent moves
+after a reconnect still won't reach the page until next mount.

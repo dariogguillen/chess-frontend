@@ -1,93 +1,117 @@
-# Current session — `board-move-hints` (priority 11.5)
+# Current session
 
-**Status:** `in_progress`, plan drafted, awaiting user approval.
+**Status:** closed — `restore-tab-resync` (priority 11.6) shipped
+2026-05-28. Ctrl+Shift+T board-divergence bug fixed via
+defense-in-depth: AbortController removed from initial-load +
+initial-mount suppression removed from resync.
 
-## What we're building
+## Counts
 
-Standard chess UI affordance: when the user starts dragging one of
-their own pieces, the board highlights all legal destination
-squares. Move-to squares show a centered dot; capture-target
-squares show a ring outline (visually distinct). Hints clear on
-drop (legal or illegal), drag cancel, and on turn change.
+- **Done:** 28 (priorities 0 → 11.6).
+- **Pending:** 5 (priorities 12, 13, 14, 20, 21).
 
-Reference info from the codebase:
+## What just closed
 
-- `chess.js` already lives in `Play.tsx` (`const [chess] = useState(() => new Chess())`, line 159). `chess.moves({ square, verbose: true })` returns `{ from, to, flags, captured?, promotion?, ... }[]` — `captured` is truthy for capture-target squares.
-- `react-chessboard` v5 exposes:
-  - `squareStyles?: Record<string, React.CSSProperties>` — the per-square style record we'll feed.
-  - `onPieceDrag?: ({ piece, square }) => void` — fires on drag-start.
-  - `onPieceDrop?: ({ piece, sourceSquare, targetSquare }) => boolean` — already wired to `onDrop`.
-- `canDragPiece` is already wired (feature 6.8) so opponent pieces don't drag in the first place; we'll piggyback on the same Role-gated logic for the hint trigger.
+`restore-tab-resync` — two surgical changes in `Play.tsx`:
 
-## Approach
+1. Initial-load effect drops `AbortController`. Cleanup retains
+   only `cancelled = true`. Fetch is allowed to complete
+   naturally; the flag suppresses stale state writes.
+2. Resync effect (feature 11.1) drops initial-mount suppression.
+   Fires on every transition INTO Connected, including the first
+   one. Deliberate idempotent double-fetch on happy-path mount
+   (~500 bytes, idempotent) as defense in depth.
 
-1. **State**: add `selectedSquare: Square | null` to `Play.tsx`. Populated on `onPieceDrag` (subject to the same Role gate as `canDragPiece`), cleared on `onPieceDrop`, drag cancel, and turn change.
-2. **Hook**: extract a pure `useMoveHints(chess, selectedSquare): Record<string, React.CSSProperties>` in `src/hooks/useMoveHints.ts`. Pure function semantics — given a chess.js instance + a selected square, returns the styles record. Returns `{}` when `selectedSquare === null` or the square has no legal moves. Encapsulating it in a hook keeps `Play.tsx` lean and gives us a clean unit-test surface.
-3. **Visual treatment** (uses `sx` / theme colors, no hex):
-   - Move target (`captured === undefined`): centered dot via `background: radial-gradient(circle, <alpha-surface> 22%, transparent 25%)`.
-   - Capture target (`captured !== undefined`): ring outline via `box-shadow: inset 0 0 0 4px <alpha-surface>` (drawn inside the square so it doesn't overlap neighbors).
-   - Colors keyed to `theme.palette.primary` with `alpha()` (Emotion + MUI's `alpha` helper) so they read well on both light and dark squares without a hex literal.
-4. **Wiring in `Play.tsx`**:
-   - New handler `handlePieceDrag({ square }: PieceHandlerArgs)` → call existing `canDragPiece({ piece, square })` first; if true, `setSelectedSquare(square as Square)`.
-   - Modify existing `onDrop` to call `setSelectedSquare(null)` on entry (covers legal + illegal drops + same-square drops).
-   - Effect `useEffect(() => setSelectedSquare(null), [chess.turn(), gameState?.status])` — turn change OR terminal-status reach → clear.
-   - Pass `squareStyles={hints}` to `<Chessboard options={...}/>`.
-5. **Drag-cancel**: react-chessboard v5 doesn't expose an explicit drag-cancel callback. The `@dnd-kit` backend it uses internally cancels via ESC or drop-off-board; in both cases `onPieceDrop` fires with `targetSquare === null` (drop-off-board) or simply doesn't fire (ESC). For ESC specifically, we use a `useEffect` that listens to `keydown` for `Escape` while `selectedSquare !== null` and clears.
-6. **Click-to-select**: out of scope. Drag-start is the primary affordance per the acceptance criteria. A future feature could add it via `onSquareClick`.
+Root cause was forensic-confirmed: under `back_forward` navigation
+(Ctrl+Shift+T session restore) + React.lazy + Suspense + React 19
+concurrent rendering, the initial-load effect's cleanup ran
+transiently mid-fetch and `ac.abort()` killed the GET
+(transferSize 0). Resync was the intended safety net but the
+initial-mount suppression prevented recovery.
 
-## Files
+Round 1 only — both reviewers approved without blocking
+observations. Vitest 217 → 219 (+2 net). Playwright 4 → 4
+(bfcache skip documented). Eager bundle unchanged; Play chunk
+-0.16 kB.
 
-### New
+## 📋 Remaining lineup
 
-- `src/hooks/useMoveHints.ts` — the hook + an internal helper that builds the style record from `chess.moves(...)` output. Exports a typed const-object record for the two style variants (move vs capture) so tests can compare against the same source of truth.
-- `src/hooks/useMoveHints.test.ts` — unit tests against deterministic positions (initial position e2 → e3/e4; mid-game capture; en passant; promotion candidates; empty square; opponent's square; null selection).
-- `notes/11.5-board-move-hints.md` — feature note.
+| # | Feature | Scope | Cross-repo |
+|---|---|---|---|
+| **12** | `board-themes` ← next | 3-4h | No |
+| 13 | `home-page-real` | 2-3h | No |
+| 14 | `about-page-real` | 1-2h | No |
+| 20 | `user-accounts` | Large, decision-first | **Yes** |
+| 21 | `game-reviews` | Large | **Yes** (blocked by 20) |
 
-### Modified
+## 🎯 Production state
 
-- `src/pages/Play/Play.tsx` — `selectedSquare` state, `handlePieceDrag`, `onDrop` early-clear, turn-change + Escape effects, `squareStyles` prop on Chessboard, useMoveHints invocation.
-- `src/pages/Play/Play.test.tsx` — new tests: selecting own piece populates style keys; selecting via opponent-piece path is gated; drop clears; turn change clears; Escape clears.
-- `e2e/two-player.spec.ts` (or new `move-hints.spec.ts` — implementer chooses) — drag-start + assertion that `style` attribute on legal-destination squares contains the radial-gradient marker; drop clears.
+| | |
+|---|---|
+| Frontend | `https://chess-frontend-52i.pages.dev/` (Cloudflare Pages, MIT) |
+| Backend | `https://chess-backend.duckdns.org/` (AWS EC2 + Caddy + Postgres + Redis) |
+| OpenAPI | `https://chess-backend.duckdns.org/v3/api-docs` |
+| Tests | 219 Vitest + 4 Playwright |
+| Bundle initial-load (eager) | 472.55 kB |
+| Refresh-mid-game (feature 10) | ✅ Fixed |
+| Opponent disconnect UX (feature 11) | ✅ Inline chip + countdown banner |
+| State re-sync on WS reconnect (feature 11.1) | ✅ Fixed |
+| Move hints (feature 11.5) | ✅ Live |
+| **Ctrl+Shift+T board sync (feature 11.6)** | ✅ **Fixed (pending user smoke)** |
+| Brave Shields caveat | Documented in README |
 
-### Out of scope
+## Carry-overs still on the radar
 
-- Click-to-select via `onSquareClick`. Future feature.
-- Animating the hints in / out — instant on/off is sufficient.
-- Hints for the opponent's perspective (e.g. "what could opponent move"). Different UX surface; feature 21 area.
-- Pre-move queueing (selecting before your turn). Different scope.
+### Tech polish
+- `csp-policy`, `og-url-templating`, `wrangler-iac`,
+  `readme-og-image`, `readme-badges`, `readme-screenshots`.
 
-## Verification
+### Standing UX / a11y
+- `a11y-pass`, `ux-polish-pass`,
+  `roomresponse-role-narrowing-cleanup` (cross-repo).
 
-- `./init.sh` green — lint, format, typecheck, Vitest suite (204 → ~215), build.
-- `RUN_E2E=true ./init.sh` green — Playwright drag-start + style assertion (or skip E2E if drag synthesis under `@dnd-kit` is too fragile; will decide during implementation, document in note).
-- Manual smoke: select a piece, see dots / rings on legal destinations; drop, hints clear; same with opponent moves changing whose turn it is.
+### Harness / infra
+- `harness-tooling-pass`.
 
-## Public-facing surface
+### Networking robustness
+- **`reconnect-resubscribe`** (open since feature 11.1):
+  stompjs's auto-reconnect does NOT re-issue SUBSCRIBE frames.
+  The always-on resync from feature 11.6 covers state
+  reconciliation but does NOT close the live-event stream gap.
+  Opponent moves after a reconnect won't reach the page until
+  next mount. For long-running sessions with multiple WS drops,
+  this becomes user-visible.
 
-- **README**: out of scope.
-- **`docs/architecture.md`**: no change — this is a UI affordance, not an architectural decision.
-- **`docs/conventions.md`**: no change.
+### UI polish
+- **`drag-cancel-edge-cases`** (open since feature 11.5):
+  handle right-click + `pointercancel` drag aborts so move-hints
+  don't persist until next state change.
 
-## Cross-repo
+### Stretch (not yet queued)
+- `spectator-mode`, `light-theme-polish`, `custom-domain`,
+  `e2e-integration`, `replay-mode` (folded into `game-reviews`).
+- `winnerId-on-rest` — expose `winnerId` on `GameStateResponse`
+  so the feature 11 rehydrate path can show personalised banner
+  copy. Backend DTO change; cross-repo.
 
-**Zero.** Pure frontend, uses `chess.js` and `react-chessboard` APIs we already depend on.
+## Next session
 
-## Bundle impact
+Open `board-themes` (priority 12). Plan should cover: at least 3
+themes (e.g. classic, wood, midnight) as typed records with
+light/dark square styles via `alpha()` + theme palette (matches
+the foundation laid in feature 11.5 `useMoveHints`);
+`localStorage` persistence (NOT sessionStorage — themes are
+long-lived aesthetic preferences, NOT session-scoped); theme
+selector component placement (Drawer Settings vs Play page
+control — implementer decides); default fallback on first mount.
 
-Expected near-zero. One new hook module (~80 LOC compiled), one new state slot in `Play.tsx`, no new deps. No new MUI surface that isn't already imported.
+## User verification recommended
 
-## TS / React / Vite concepts for the note
-
-- `chess.js` `moves({ square, verbose: true })` API — typed via `@types/chess.js`. Note the `Square` literal type covers the 64 algebraic notations exhaustively.
-- The "derived UI state via `useMemo` keyed on instance + selection" pattern. The chess.js instance is *mutable*, so we'd traditionally need to render-key on something else — but the FEN string acts as a natural fingerprint and `selectedSquare` is the selection itself. Scala analogue: `Eq[Position]` derived from FEN.
-- Effect-based listener for global `keydown` Escape — when to use it vs a higher-level component. Scala analogue: `Resource.eval(IO.delay(addEventListener)).onFinalize(removeEventListener)` from Cats Effect.
-- `alpha()` from MUI to derive colors from the active theme palette instead of hex literals — keeps the hints consistent across light/dark theme (also relevant for the upcoming `board-themes` feature 12).
-
-## Reviewers in scope
-
-- **ui-reviewer**: yes — visible UI change on Play page.
-- **reviewer**: yes — every feature.
-
-## Next step
-
-Awaiting user approval. Once approved, hand to `implementer`.
+After production deploys, please reproduce the exact original
+bug scenario one more time:
+- Two tabs, make moves, close one tab, restore via Ctrl+Shift+T.
+- Expected: restored tab's board recovers to current position
+  within ~1s of WS Connected (no longer needs opponent move to
+  recover).
+- If still broken: the forensic data captured pre-fix would be
+  invaluable to re-diagnose (`performance.getEntriesByType` etc).
