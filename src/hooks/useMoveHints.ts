@@ -19,6 +19,12 @@ import type { Chess, Square } from 'chess.js';
  *     the square boundary.
  *   - `CAPTURE_STYLE`: an inset 4px ring. Inset shadows draw inside
  *     the box, so the ring never overlaps the neighbouring squares.
+ *   - `SELECT_STYLE`: the origin cue for the selected square. A
+ *     stronger translucent fill PLUS an inset ring so the selection is
+ *     conveyed by more than colour (the ring is the non-colour signal,
+ *     consistent with the capture-target ring). This is what makes a
+ *     click-to-move selection visible — drag-and-drop never needed it
+ *     because the piece itself lifts off the board.
  *
  * The factory is split out from the hook body so tests can exercise
  * it directly against a known theme (and so the const objects exported
@@ -27,12 +33,20 @@ import type { Chess, Square } from 'chess.js';
  */
 export const buildMoveHintStyles = (
   primaryMain: string,
-): { move: Readonly<CSSProperties>; capture: Readonly<CSSProperties> } => ({
+): {
+  move: Readonly<CSSProperties>;
+  capture: Readonly<CSSProperties>;
+  select: Readonly<CSSProperties>;
+} => ({
   move: {
     background: `radial-gradient(circle, ${alpha(primaryMain, 0.35)} 22%, transparent 25%)`,
   } as const,
   capture: {
     boxShadow: `inset 0 0 0 4px ${alpha(primaryMain, 0.55)}`,
+  } as const,
+  select: {
+    backgroundColor: alpha(primaryMain, 0.4),
+    boxShadow: `inset 0 0 0 4px ${alpha(primaryMain, 0.65)}`,
   } as const,
 });
 
@@ -71,11 +85,20 @@ export const useMoveHints = (
 
   return useMemo(() => {
     if (selectedSquare === null) return {};
-    const { move: moveStyle, capture: captureStyle } = buildMoveHintStyles(
-      theme.palette.primary.main,
-    );
+    const {
+      move: moveStyle,
+      capture: captureStyle,
+      select: selectStyle,
+    } = buildMoveHintStyles(theme.palette.primary.main);
     const moves = chess.moves({ square: selectedSquare, verbose: true });
     const entries: Record<string, CSSProperties> = {};
+    // The origin cue. Highlighting the selected square is what makes a
+    // click-to-move selection legible (feature 15); the drag affordance
+    // never needed it. Set first so a (degenerate) self-targeting move
+    // entry could only ever override it — chess.js never lists the
+    // origin as one of its own destinations, so in practice they never
+    // collide.
+    entries[selectedSquare] = selectStyle;
     for (const m of moves) {
       // `captured` is present on capture-target moves (including en
       // passant — chess.js sets `captured: 'p'` and `flags` includes

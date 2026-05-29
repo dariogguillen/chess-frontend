@@ -578,7 +578,7 @@
     "id": "about-page-real",
     "title": "Build out the about page (replace WIP placeholder)",
     "description": "Replace the WIP placeholder at src/pages/About/ with a real about page. Content: project background, tech stack overview, links to backend repo (chess-backend-java), license, harness engineering docs (CLAUDE.md / AGENTS.md / progress/). Controlled overlap with the README — in-app voice is more conversational and shorter.",
-    "status": "in_progress",
+    "status": "done",
     "priority": 14,
     "acceptance": [
       "src/pages/About/ replaces the WIP placeholder.",
@@ -587,6 +587,25 @@
       "External links use rel='noopener noreferrer'.",
       "Tests: page renders, external link is in the DOM (no fetch in tests).",
       "./init.sh passes."
+    ]
+  },
+  {
+    "id": "click-to-move",
+    "title": "Click-to-move (chess.com style) alongside drag-and-drop",
+    "description": "User request 2026-05-29: today legal-move hints (feature 11.5) only appear while holding a piece to drag it. Add chess.com-style click-to-move: click a piece (no hold) to SELECT it and show the hints, then click a destination hint to move WITHOUT dragging. Both input modes must work (click-to-move AND drag-and-drop). If a piece is already selected and the user clicks another of THEIR OWN pieces, the selection switches focus (does NOT attempt an invalid move). Verified viable with react-chessboard v5: it exposes onSquareClick({piece, square}) and onPieceClick in the options object, composing with the existing onPieceDrop/onPieceDrag/canDragPiece/squareStyles. The core refactor extracts the move logic currently inside onDrop (in-room invariant gate, local turn check -> NotYourTurn Snackbar, promotion detection -> PromotionDialog, optimistic chess.move + submitMove via sendMove, illegal-move Snackbar) into a shared attemptMove(from, to) so click and drag share one code path. Frontend-only; no new deps, no backend/schema changes. Inserted at priority 15, before user-accounts (20).",
+    "status": "done",
+    "priority": 15,
+    "acceptance": [
+      "Refactor: the move logic currently inline in onDrop (Play.tsx ~607-656 — invariant gate gameId/playerId/role, turn check, promotion detection, optimistic chess.move, sendMove, illegal-move Snackbar) is extracted into a single shared function (e.g. attemptMove(from: Square, to: Square)) reused by BOTH onDrop and the new click handler. onDrop keeps its drag-specific guards (targetSquare === null, sourceSquare === targetSquare) then delegates.",
+      "onSquareClick (react-chessboard v5 options) implements the selection state machine on the existing `selectedSquare` state: (a) no selection + click own piece -> select it (hints render via useMoveHints); (b) selection + click the same square -> deselect (toggle off); (c) selection + click another OWN piece -> switch selection to it (do NOT attempt a move); (d) selection + click any other square (empty or opponent piece) -> attemptMove(selectedSquare, square); (e) no selection + click empty/opponent square -> no-op.",
+      "Ownership predicate is shared with the drag path: the same 'is this my piece' check behind canDragPiece (role -> 'w'/'b' vs piece.pieceType[0]) gates click selection, so a click can never select an opponent piece.",
+      "Both input modes coexist with no regression: drag-and-drop still works exactly as before (onPieceDrag still sets selectedSquare, onDrop still moves). Selecting by click then dragging a different piece re-focuses correctly. Use ONLY onSquareClick (not also onPieceClick) to avoid double-handling; confirm a completed drag does not fire a spurious onSquareClick (document the finding).",
+      "Visible selection feedback for the SOURCE square (the selected piece), not just the destination hints — the user must see WHICH piece is selected. Either extend useMoveHints to include the origin square style or merge a separate squareStyle. The cue must not rely on color alone (a ring/border, consistent with the existing capture-ring hint style).",
+      "Promotion via click opens the existing PromotionDialog exactly like the drag path (attemptMove handles promotion detection uniformly).",
+      "Post-move selection handling: on a successful move (click or drag) selection clears (syncFromServer already nulls selectedSquare); on an illegal click-move the IllegalMove Snackbar fires and selection clears; on a not-your-turn click the NotYourTurn Snackbar fires (same as drag) and selection clears. Escape-to-cancel (existing effect) still deselects.",
+      "Tests (Vitest, Play.test.tsx): click own piece -> selected + hints present; click legal destination -> submitMove called + board updates; click another own piece while selected -> selection switches, NO submitMove; click same square -> deselects; click illegal destination -> IllegalMove Snackbar, no submit; click destination that is a promotion -> PromotionDialog opens; click when not your turn -> NotYourTurn Snackbar; click opponent piece / empty square with no selection -> no-op; existing drag-and-drop tests still pass (no regression).",
+      "No new dependencies; no schema changes; openapi.json untouched. Bundle delta minimal.",
+      "./init.sh passes; RUN_E2E=true ./init.sh passes (extend or add a Playwright assertion for a click-to-move if cheap; otherwise the existing drag-based e2e still passes)."
     ]
   },
   {

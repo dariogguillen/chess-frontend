@@ -22,19 +22,22 @@ describe('useMoveHints', () => {
     expect(result.current).toEqual({});
   });
 
-  it('returns move-style entries for both pawn pushes from e2 in the starting position', () => {
+  it('returns move-style entries for both pawn pushes from e2 plus the origin select cue', () => {
     const chess = new Chess();
     const { result } = renderHook(() => useMoveHints(chess, 'e2'), { wrapper });
-    // Two quiet pushes — no captures available from the back rank.
-    expect(Object.keys(result.current).sort()).toEqual(['e3', 'e4']);
+    // Two quiet pushes — no captures from the back rank — plus the
+    // origin square (e2) carrying the selection cue (feature 15).
+    expect(Object.keys(result.current).sort()).toEqual(['e2', 'e3', 'e4']);
+    expect(result.current['e2']).toEqual(expected.select);
     expect(result.current['e3']).toEqual(expected.move);
     expect(result.current['e4']).toEqual(expected.move);
   });
 
-  it('returns move-style entries for the b1 knight in the starting position', () => {
+  it('returns move-style entries for the b1 knight plus the origin select cue', () => {
     const chess = new Chess();
     const { result } = renderHook(() => useMoveHints(chess, 'b1'), { wrapper });
-    expect(Object.keys(result.current).sort()).toEqual(['a3', 'c3']);
+    expect(Object.keys(result.current).sort()).toEqual(['a3', 'b1', 'c3']);
+    expect(result.current['b1']).toEqual(expected.select);
     expect(result.current['a3']).toEqual(expected.move);
     expect(result.current['c3']).toEqual(expected.move);
   });
@@ -56,24 +59,27 @@ describe('useMoveHints', () => {
     expect(result.current['d5']).toEqual(expected.move);
   });
 
-  it('returns an empty record for an empty square in the starting position', () => {
+  it('returns only the origin select cue for an empty square (no legal destinations)', () => {
     const chess = new Chess();
     const { result } = renderHook(() => useMoveHints(chess, 'e4'), { wrapper });
-    expect(result.current).toEqual({});
+    // No piece on e4, so no destinations — but a selected square always
+    // carries its origin cue (feature 15). In practice `onSquareClick`
+    // only ever selects own pieces, so this degenerate case is not
+    // reachable from the UI; the hook stays a pure projection.
+    expect(Object.keys(result.current)).toEqual(['e4']);
+    expect(result.current['e4']).toEqual(expected.select);
   });
 
-  it('returns the moves for an opponent piece — the role-gate lives in the caller, not the hook', () => {
+  it('returns only the origin select cue for an opponent piece — the role-gate lives in the caller', () => {
     // Initial position, White to move. e7 is Black's pawn. chess.js
-    // happily reports the pseudo-moves; the hook surfaces them as the
-    // caller asked. `handlePieceDrag` in Play.tsx is the one that
-    // gates this with canDragPiece.
+    // returns moves for the side-to-move only, so the verbose list is
+    // empty here; the hook still emits the origin cue. `handlePieceDrag`
+    // / `onSquareClick` in Play.tsx are what gate selection to own
+    // pieces via isOwnPiece, so this is not reachable from the UI.
     const chess = new Chess();
     const { result } = renderHook(() => useMoveHints(chess, 'e7'), { wrapper });
-    // chess.js returns moves for the side-to-move only; e7 is Black
-    // and it's White's turn, so the verbose move list is empty here.
-    // The point of this test is the non-throwing, well-defined return
-    // — not a specific shape. Document the behaviour.
-    expect(result.current).toEqual({});
+    expect(Object.keys(result.current)).toEqual(['e7']);
+    expect(result.current['e7']).toEqual(expected.select);
   });
 
   it('tags the en-passant target with the capture style', () => {

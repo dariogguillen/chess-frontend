@@ -49,6 +49,7 @@ type ChessboardCaptureOptions = {
     piece: { pieceType: string };
     square: string | null;
   }) => boolean;
+  onSquareClick?: (args: { piece: { pieceType: string } | null; square: string }) => void;
   boardOrientation?: 'white' | 'black';
   squareStyles?: Record<string, CSSProperties>;
   lightSquareStyle?: CSSProperties;
@@ -1045,9 +1046,11 @@ describe('Play page', () => {
     });
 
     // Re-render flushed: the latest options must carry the hint record.
+    // The origin square (e2) now carries the selection cue too
+    // (feature 15), alongside its two legal pushes.
     await waitFor(() => {
       const styles = lastChessboardOptions!.squareStyles ?? {};
-      expect(Object.keys(styles).sort()).toEqual(['e3', 'e4']);
+      expect(Object.keys(styles).sort()).toEqual(['e2', 'e3', 'e4']);
     });
   });
 
@@ -1264,6 +1267,292 @@ describe('Play page', () => {
     // banner is the New game / Home pair.
     expect(await screen.findByRole('button', { name: /continue/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^new game$/i })).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------
+  // click-to-move (priority 15)
+  // ---------------------------------------------------------------
+  //
+  // The board now supports chess.com-style click-to-move alongside
+  // drag-and-drop. Both affordances share `selectedSquare` and the
+  // `attemptMove` pipeline. These tests drive `onSquareClick` directly
+  // through the captured Chessboard options (same pattern as the drag
+  // tests above driving `onPieceDrop` / `onPieceDrag`).
+
+  describe('click-to-move', () => {
+    const POST_E4_STATE = sampleGameState({
+      fen: POST_E4_FEN,
+      turn: 'BLACK',
+      moves: [{ from: 'e2', to: 'e4', promotion: null }],
+    });
+
+    it('selecting an own piece by click populates the hints and the origin cue', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(lastChessboardOptions).not.toBeNull();
+      });
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({
+          piece: { pieceType: 'wP' },
+          square: 'e2',
+        });
+      });
+
+      // Origin cue on e2 plus the two legal pushes.
+      await waitFor(() => {
+        const styles = lastChessboardOptions!.squareStyles ?? {};
+        expect(Object.keys(styles).sort()).toEqual(['e2', 'e3', 'e4']);
+      });
+    });
+
+    it('clicking a legal destination after selecting submits the move and updates the board', async () => {
+      const submitMoveSpy = vi.fn();
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+        http.post(`${TEST_API_BASE_URL}/api/games/:id/moves`, () => {
+          submitMoveSpy();
+          return HttpResponse.json(POST_E4_STATE, { status: 200 });
+        }),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'wP' }, square: 'e2' });
+      });
+      act(() => {
+        // e4 is empty in the starting position — the destination click.
+        lastChessboardOptions!.onSquareClick!({ piece: null, square: 'e4' });
+      });
+
+      await waitFor(() => {
+        expect(submitMoveSpy).toHaveBeenCalledTimes(1);
+      });
+      // After the server ACK, the position is POST_E4_FEN and the
+      // selection (hence the hints overlay) is cleared.
+      await waitFor(() => {
+        expect(lastChessboardOptions!.position).toBe(POST_E4_FEN);
+      });
+      await waitFor(() => {
+        expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+      });
+    });
+
+    it('clicking another own piece while one is selected re-focuses without submitting', async () => {
+      const submitMoveSpy = vi.fn();
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+        http.post(`${TEST_API_BASE_URL}/api/games/:id/moves`, () => {
+          submitMoveSpy();
+          return HttpResponse.json(sampleGameState(), { status: 200 });
+        }),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'wP' }, square: 'e2' });
+      });
+      await waitFor(() => {
+        expect(Object.keys(lastChessboardOptions!.squareStyles ?? {})).toContain('e2');
+      });
+
+      act(() => {
+        // d2 is another White pawn — re-focus, not a move.
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'wP' }, square: 'd2' });
+      });
+
+      // The selection switched: d2's pushes are now highlighted, e2's
+      // are gone, and no move was submitted.
+      await waitFor(() => {
+        const styles = lastChessboardOptions!.squareStyles ?? {};
+        expect(Object.keys(styles).sort()).toEqual(['d2', 'd3', 'd4']);
+      });
+      expect(submitMoveSpy).not.toHaveBeenCalled();
+    });
+
+    it('clicking the selected square again deselects it', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'wP' }, square: 'e2' });
+      });
+      await waitFor(() => {
+        expect(Object.keys(lastChessboardOptions!.squareStyles ?? {}).length).toBeGreaterThan(0);
+      });
+
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'wP' }, square: 'e2' });
+      });
+
+      await waitFor(() => {
+        expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+      });
+    });
+
+    it('clicking an illegal destination surfaces IllegalMove, does not submit, and deselects', async () => {
+      const submitMoveSpy = vi.fn();
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+        http.post(`${TEST_API_BASE_URL}/api/games/:id/moves`, () => {
+          submitMoveSpy();
+          return HttpResponse.json(sampleGameState(), { status: 200 });
+        }),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'wP' }, square: 'e2' });
+      });
+      act(() => {
+        // e5 is not reachable from e2 — an illegal destination. e5 is
+        // empty in the starting position so it routes to attemptMove.
+        lastChessboardOptions!.onSquareClick!({ piece: null, square: 'e5' });
+      });
+
+      expect(await screen.findByText(/that move is not legal/i)).toBeInTheDocument();
+      expect(submitMoveSpy).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+      });
+    });
+
+    it('clicking the promotion push square opens the PromotionDialog and keeps the selection', async () => {
+      // White pawn on e7, kings off the e-file so e7→e8 is a legal
+      // promotion push.
+      const promoFen = '8/4P3/8/8/8/8/k7/4K2R w - - 0 1';
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState({ fen: promoFen }), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(lastChessboardOptions?.position).toBe(promoFen);
+      });
+
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'wP' }, square: 'e7' });
+      });
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: null, square: 'e8' });
+      });
+
+      // The PromotionDialog renders its piece-choice buttons (Queen, etc).
+      expect(await screen.findByRole('button', { name: /promote to queen/i })).toBeInTheDocument();
+      // The selection stays put while the dialog is open — the origin
+      // cue on e7 is still in the overlay.
+      expect(Object.keys(lastChessboardOptions!.squareStyles ?? {})).toContain('e7');
+    });
+
+    it('clicking when it is not your turn surfaces NotYourTurn and does not submit', async () => {
+      const blackPlayer: RoomState = {
+        phase: RoomPhase.InRoom,
+        roomId: 'K7M3X9',
+        playerId: 'player-2',
+        role: 'BLACK',
+        gameId: 'game-uuid-1',
+      };
+      const submitMoveSpy = vi.fn();
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+        http.post(`${TEST_API_BASE_URL}/api/games/:id/moves`, () => {
+          submitMoveSpy();
+          return HttpResponse.json(sampleGameState(), { status: 200 });
+        }),
+      );
+
+      renderWithProviders('/play', blackPlayer);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Alice$/)).toBeInTheDocument();
+      });
+
+      // Black selects a black pawn (own piece) — selection is allowed —
+      // but it is White's turn, so attempting a move is rejected.
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'bP' }, square: 'e7' });
+      });
+      act(() => {
+        lastChessboardOptions!.onSquareClick!({ piece: null, square: 'e5' });
+      });
+
+      expect(await screen.findByText(/it is not your turn/i)).toBeInTheDocument();
+      expect(submitMoveSpy).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+      });
+    });
+
+    it('clicking an opponent piece or empty square with no selection is a no-op', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+
+      act(() => {
+        // Opponent piece — no selection should start.
+        lastChessboardOptions!.onSquareClick!({ piece: { pieceType: 'bP' }, square: 'e7' });
+      });
+      act(() => {
+        // Empty square — no selection should start.
+        lastChessboardOptions!.onSquareClick!({ piece: null, square: 'e4' });
+      });
+
+      // No hints overlay appeared.
+      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+    });
   });
 
   // ---------------------------------------------------------------

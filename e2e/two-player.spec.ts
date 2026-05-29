@@ -247,8 +247,11 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
   const persistedA = await pageA.evaluate(() => window.sessionStorage.getItem('chess-session'));
   expect(persistedA).not.toBeNull();
 
-  // --- Step 5: B plays e7-e5 ---
-  await dragPiece(pageB, 'e7', 'e5');
+  // --- Step 5: B plays e7-e5 via click-to-move (feature 15) ---
+  // Step 4 exercised the drag affordance; this step exercises the
+  // click affordance end-to-end on the production bundle. The path
+  // from the POST onward is identical, so the same assertions hold.
+  await clickMove(pageB, 'e7', 'e5');
 
   await stompA.pushMoveEvent({
     type: 'MOVE',
@@ -323,6 +326,23 @@ const dragPiece = async (
   await page.mouse.move((fromX + toX) / 2, (fromY + toY) / 2, { steps: 10 });
   await page.mouse.move(toX, toY, { steps: 10 });
   await page.mouse.up();
+};
+
+/**
+ * Move a piece by click-to-move (feature 15): a plain click on the
+ * source square selects, a plain click on the destination submits.
+ * Distinct from {@link dragPiece} — no `mouse.down`/`move`/`up`, so
+ * dnd-kit's `PointerSensor` never activates and the gesture stays a
+ * pair of `onSquareClick` events. Drives the click affordance against
+ * the production bundle.
+ */
+const clickMove = async (
+  page: import('@playwright/test').Page,
+  from: string,
+  to: string,
+): Promise<void> => {
+  await page.locator(`[data-square="${from}"]`).first().click();
+  await page.locator(`[data-square="${to}"]`).first().click();
 };
 
 /**

@@ -3796,3 +3796,72 @@ abandonment,smoke}.spec.ts` (fixture ROOM_IDs + resync join flow).
   `CreateRoomRequest.preferredSide` (WHITE/BLACK/RANDOM), but
   NewGame's Position toggle stays decorative (createRoom only sends
   displayName). Wiring it up is a small standalone feature.
+
+## 2026-05-29 — about-page-real
+
+**Status:** done
+
+**Summary:** Replaced the generic `<WIP str="About" />` placeholder at
+`/about` (`src/routes/Public.tsx:40`) with a real About page in
+`src/pages/About/`. `WIP.tsx` is preserved (still used by `/login`).
+Eager import, router-only (no providers, no API). Content in in-app
+voice (shorter than the README, no invented features): an h1 "About",
+a what-it-is section (multiplayer chess, create a room and share the
+link/code, server-authoritative with chess.js as a local UX aid only),
+a brief stack section (React 19 + TS, MUI, Vite, REST + STOMP to a
+Spring Boot backend), a "how it is built" section on the agent harness,
+and grouped external links — frontend repo, backend repo, OpenAPI
+Swagger UI, MIT license, and the harness docs (CLAUDE.md / AGENTS.md /
+progress). Every external link carries `target="_blank"` +
+`rel="noopener noreferrer"` with a visible OpenInNew affordance and
+descriptive names; the GitHub/OpenInNew icons are deep-path imports,
+aria-hidden. Single h1, clean h1→h2 outline. Both reviewers approved;
+`./init.sh` green; Vitest 275 → 278 (+3). No new deps, no schema
+change, README/architecture untouched. Per-route `document.title`
+deliberately deferred (cross-cutting carry-over). Bundle: eager About
+adds +6.82 kB raw (+2.17 kB gzip) to the initial chunk.
+
+**Files touched:** `src/pages/About/About.tsx` (new),
+`src/pages/About/index.tsx` (new), `src/pages/About/About.test.tsx`
+(new), `src/routes/Public.tsx` (eager `About` import + `/about` element
+swap).
+
+**Feature note:** `notes/14-about-page-real.md`.
+
+## 2026-05-29 — click-to-move
+
+**Status:** done
+
+**Summary:** Added chess.com-style click-to-move alongside the existing
+drag-and-drop. Click a piece (no hold) to select it and show the
+legal-move hints (feature 11.5); click a destination to move without
+dragging; click another own piece to switch focus (no invalid-move
+attempt); click the same square to deselect. Verified viable with
+react-chessboard v5's `onSquareClick({ piece, square })`. The core
+refactor extracted the move logic that was inline in `onDrop` (in-room
+invariant gate, local turn check → NotYourTurn Snackbar, promotion
+detection → PromotionDialog, optimistic chess.move + submitMove via
+sendMove, IllegalMove Snackbar) into a shared `attemptMove(from, to)`
+returning `'promotion' | 'submitted' | 'rejected'`, reused by both
+`onDrop` and the new `onSquareClick` — one domain operation, two input
+affordances, no duplicated logic. `onSquareClick` is a five-transition
+state machine over the existing `selectedSquare`; ownership is gated by
+a shared `isOwnPiece(piece)` (also used by `canDragPiece`). Used only
+`onSquareClick` (not `onPieceClick`) to avoid double-dispatch. Added a
+source-square selection cue in `useMoveHints` (translucent fill + 4px
+inset ring via `alpha(theme.palette.primary)`, not color alone),
+composed into the same `squareStyles` Record without clobbering the
+destination dots/rings. Verified (and documented in the note) that a
+completed drag does not fire a spurious `onSquareClick` (@dnd-kit
+cancels the trailing click) and that touch taps fire `onSquareClick`
+while touch-drags route through `onDrop`. Both reviewers approved;
+`./init.sh` + `RUN_E2E=true ./init.sh` green (4/4 Playwright; the
+two-player spec now exercises click-to-move via a `clickMove` helper);
+Vitest 278 → 286 (+8). No new deps, no schema change. Play chunk
++0.43 kB raw (negligible).
+
+**Files touched:** `src/pages/Play/Play.tsx`,
+`src/hooks/useMoveHints.ts` (+ `useMoveHints.test.ts`),
+`src/pages/Play/Play.test.tsx`, `e2e/two-player.spec.ts`.
+
+**Feature note:** `notes/15-click-to-move.md`.

@@ -17,7 +17,13 @@ import LinkIcon from '@mui/icons-material/Link';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Chessboard, type PieceDropHandlerArgs, type PieceHandlerArgs } from 'react-chessboard';
+import {
+  Chessboard,
+  type PieceDataType,
+  type PieceDropHandlerArgs,
+  type PieceHandlerArgs,
+  type SquareHandlerArgs,
+} from 'react-chessboard';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
 import { GameOverByAbandonBanner } from '../../components/GameOverByAbandonBanner';
@@ -582,6 +588,83 @@ const Play = () => {
     setFen(chess.fen());
   }, [chess]);
 
+  /**
+   * The single move pipeline shared by both input affordances —
+   * drag-and-drop (`onDrop`) and click-to-move (`onSquareClick`). One
+   * domain operation, two ways to express it: rather than duplicate the
+   * turn / legality / promotion logic, both callers funnel a validated
+   * `(from, to)` pair through here.
+   *
+   * Returns a discriminated outcome so callers can react to the
+   * selection-clearing policy without re-deriving it:
+   *   - `'promotion'`: the dialog is now open; the selection must be
+   *     LEFT intact until the dialog resolves (the `from`/`to` is
+   *     captured in `pendingPromotion`, not in `selectedSquare`).
+   *   - `'submitted'`: the optimistic move landed and `sendMove` is in
+   *     flight; on its ACK `syncFromServer` clears the selection.
+   *   - `'rejected'`: a gate failed (not-our-turn, illegal, missing
+   *     invariants). A Snackbar already fired (except the invariant
+   *     gate, which is unreachable in practice). Caller should clear
+   *     the selection.
+   *
+   * The gates mirror the previous inline `onDrop` body verbatim so the
+   * drag behavior does not regress; only the same-square / off-board
+   * drag guards stay in `onDrop` (they are drag-specific).
+   */
+  const attemptMove = useCallback(
+    (from: Square, to: Square): 'promotion' | 'submitted' | 'rejected' => {
+      // Gate on the in-room invariants. Without these the move cannot
+      // be sent and we must not optimistically update either.
+      if (gameId === null || gameId === undefined || playerId === null || role === null) {
+        return 'rejected';
+      }
+
+      // Local turn check via chess.js: `chess.turn()` returns 'w'/'b';
+      // role is `Role.White | Role.Black`. Match on first letter.
+      //
+      // Bug A: surfacing the `NOT_YOUR_TURN` message client-side rather
+      // than letting the user wonder why the move did nothing — we never
+      // reach the server on this branch.
+      const expected = role === Role.White ? 'w' : 'b';
+      if (chess.turn() !== expected) {
+        setErrorMessage(messageFor(ApiErrorCode.NotYourTurn));
+        return 'rejected';
+      }
+
+      const preMoveFen = chess.fen();
+
+      // Promotion detection: chess.js' verbose move list flags pawn
+      // promotions with `'p'`. We only check moves from the source
+      // square, which scopes the lookup.
+      const isPromotion = chess
+        .moves({ square: from, verbose: true })
+        .some((m) => m.to === to && m.flags.includes('p'));
+
+      if (isPromotion) {
+        // Pause — open the dialog. The optimistic chess.js move is
+        // deferred until the user picks a piece, because chess.js
+        // requires the promotion field on `move()` for any pawn
+        // reaching the back rank.
+        setPendingPromotion({ from, to, preMoveFen });
+        return 'promotion';
+      }
+
+      // Non-promotion path: optimistically apply locally, then send.
+      try {
+        chess.move({ from, to });
+      } catch {
+        // chess.js rejected the move locally — surface as illegal and
+        // do not contact the server.
+        setErrorMessage(messageFor(ApiErrorCode.IllegalMove));
+        return 'rejected';
+      }
+      setFen(chess.fen());
+      void sendMove(from, to, undefined, { fen: preMoveFen, from, to });
+      return 'submitted';
+    },
+    [chess, gameId, playerId, role, sendMove],
+  );
+
   const onDrop = useCallback(
     ({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean => {
       // Clear any drag-time move hints before deciding on the drop.
@@ -602,69 +685,90 @@ const Play = () => {
       // generic illegal-move Snackbar).
       if (sourceSquare === targetSquare) return false;
 
-      // Gate on the in-room invariants. Without these the move cannot
-      // be sent and we must not optimistically update either.
-      if (gameId === null || gameId === undefined || playerId === null || role === null) {
-        return false;
-      }
-
-      // Local turn check via chess.js: `chess.turn()` returns 'w'/'b';
-      // role is `Role.White | Role.Black`. Match on first letter.
-      //
-      // Bug A: this branch used to silently return false, leaving the
-      // user wondering why the drag did nothing. The server's
-      // `NOT_YOUR_TURN` (422) response is what fires the Snackbar in the
-      // normal path — but we never reach the server here. Surface the
-      // same user-facing message client-side via the existing Snackbar.
-      const expected = role === Role.White ? 'w' : 'b';
-      if (chess.turn() !== expected) {
-        setErrorMessage(messageFor(ApiErrorCode.NotYourTurn));
-        return false;
-      }
-
-      const from = sourceSquare as Square;
-      const to = targetSquare as Square;
-      const preMoveFen = chess.fen();
-
-      // Promotion detection: chess.js' verbose move list flags pawn
-      // promotions with `'p'`. We only check moves from the source
-      // square, which scopes the lookup.
-      const isPromotion = chess
-        .moves({ square: from, verbose: true })
-        .some((m) => m.to === to && m.flags.includes('p'));
-
-      if (isPromotion) {
-        // Pause — open the dialog. The optimistic chess.js move is
-        // deferred until the user picks a piece, because chess.js
-        // requires the promotion field on `move()` for any pawn
-        // reaching the back rank.
-        setPendingPromotion({ from, to, preMoveFen });
-        return true;
-      }
-
-      // Non-promotion path: optimistically apply locally, then send.
-      try {
-        chess.move({ from, to });
-      } catch {
-        // chess.js rejected the move locally — surface as illegal and
-        // do not contact the server.
-        setErrorMessage(messageFor(ApiErrorCode.IllegalMove));
-        return false;
-      }
-      setFen(chess.fen());
-      void sendMove(from, to, undefined, { fen: preMoveFen, from, to });
-      return true;
+      // Delegate to the shared move pipeline. `'rejected'` returns
+      // false (react-chessboard snaps the piece back); `'promotion'`
+      // and `'submitted'` both return true (the board accepted the
+      // drop — the dialog or the optimistic move takes it from here).
+      const outcome = attemptMove(sourceSquare as Square, targetSquare as Square);
+      return outcome !== 'rejected';
     },
-    [chess, gameId, playerId, role, sendMove],
+    [attemptMove],
+  );
+
+  /**
+   * Ownership predicate shared by `canDragPiece` and `onSquareClick`.
+   * The role-policy lives here, in one place, so a click can never
+   * select an opponent piece any more than a drag can grab one.
+   *
+   * `piece` is widened to `PieceDataType | null` because the click
+   * handler's `SquareHandlerArgs.piece` is nullable (an empty square
+   * reports `null`); `canDragPiece` passes the non-null
+   * `PieceHandlerArgs.piece`, which is assignable. `null` (empty
+   * square) is never our piece.
+   *
+   * `pieceType` is the camel-cased FEN code, e.g. `'wP'`, `'bK'`; the
+   * first character is the colour. We compare against the in-room
+   * `Role` ('WHITE'/'BLACK') mapped to the `'w'`/`'b'` letter.
+   */
+  const isOwnPiece = useCallback(
+    (piece: PieceDataType | null): boolean => {
+      if (piece === null || role === null) return false;
+      const expected = role === Role.White ? 'w' : 'b';
+      return piece.pieceType[0] === expected;
+    },
+    [role],
+  );
+
+  /**
+   * Click-to-move selection state machine over `selectedSquare`. Each
+   * branch is an explicit transition:
+   *
+   *   - no selection + own piece     → select (hints render)
+   *   - selection + same square      → deselect (toggle off)
+   *   - selection + another own piece → re-focus (NOT a move attempt)
+   *   - selection + any other square → attemptMove(selected, clicked)
+   *   - no selection + empty/opponent → no-op
+   *
+   * On a non-promotion move attempt we clear `selectedSquare` here: on
+   * success `syncFromServer` would clear it anyway, but on a rejected
+   * click-move (illegal / not-our-turn) nothing else clears it, so we
+   * do it explicitly alongside the Snackbar `attemptMove` already
+   * fired. On `'promotion'` we leave the selection alone — the
+   * PromotionDialog owns the rest of that flow and `pendingPromotion`,
+   * not `selectedSquare`, carries the move.
+   */
+  const onSquareClick = useCallback(
+    ({ piece, square }: SquareHandlerArgs): void => {
+      const clicked = square as Square;
+      if (selectedSquare === null) {
+        // First click of a selection: only own pieces start one.
+        if (isOwnPiece(piece)) setSelectedSquare(clicked);
+        return;
+      }
+      if (clicked === selectedSquare) {
+        // Toggle off: clicking the selected square deselects it.
+        setSelectedSquare(null);
+        return;
+      }
+      if (isOwnPiece(piece)) {
+        // Re-focus to another of our pieces — never an illegal move.
+        setSelectedSquare(clicked);
+        return;
+      }
+      // Destination click (empty square or opponent piece): attempt the
+      // move. Keep the selection only while a promotion dialog is open.
+      const outcome = attemptMove(selectedSquare, clicked);
+      if (outcome !== 'promotion') setSelectedSquare(null);
+    },
+    [attemptMove, isOwnPiece, selectedSquare],
   );
 
   /**
    * Bug B: restrict drag to the local player's own pieces. The
    * `canDragPiece` callback is invoked per drag-start by react-chessboard
-   * v5 with the piece data `{ pieceType, ... }`. `pieceType` is the
-   * camel-cased FEN code, e.g. `'wP'`, `'bK'` — the first character is
-   * the color. We compare against the in-room `Role` ('WHITE'/'BLACK')
-   * by mapping role to the corresponding `'w'`/`'b'` letter.
+   * v5 with the piece data `{ pieceType, ... }`. The ownership test is
+   * delegated to the shared {@link isOwnPiece} predicate so drag and
+   * click apply the same role-policy.
    *
    * Returning false makes opponent pieces non-draggable (no grab cursor),
    * which avoids the prior failure mode where the drag completed and
@@ -672,12 +776,8 @@ const Play = () => {
    * Snackbar.
    */
   const canDragPiece = useCallback(
-    ({ piece }: PieceHandlerArgs): boolean => {
-      if (role === null) return false;
-      const expected = role === Role.White ? 'w' : 'b';
-      return piece.pieceType[0] === expected;
-    },
-    [role],
+    ({ piece }: PieceHandlerArgs): boolean => isOwnPiece(piece),
+    [isOwnPiece],
   );
 
   /**
@@ -854,6 +954,7 @@ const Play = () => {
                 position: fen,
                 onPieceDrop: onDrop,
                 onPieceDrag: handlePieceDrag,
+                onSquareClick,
                 canDragPiece,
                 boardOrientation,
                 allowDrawingArrows: true,
