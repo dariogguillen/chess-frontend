@@ -507,6 +507,24 @@
     ]
   },
   {
+    "id": "play-no-room-redirect",
+    "title": "Redirect /play to /new when there is no active room + remove stray Options label",
+    "description": "Bug surfaced 2026-05-29 during a manual smoke test against the live site: opening /play directly (e.g. pasting https://chess-frontend-52i.pages.dev/play in a fresh tab) with no active room renders a dead-end phantom board — 'Waiting for opponent', 'Room ID: —', and the 'Guest' placeholder — with no roomId / gameId / playerId, so no one can ever join. There is no entry guard today (Play.tsx reads UserContext's RoomState discriminated union; the 'none' arm falls through and still paints the board). Fix: when Play mounts and room.phase === RoomPhase.None (no rehydrated session and no usable in-room state), redirect to /new with { replace: true } so the user lands on the configuration form instead of the dead-end board. Scope is the minimal redirect only — deep-link auto-join via ?roomId was explicitly considered and deferred by the user (would require POST /api/rooms/{id}/join or a spectator decision; tracked as a separate future feature). Also cleans up the stray 'Options' <Typography> label in the bottom-right of the board (Play.tsx:772) which has no handler and only headed the spectator-count chip, leaving 'Options' floating alone when viewerCount === 0. Inserted at priority 11.8, before board-themes (12).",
+    "status": "done",
+    "priority": 11.8,
+    "acceptance": [
+      "src/pages/Play/Play.tsx adds a mount-time entry guard: when room.phase === RoomPhase.None, redirect to /new with replace. The guard fires ONLY on the initial mount (e.g. ref-guarded like the existing reconciledRef, or a lazy useState capturing the initial phase + a render-time <Navigate to='/new' replace />). It must NOT react to post-mount transitions into 'none' that already navigate themselves (abandonment -> /home or /new via handleAbandonedHome/handleAbandonedNewGame; 404 / GAME_ALREADY_ENDED -> /new). No race with handleAbandonedHome's navigate('/home'). Implementer picks the cleaner spot; document the choice and why it avoids the race in the feature note.",
+      "No visible flash of the phantom board before the redirect: prefer a render-time <Navigate> (decided from the mount-time phase) over a post-paint useEffect, OR justify in the note why the useEffect approach does not flash. Either way 'replace: true' so Back does not return to the dead-end.",
+      "The URL-vs-stored reconciliation mismatch path (Play.tsx:134-152, currently leaveRoom() only) also redirects to /new with replace, since a fresh-entry without a session is itself a dead-end under the minimal scope (no deep-link join). Document this behavior change in the feature note.",
+      "Decision documented in the feature note: ?roomId in the URL without a valid in-room session does NOT auto-join (deep-link join was the deferred option-2 scope). phase === None redirects regardless of any ?roomId query param.",
+      "Remove the stray 'Options' <Typography> label (Play.tsx:772). The spectator-count Chip (rendered when viewerCount > 0) is preserved and rendered without a dangling empty header; its Tooltip and aria-label stay intact.",
+      "Tests (Vitest, src/pages/Play/Play.test.tsx): (a) mounting Play with room.phase === none redirects to /new with replace; (b) mounting with a valid in-room session renders the board and does NOT redirect; (c) non-regression: abandonment -> Home still navigates to /home (not /new); (d) the 'Options' label no longer renders, and the spectator chip still renders when viewerCount > 0.",
+      "Existing Vitest suite still passes (count may grow). RUN_E2E=true ./init.sh still passes: two-player.spec.ts enters via /new so the guard is a no-op there; no E2E change required unless a test happened to deep-link /play.",
+      "Bundle delta negligible; no new deps; no schema changes; openapi.json untouched.",
+      "./init.sh green end-to-end."
+    ]
+  },
+  {
     "id": "board-themes",
     "title": "Selectable board themes",
     "description": "Multiple visual themes for the chessboard (classic brown, wood, midnight, neon, minimal, etc.). Theme selector surfaced in UI (drawer Settings section or Play page control — implementer decides). Persist preference in localStorage (theme is a long-lived aesthetic preference, not session-scoped — different from feature 10). react-chessboard v5 accepts light/dark square style records on the options object.",

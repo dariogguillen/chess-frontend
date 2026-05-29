@@ -15,7 +15,7 @@ import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chessboard, type PieceDropHandlerArgs, type PieceHandlerArgs } from 'react-chessboard';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { CustomDialog } from '../../components/CustomDialog';
 import { GameOverByAbandonBanner } from '../../components/GameOverByAbandonBanner';
 import { OpponentStatus } from '../../components/OpponentStatus';
@@ -121,6 +121,34 @@ const Play = () => {
   const gameId = room.phase === RoomPhase.InRoom ? room.gameId : null;
   const role = room.phase === RoomPhase.InRoom ? room.role : null;
 
+  // Entry guard (feature 11.8). Two mount-time conditions make `/play` a
+  // dead-end and route us to `/new`:
+  //   1. No room — pasting `/play` into a fresh tab with no rehydrated
+  //      session lands us on the `none` arm, where `roomId` / `gameId` /
+  //      `playerId` are absent and the board can never wire up (the
+  //      "phantom board").
+  //   2. URL-vs-stored mismatch — `/play?roomId=Y` while the rehydrated
+  //      context holds room X. The reconciliation effect below clears the
+  //      stale session via `leaveRoom()`; under the minimal scope (no
+  //      deep-link join — see the feature note) that fresh entry is
+  //      itself a dead-end, so we redirect rather than paint the board.
+  //
+  // The decision is captured ONCE, at mount, via a lazy `useState`
+  // initialiser (runs exactly once per mount, like a Scala `lazy val`),
+  // and rendered as a render-time `<Navigate replace />` short-circuit
+  // below — so the phantom board never paints (no flash) and Back does
+  // not return here. Capturing the MOUNT value (rather than reacting to
+  // every transition into `none`) is what avoids a race with the flows
+  // that already navigate themselves on a post-mount `none`:
+  // `handleAbandonedHome` → `/home`, `handleAbandonedNewGame` / the 404 /
+  // `GAME_ALREADY_ENDED` paths → `/new`. At the moment those run the
+  // captured boolean is already `false`, so this guard stays silent and
+  // never competes with their imperative `navigate(...)`.
+  const [redirectToNewGame] = useState<boolean>(() => {
+    if (room.phase === RoomPhase.None) return true;
+    return roomIdFromUrl !== undefined && room.roomId !== roomIdFromUrl;
+  });
+
   // URL-vs-stored reconciliation. Fires once on mount: if the user
   // navigated to `/play?roomId=Y` while the rehydrated context holds
   // room X, the URL wins and we drop the stale context. The `none` arm
@@ -140,8 +168,12 @@ const Play = () => {
       room.roomId !== roomIdFromUrl
     ) {
       // Mismatch: the URL is authoritative for "which room". Clear the
-      // rehydrated state; the fresh-entry path (no in-room context)
-      // takes over on the next render.
+      // rehydrated session. The redirect to `/new` is handled by the
+      // mount-time `redirectToNewGame` capture above (which detected the
+      // same mismatch on the first render). Behavior change
+      // (feature 11.8): this branch previously only called `leaveRoom()`
+      // and let the fresh-entry path paint the dead-end board; the page
+      // now short-circuits to `/new` with replace instead.
       leaveRoom();
     }
     // Intentionally only depend on the mount-time inputs. `room` and
@@ -708,6 +740,16 @@ const Play = () => {
     navigate('/home');
   };
 
+  // Render-time short-circuit for the entry guard and the reconciliation
+  // mismatch. Placed AFTER all hooks so the Rules of Hooks hold (the hook
+  // call order is identical on the render that returns <Navigate> and on
+  // the ones that render the board). React Router's <Navigate> performs
+  // the redirect in its own effect; with `replace` the dead-end entry is
+  // not pushed onto the history stack, so Back does not return here.
+  if (redirectToNewGame) {
+    return <Navigate to="/new" replace />;
+  }
+
   return (
     <Container maxWidth="xl" sx={{ pt: 4 }}>
       <Grid container spacing={2}>
@@ -769,7 +811,6 @@ const Play = () => {
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
           <Stack spacing={1}>
-            <Typography variant="body1">Options</Typography>
             {viewerCount > 0 && (
               <Tooltip title="Spectators watching this game">
                 <Chip

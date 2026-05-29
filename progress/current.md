@@ -1,39 +1,34 @@
 # Current session
 
-**Status:** closed — `turn-indicator` (priority 11.7) shipped
-2026-05-29 after three rounds. Inline "Your Turn / Opponent's
-Turn" chip live, and OpponentStatus's `ReconnectingChip`
-restructured to a "two surfaces" pattern (visible chip + hidden
-static live region) to prevent screen-reader flood.
+**Status:** closed — `play-no-room-redirect` (priority 11.8) shipped
+2026-05-29 in a single round. `/play` now redirects to `/new` when
+there is no active room (mount-time lazy-`useState` + render-time
+`<Navigate replace>`, no flash / no race); reconciliation-mismatch
+path also redirects; stray "Options" label removed (spectator chip
+preserved). Both reviewers approved.
 
 ## Counts
 
-- **Done:** 29 (priorities 0 → 11.7).
+- **Done:** 30 (priorities 0 → 11.8).
 - **Pending:** 5 (priorities 12, 13, 14, 20, 21).
 
 ## What just closed
 
-`turn-indicator` — three rounds total:
+`play-no-room-redirect` — one round:
 
-- **Round 1**: TurnIndicator chip rendered at the bottom of the
-  board area next to the local player's name. Two visual states
-  (Your Turn filled primary / Opponent's Turn outlined default).
-  ABANDONED-aware (returns null on terminal status, lets
-  GameOverByAbandonBanner take over). 9 component tests + 3
-  Play.tsx tests.
-- **Round 2**: chip width shimmy fix (`CHIP_MIN_WIDTH_PX = 148`)
-  + live-region wrapping (`role="status"` + `aria-live="polite"`)
-  on both TurnIndicator AND OpponentStatus chips for codebase
-  consistency.
-- **Round 3**: a11y restructure of OpponentStatus.ReconnectingChip
-  to the "two surfaces" pattern after ui-reviewer caught a
-  per-second screen-reader flood. Visible chip with mutable
-  countdown stays; sibling visually-hidden Box with static
-  "Opponent reconnecting" announces ONCE on transition. Module-
-  level constants prevent drift.
+- Entry guard: lazy `useState(() => room.phase === RoomPhase.None …)`
+  captures the redirect decision once at mount; render-time
+  `<Navigate to="/new" replace />` short-circuits before the board
+  JSX. Immune to post-mount `none` transitions → no race with
+  `handleAbandonedHome` → `/home`.
+- Reconciliation mismatch path now also redirects to `/new`.
+- Stray `<Typography>Options</Typography>` removed; spectator `Chip`
+  (Tooltip + aria-label) preserved.
+- Scope: minimal redirect. `?roomId` without a session does NOT
+  auto-join (deferred → `play-deeplink-join`).
 
-Vitest 219 → 235 (+16 cumulative). Eager bundle unchanged. Play
-chunk +1.27 kB cumulative. Both reviewers approved Round 3.
+Vitest 235 → 237 (Play suite 35 → 39). Eager bundle unchanged; `Play`
+chunk 206.02 kB (62.95 kB gzip). `./init.sh` + `RUN_E2E=true` green.
 
 ## 📋 Remaining lineup
 
@@ -52,17 +47,24 @@ chunk +1.27 kB cumulative. Both reviewers approved Round 3.
 | Frontend | `https://chess-frontend-52i.pages.dev/` (Cloudflare Pages, MIT) |
 | Backend | `https://chess-backend.duckdns.org/` (AWS EC2 + Caddy + Postgres + Redis) |
 | OpenAPI | `https://chess-backend.duckdns.org/v3/api-docs` |
-| Tests | 235 Vitest + 4 Playwright |
+| Tests | 237 Vitest + 4 Playwright |
 | Bundle initial-load (eager) | 472.55 kB |
 | Refresh-mid-game (feature 10) | ✅ |
 | Opponent disconnect UX (feature 11) | ✅ |
 | State re-sync on WS reconnect (feature 11.1) | ✅ |
 | Move hints (feature 11.5) | ✅ |
 | Ctrl+Shift+T board sync (feature 11.6) | ✅ |
-| **Turn indicator chip (feature 11.7)** | ✅ |
+| Turn indicator chip (feature 11.7) | ✅ |
+| **`/play` no-room redirect (feature 11.8)** | ✅ |
 | Brave Shields caveat | Documented in README |
 
 ## Carry-overs still on the radar
+
+### New from this session
+- **`play-deeplink-join`** (deferred from 11.8): support
+  `/play?roomId=XXX` pasted in a fresh tab to auto-join or spectate
+  without going through `/new`. Needs a join-vs-spectate decision and
+  `POST /api/rooms/{id}/join` wiring; cross-repo considerations.
 
 ### Tech polish
 - `csp-policy`, `og-url-templating`, `wrangler-iac`,
@@ -71,53 +73,47 @@ chunk +1.27 kB cumulative. Both reviewers approved Round 3.
 ### Standing UX / a11y
 - `a11y-pass`, `ux-polish-pass`,
   `roomresponse-role-narrowing-cleanup` (cross-repo).
-- **`opponent-status-i18n-revisit`** (NEW from feature 11.7):
-  `CHIP_MIN_WIDTH_PX = 148` is calibrated to default English
-  font metrics. At 1.5× browser zoom or longer i18n strings the
-  chip may overflow. Future i18n feature should revisit.
-- **`aria-live-pattern-extension`** (NEW): if a third chatty
-  chip appears, hoist `visuallyHiddenSx` to a shared module and
-  apply the "two surfaces" pattern from feature 11.7 Round 3 as
-  the template.
+- `opponent-status-i18n-revisit`: `CHIP_MIN_WIDTH_PX = 148` is
+  calibrated to default English font metrics. At 1.5× zoom or longer
+  i18n strings the chip may overflow. Future i18n feature revisits.
+- `aria-live-pattern-extension`: if a third chatty chip appears,
+  hoist `visuallyHiddenSx` to a shared module and apply the
+  "two surfaces" pattern from feature 11.7 Round 3.
 
 ### Harness / infra
 - `harness-tooling-pass`.
-- **`harness-init-flakiness`** (NEW from feature 11.7
-  reviewers): `./init.sh`'s `npm ci --silent` produces a
-  corrupted `node_modules` in some runs (missing `.bin` links,
-  missing `typescript/lib/*.d.ts`, eslint binstub errors).
-  Suspected interaction between supply-chain hardening
-  (`ignore-scripts=true`, `min-release-age=7`,
-  `legacy-peer-deps=true`) and a recent npm/eslint release.
-  Workaround: `npm install` (not `npm ci`) recovers the tree.
-  Both Round 3 reviewers flagged this independently.
+- **`harness-init-flakiness`**: `./init.sh`'s `npm ci --silent`
+  produces a corrupted `node_modules` in some runs (missing `.bin`
+  links, missing `typescript/lib/*.d.ts`, eslint binstub errors).
+  Suspected interaction between supply-chain hardening and a recent
+  npm/eslint release. Workaround: `npm install` (not `npm ci`)
+  recovers the tree. (Did NOT recur during the 11.8 review run.)
 
 ### Networking robustness
-- **`reconnect-resubscribe`** (open since feature 11.1):
-  stompjs's auto-reconnect does NOT re-issue SUBSCRIBE frames.
-  User's 11.7 smoke-test confirmed the 11.6 always-on resync
-  handles this in practice — but still worth a defensive fix
-  for long-running sessions with multiple WS drops.
+- **`reconnect-resubscribe`** (open since feature 11.1): stompjs's
+  auto-reconnect does NOT re-issue SUBSCRIBE frames. The 11.6
+  always-on resync handles this in practice; still worth a defensive
+  fix for long-running sessions with multiple WS drops.
 
 ### UI polish
-- **`drag-cancel-edge-cases`** (open since feature 11.5):
-  handle right-click + `pointercancel` drag aborts so
-  move-hints don't persist until next state change.
+- **`drag-cancel-edge-cases`** (open since feature 11.5): handle
+  right-click + `pointercancel` drag aborts so move-hints don't
+  persist until next state change.
 
 ### Stretch (not yet queued)
 - `spectator-mode`, `light-theme-polish`, `custom-domain`,
   `e2e-integration`, `replay-mode` (folded into `game-reviews`).
-- `winnerId-on-rest` — expose `winnerId` on `GameStateResponse`
-  so the feature 11 rehydrate path can show personalised banner
-  copy. Backend DTO change; cross-repo.
+- `winnerId-on-rest` — expose `winnerId` on `GameStateResponse` so
+  the feature 11 rehydrate path can show personalised banner copy.
+  Backend DTO change; cross-repo.
 
 ## Next session
 
 Open `board-themes` (priority 12). Plan should cover: at least 3
 themes (e.g. classic, wood, midnight) as typed records with
-light/dark square styles via `alpha()` + theme palette (matches
-the foundation laid in feature 11.5 `useMoveHints`);
-`localStorage` persistence (NOT sessionStorage — themes are
-long-lived aesthetic preferences, NOT session-scoped); theme
-selector component placement (Drawer Settings vs Play page
-control — implementer decides); default fallback on first mount.
+light/dark square styles via `alpha()` + theme palette (matches the
+foundation laid in feature 11.5 `useMoveHints`); `localStorage`
+persistence (NOT sessionStorage — themes are long-lived aesthetic
+preferences); theme selector component placement (Drawer Settings vs
+Play page control — implementer decides); default fallback on first
+mount.

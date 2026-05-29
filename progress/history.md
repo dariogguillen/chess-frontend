@@ -3633,3 +3633,42 @@ constant as single source of truth).
   the codebase, the "two surfaces" pattern from Round 3 is the
   template. `visuallyHiddenSx` could be hoisted to a shared
   module if a third consumer appears.
+
+## 2026-05-29 — play-no-room-redirect
+
+**Status:** done
+
+**Summary:** Closed the dead-end-phantom-board bug surfaced during the
+user's live smoke test: opening `/play` directly (e.g. pasting the
+deployed URL in a fresh tab) with no active room rendered a board with
+"Waiting for opponent", "Room ID: —", and the "Guest" placeholder, but
+no `roomId`/`gameId`/`playerId` — so nobody could ever join. Added a
+mount-time entry guard in `Play.tsx`: a lazy `useState(() => ...)`
+captures the redirect decision once at mount (immune to post-mount
+transitions into `phase === none`), and a render-time
+`<Navigate to="/new" replace />` short-circuits before the board JSX is
+ever produced (no paint flash, no race with `handleAbandonedHome`'s
+`navigate('/home')`). The URL-vs-stored reconciliation mismatch path now
+also redirects to `/new` instead of leaving the phantom board. Scope was
+deliberately minimal: `?roomId` in the URL without a valid session does
+NOT auto-join — deep-link join was considered and deferred to a future
+`play-deeplink-join` feature. Also removed the stray `<Typography>
+Options</Typography>` label (no handler; only headed the spectator-count
+chip), keeping the chip with its Tooltip + aria-label. Both ui-reviewer
+and reviewer approved; `./init.sh` green (+ `RUN_E2E=true`), Vitest
+235 → 237 (Play suite 35 → 39 after replacing 4 stale phantom-board
+tests with redirect/non-regression tests). Bundle: `Play` chunk 206.02
+kB (62.95 kB gzip), eager bundle unchanged.
+
+**Files touched:** `src/pages/Play/Play.tsx`,
+`src/pages/Play/Play.test.tsx`, `notes/11.8-play-no-room-redirect.md`.
+
+**Feature note:** `notes/11.8-play-no-room-redirect.md`.
+
+**Carry-over identified:**
+
+- `play-deeplink-join` (NEW, deferred from this feature's scope):
+  support `/play?roomId=XXX` pasted in a fresh tab to auto-join or
+  spectate without going through `/new`. Needs a join-vs-spectate
+  decision and `POST /api/rooms/{id}/join` wiring; cross-repo
+  considerations.

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Play from './Play';
 import { UserContextProvider } from '../../context';
 import type { RoomState } from '../../context/UserContext';
@@ -185,6 +185,25 @@ const renderWithProviders = (initialEntry: string = '/play', initialRoom?: RoomS
     </MemoryRouter>,
   );
 
+// Render Play inside a real route tree with a `/new` sentinel. The
+// feature-11.8 entry guard redirects via React Router's <Navigate>,
+// which calls the REAL useNavigate (the suite's mock only intercepts the
+// hook our own code calls imperatively — <Navigate> closes over the
+// library's own binding). So the redirect is observed by asserting the
+// `/new` sentinel renders, not via navigateMock.
+const NewGameSentinel = () => <div data-testid="new-game-route" />;
+const renderWithRoutes = (initialEntry: string = '/play', initialRoom?: RoomState) =>
+  render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <UserContextProvider initialRoom={initialRoom}>
+        <Routes>
+          <Route path="/play" element={<Play />} />
+          <Route path="/new" element={<NewGameSentinel />} />
+        </Routes>
+      </UserContextProvider>
+    </MemoryRouter>,
+  );
+
 beforeEach(() => {
   currentMockClient = null;
   mockClients = [];
@@ -203,27 +222,61 @@ afterEach(() => {
 });
 
 describe('Play page', () => {
-  it('renders the waiting-for-opponent state when no opponent is set', () => {
-    renderWithProviders();
-    expect(screen.getByText(/waiting for opponent/i)).toBeInTheDocument();
+  // ---------------------------------------------------------------
+  // play-no-room-redirect (feature 11.8)
+  // ---------------------------------------------------------------
+  //
+  // Entry guard: mounting `/play` on the `none` room arm (a fresh tab,
+  // no rehydrated session) is a dead-end — there is no roomId / gameId /
+  // playerId, so the board can never wire up. The page redirects to
+  // `/new` (render-time <Navigate replace />) instead of painting the
+  // phantom board. We assert the redirect by landing on the `/new`
+  // route sentinel and by the absence of the board.
+
+  it('redirects a no-room mount to /new and does not render the board', async () => {
+    renderWithRoutes();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('new-game-route')).toBeInTheDocument();
+    });
+    // The phantom board never paints — the page short-circuits to
+    // <Navigate> before the board markup is reached.
+    expect(screen.queryByTestId('chessboard-mock')).not.toBeInTheDocument();
+    expect(screen.queryByText(/waiting for opponent/i)).not.toBeInTheDocument();
   });
 
-  it('reflects the roomId in the room-id label when present in the URL', () => {
-    renderWithProviders('/play?roomId=abc-123');
-    expect(screen.getByText(/room id:/i)).toBeInTheDocument();
-  });
+  it('redirects to /new even when a ?roomId is present but there is no session (no deep-link join)', async () => {
+    // Scope decision: ?roomId without a valid in-room session does NOT
+    // auto-join (deep-link join is deferred). phase === none redirects
+    // regardless of the query param.
+    renderWithRoutes('/play?roomId=abc-123');
 
-  it('renders the chessboard host element without throwing', () => {
-    const { container } = renderWithProviders();
-    expect(container).toBeTruthy();
-    expect(screen.getByText(/^Guest$/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('new-game-route')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('chessboard-mock')).not.toBeInTheDocument();
   });
 
   it('does not open a STOMP connection when there is no room (gameId null)', () => {
     renderWithProviders();
-    // Without an in-room context, the hook is a no-op and never builds
-    // a client.
+    // Without an in-room context, the page redirects and the hook is a
+    // no-op — never builds a client.
     expect(currentMockClient).toBeNull();
+  });
+
+  it('renders the board and does not redirect when mounted with a valid in-room session', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chessboard-mock')).toBeInTheDocument();
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('loads the game state and shows the opponent name when in a room with a gameId', async () => {
@@ -634,9 +687,11 @@ describe('Play page', () => {
     expect(roomGetCalls).toBe(0);
   });
 
-  it('rehydrate mismatch (URL roomId != stored) clears the session', async () => {
-    // Storage holds room K7M3X9 but the URL says OTHER1. The Play
-    // page reconciles by calling leaveRoom, which clears storage.
+  it('rehydrate mismatch (URL roomId != stored) clears the session and redirects to /new', async () => {
+    // Storage holds room K7M3X9 but the URL says OTHER1. The Play page
+    // reconciles by calling leaveRoom (clearing storage) and, under the
+    // minimal scope (feature 11.8: no deep-link join), redirects to
+    // `/new` with replace instead of leaving the phantom board behind.
     const session: StoredSession = {
       roomId: 'K7M3X9',
       playerId: 'player-1',
@@ -649,7 +704,10 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=OTHER1']}>
         <UserContextProvider>
-          <Play />
+          <Routes>
+            <Route path="/play" element={<Play />} />
+            <Route path="/new" element={<NewGameSentinel />} />
+          </Routes>
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -658,11 +716,12 @@ describe('Play page', () => {
     await waitFor(() => {
       expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
     });
-    // After clearing, the page falls through to the fresh-entry path —
-    // no in-room context, no game GET, no opponent name. The identity
-    // displayName (rehydrated from the session) is still rendered as
-    // the local "who you are" label.
-    expect(screen.getByText(/^Alice$/)).toBeInTheDocument();
+    // Behavior change (feature 11.8): instead of painting the dead-end
+    // board, the mismatch path routes to `/new` with replace.
+    await waitFor(() => {
+      expect(screen.getByTestId('new-game-route')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('chessboard-mock')).not.toBeInTheDocument();
   });
 
   it('clears the session and navigates to /new when the rehydrate GET returns GAME_NOT_FOUND', async () => {
@@ -1163,6 +1222,71 @@ describe('Play page', () => {
 
     expect(await screen.findByLabelText(/waiting for opponent to move/i)).toBeInTheDocument();
     expect(screen.getByText(/^Opponent's Turn$/)).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------
+  // play-no-room-redirect (feature 11.8) — additional guards
+  // ---------------------------------------------------------------
+
+  it('non-regression: abandonment → Home navigates to /home, not /new', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    const client = currentMockClient as MockStompClient;
+
+    act(() => {
+      client.dispatch<GameTopicEvent>(
+        '/topic/games/game-uuid-1',
+        sampleGameAbandoned({ abandonedBy: 'player-2', winnerId: 'player-1' }),
+      );
+    });
+
+    const homeButton = await screen.findByRole('button', { name: /^home$/i });
+    const user = userEvent.setup();
+    await user.click(homeButton);
+
+    // The abandonment flow navigates itself to /home. The mount-time
+    // entry guard must NOT race it with a /new redirect — the guard
+    // captured the in-room phase at mount and ignores the later
+    // transition into `none` that leaveRoom triggers.
+    expect(navigateMock).toHaveBeenCalledWith('/home');
+    expect(navigateMock).not.toHaveBeenCalledWith('/new', expect.anything());
+  });
+
+  it('does not render the stray "Options" label but keeps the spectator chip when viewerCount > 0', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    const client = currentMockClient as MockStompClient;
+
+    // The stray header is gone in all states.
+    expect(screen.queryByText(/^Options$/)).not.toBeInTheDocument();
+
+    act(() => {
+      const evt: ViewerCountEvent = { gameId: 'game-uuid-1', count: 2 };
+      client.dispatch<ViewerCountEvent>('/topic/games/game-uuid-1/viewers', evt);
+    });
+
+    // The spectator chip (with its Tooltip + aria-label) still renders.
+    expect(await screen.findByLabelText(/2 spectators watching this game/i)).toBeInTheDocument();
+    // And still no "Options" header above it.
+    expect(screen.queryByText(/^Options$/)).not.toBeInTheDocument();
   });
 
   it('TurnIndicator is hidden on terminal status (CHECKMATE)', async () => {
