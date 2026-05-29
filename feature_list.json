@@ -578,7 +578,7 @@
     "id": "about-page-real",
     "title": "Build out the about page (replace WIP placeholder)",
     "description": "Replace the WIP placeholder at src/pages/About/ with a real about page. Content: project background, tech stack overview, links to backend repo (chess-backend-java), license, harness engineering docs (CLAUDE.md / AGENTS.md / progress/). Controlled overlap with the README — in-app voice is more conversational and shorter.",
-    "status": "pending",
+    "status": "in_progress",
     "priority": 14,
     "acceptance": [
       "src/pages/About/ replaces the WIP placeholder.",

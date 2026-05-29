@@ -1,6 +1,7 @@
 import { lazy } from 'react';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import App from '../App';
+import About from '../pages/About';
 import ErrorPage from '../pages/Error';
 import Home from '../pages/Home';
 import WIP from '../pages/WIP';
@@ -36,7 +37,7 @@ const router = createBrowserRouter(
         { path: 'new', element: <NewGame /> },
         { path: 'play', element: <Play /> },
         { path: 'login', element: <WIP str="Log in" /> },
-        { path: 'about', element: <WIP str="About" /> },
+        { path: 'about', element: <About /> },
       ],
     },
   ],
