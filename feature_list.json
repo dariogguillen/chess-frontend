@@ -545,7 +545,7 @@
     "id": "home-page-real",
     "title": "Build out the home page (replace WIP placeholder)",
     "description": "Replace the WIP placeholder at src/pages/Home/ with a real landing page. Content to define in plan: hero / value proposition, primary 'Create Room' CTA, secondary nav to /about, possibly recent activity if backend exposes it. Tone matches existing project prose (direct, no marketing fluff). Should NOT duplicate the README — in-app voice is shorter and action-oriented.",
-    "status": "pending",
+    "status": "done",
     "priority": 13,
     "acceptance": [
       "src/pages/Home/ replaces the WIP placeholder with a real landing.",

@@ -2,6 +2,7 @@ import { lazy } from 'react';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import App from '../App';
 import ErrorPage from '../pages/Error';
+import Home from '../pages/Home';
 import WIP from '../pages/WIP';
 
 const NewGame = lazy(() => import('../pages/NewGame'));
@@ -31,7 +32,7 @@ const router = createBrowserRouter(
       errorElement: <ErrorPage />,
       children: [
         { index: true, element: <Navigate to="/home" replace /> },
-        { path: 'home', element: <WIP str="Home" /> },
+        { path: 'home', element: <Home /> },
         { path: 'new', element: <NewGame /> },
         { path: 'play', element: <Play /> },
         { path: 'login', element: <WIP str="Log in" /> },

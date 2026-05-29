@@ -3718,3 +3718,32 @@ whitespace drift in `notes/11.8-play-no-room-redirect.md` that had left
   barrels, `UserContext`, `Drawer`, and the two new board-theme
   barrels following the same convention). Warnings only, 0 errors.
   Candidate for a future `harness-tooling-pass`.
+
+## 2026-05-29 — home-page-real
+
+**Status:** done
+
+**Summary:** Replaced the generic `<WIP str="Home" />` placeholder at
+`/home` (`src/routes/Public.tsx:35`) with a real landing page in
+`src/pages/Home/`. `WIP.tsx` is preserved — `/login` and `/about` still
+use it. The page is eagerly imported (not `React.lazy` like `/new` and
+`/play` from feature 3.92) because `/home` is the default-redirect
+target and the first screen a visitor sees; a Suspense spinner on
+first paint would be wrong, and the page is light (~+1.4 kB raw on the
+initial chunk). Content (in-app voice, honest to shipped behavior — no
+accounts/bots/timers): hero `<h1>` "Play chess in a shared room" +
+value prop, primary contained CTA "New Game" → `/new`, three capability
+cards (real-time play, share-a-link no-signup, five board themes — the
+count verified against `src/boardThemes.ts`), and a secondary text
+button "About" → `/about`. Responsive (cards stack column on xs, row on
+sm+; breakpoint padding); single `<h1>` with a clean h1→h2 outline
+(Header wordmark is `component="div"`, no collision); CTAs are real
+buttons. Both reviewers approved; `./init.sh` green; Vitest 250 → 253
+(+3: render, CTA→/new, nav→/about, via route sentinels, no providers
+needed). No new deps, no schema change, README/architecture untouched.
+
+**Files touched:** `src/pages/Home/Home.tsx` (new),
+`src/pages/Home/index.tsx` (new), `src/pages/Home/Home.test.tsx` (new),
+`src/routes/Public.tsx` (eager `Home` import + `/home` element swap).
+
+**Feature note:** `notes/13-home-page-real.md`.
