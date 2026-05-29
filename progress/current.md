@@ -1,38 +1,39 @@
 # Current session
 
-**Status:** closed — `restore-tab-resync` (priority 11.6) shipped
-2026-05-28. Ctrl+Shift+T board-divergence bug fixed via
-defense-in-depth: AbortController removed from initial-load +
-initial-mount suppression removed from resync.
+**Status:** closed — `turn-indicator` (priority 11.7) shipped
+2026-05-29 after three rounds. Inline "Your Turn / Opponent's
+Turn" chip live, and OpponentStatus's `ReconnectingChip`
+restructured to a "two surfaces" pattern (visible chip + hidden
+static live region) to prevent screen-reader flood.
 
 ## Counts
 
-- **Done:** 28 (priorities 0 → 11.6).
+- **Done:** 29 (priorities 0 → 11.7).
 - **Pending:** 5 (priorities 12, 13, 14, 20, 21).
 
 ## What just closed
 
-`restore-tab-resync` — two surgical changes in `Play.tsx`:
+`turn-indicator` — three rounds total:
 
-1. Initial-load effect drops `AbortController`. Cleanup retains
-   only `cancelled = true`. Fetch is allowed to complete
-   naturally; the flag suppresses stale state writes.
-2. Resync effect (feature 11.1) drops initial-mount suppression.
-   Fires on every transition INTO Connected, including the first
-   one. Deliberate idempotent double-fetch on happy-path mount
-   (~500 bytes, idempotent) as defense in depth.
+- **Round 1**: TurnIndicator chip rendered at the bottom of the
+  board area next to the local player's name. Two visual states
+  (Your Turn filled primary / Opponent's Turn outlined default).
+  ABANDONED-aware (returns null on terminal status, lets
+  GameOverByAbandonBanner take over). 9 component tests + 3
+  Play.tsx tests.
+- **Round 2**: chip width shimmy fix (`CHIP_MIN_WIDTH_PX = 148`)
+  + live-region wrapping (`role="status"` + `aria-live="polite"`)
+  on both TurnIndicator AND OpponentStatus chips for codebase
+  consistency.
+- **Round 3**: a11y restructure of OpponentStatus.ReconnectingChip
+  to the "two surfaces" pattern after ui-reviewer caught a
+  per-second screen-reader flood. Visible chip with mutable
+  countdown stays; sibling visually-hidden Box with static
+  "Opponent reconnecting" announces ONCE on transition. Module-
+  level constants prevent drift.
 
-Root cause was forensic-confirmed: under `back_forward` navigation
-(Ctrl+Shift+T session restore) + React.lazy + Suspense + React 19
-concurrent rendering, the initial-load effect's cleanup ran
-transiently mid-fetch and `ac.abort()` killed the GET
-(transferSize 0). Resync was the intended safety net but the
-initial-mount suppression prevented recovery.
-
-Round 1 only — both reviewers approved without blocking
-observations. Vitest 217 → 219 (+2 net). Playwright 4 → 4
-(bfcache skip documented). Eager bundle unchanged; Play chunk
--0.16 kB.
+Vitest 219 → 235 (+16 cumulative). Eager bundle unchanged. Play
+chunk +1.27 kB cumulative. Both reviewers approved Round 3.
 
 ## 📋 Remaining lineup
 
@@ -51,13 +52,14 @@ observations. Vitest 217 → 219 (+2 net). Playwright 4 → 4
 | Frontend | `https://chess-frontend-52i.pages.dev/` (Cloudflare Pages, MIT) |
 | Backend | `https://chess-backend.duckdns.org/` (AWS EC2 + Caddy + Postgres + Redis) |
 | OpenAPI | `https://chess-backend.duckdns.org/v3/api-docs` |
-| Tests | 219 Vitest + 4 Playwright |
+| Tests | 235 Vitest + 4 Playwright |
 | Bundle initial-load (eager) | 472.55 kB |
-| Refresh-mid-game (feature 10) | ✅ Fixed |
-| Opponent disconnect UX (feature 11) | ✅ Inline chip + countdown banner |
-| State re-sync on WS reconnect (feature 11.1) | ✅ Fixed |
-| Move hints (feature 11.5) | ✅ Live |
-| **Ctrl+Shift+T board sync (feature 11.6)** | ✅ **Fixed (pending user smoke)** |
+| Refresh-mid-game (feature 10) | ✅ |
+| Opponent disconnect UX (feature 11) | ✅ |
+| State re-sync on WS reconnect (feature 11.1) | ✅ |
+| Move hints (feature 11.5) | ✅ |
+| Ctrl+Shift+T board sync (feature 11.6) | ✅ |
+| **Turn indicator chip (feature 11.7)** | ✅ |
 | Brave Shields caveat | Documented in README |
 
 ## Carry-overs still on the radar
@@ -69,23 +71,38 @@ observations. Vitest 217 → 219 (+2 net). Playwright 4 → 4
 ### Standing UX / a11y
 - `a11y-pass`, `ux-polish-pass`,
   `roomresponse-role-narrowing-cleanup` (cross-repo).
+- **`opponent-status-i18n-revisit`** (NEW from feature 11.7):
+  `CHIP_MIN_WIDTH_PX = 148` is calibrated to default English
+  font metrics. At 1.5× browser zoom or longer i18n strings the
+  chip may overflow. Future i18n feature should revisit.
+- **`aria-live-pattern-extension`** (NEW): if a third chatty
+  chip appears, hoist `visuallyHiddenSx` to a shared module and
+  apply the "two surfaces" pattern from feature 11.7 Round 3 as
+  the template.
 
 ### Harness / infra
 - `harness-tooling-pass`.
+- **`harness-init-flakiness`** (NEW from feature 11.7
+  reviewers): `./init.sh`'s `npm ci --silent` produces a
+  corrupted `node_modules` in some runs (missing `.bin` links,
+  missing `typescript/lib/*.d.ts`, eslint binstub errors).
+  Suspected interaction between supply-chain hardening
+  (`ignore-scripts=true`, `min-release-age=7`,
+  `legacy-peer-deps=true`) and a recent npm/eslint release.
+  Workaround: `npm install` (not `npm ci`) recovers the tree.
+  Both Round 3 reviewers flagged this independently.
 
 ### Networking robustness
 - **`reconnect-resubscribe`** (open since feature 11.1):
   stompjs's auto-reconnect does NOT re-issue SUBSCRIBE frames.
-  The always-on resync from feature 11.6 covers state
-  reconciliation but does NOT close the live-event stream gap.
-  Opponent moves after a reconnect won't reach the page until
-  next mount. For long-running sessions with multiple WS drops,
-  this becomes user-visible.
+  User's 11.7 smoke-test confirmed the 11.6 always-on resync
+  handles this in practice — but still worth a defensive fix
+  for long-running sessions with multiple WS drops.
 
 ### UI polish
 - **`drag-cancel-edge-cases`** (open since feature 11.5):
-  handle right-click + `pointercancel` drag aborts so move-hints
-  don't persist until next state change.
+  handle right-click + `pointercancel` drag aborts so
+  move-hints don't persist until next state change.
 
 ### Stretch (not yet queued)
 - `spectator-mode`, `light-theme-polish`, `custom-domain`,
@@ -104,14 +121,3 @@ the foundation laid in feature 11.5 `useMoveHints`);
 long-lived aesthetic preferences, NOT session-scoped); theme
 selector component placement (Drawer Settings vs Play page
 control — implementer decides); default fallback on first mount.
-
-## User verification recommended
-
-After production deploys, please reproduce the exact original
-bug scenario one more time:
-- Two tabs, make moves, close one tab, restore via Ctrl+Shift+T.
-- Expected: restored tab's board recovers to current position
-  within ~1s of WS Connected (no longer needs opponent move to
-  recover).
-- If still broken: the forensic data captured pre-fix would be
-  invaluable to re-diagnose (`performance.getEntriesByType` etc).

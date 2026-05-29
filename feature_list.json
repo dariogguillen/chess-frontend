@@ -488,6 +488,25 @@
     ]
   },
   {
+    "id": "turn-indicator",
+    "title": "Show whose turn it is — 'Your Turn' / 'Opponent's Turn' indicator chip",
+    "description": "User-requested UX: a small indicator next to the local player's display name (bottom of the board area) telling them whose turn it is, in user-relative terms (not color-relative). 'Your Turn' when it's the local player's turn, 'Opponent's Turn' otherwise. Hidden when there's no active game, while waiting for opponent, and on terminal status. Visual treatment uses MUI Chip consistent with the OpponentStatus chip from feature 11 (placed next to opponent's name on top). Cross-repo: zero — chess.js already exposes turn via gameState.turn, role is from UserContext.",
+    "status": "done",
+    "priority": 11.7,
+    "acceptance": [
+      "src/components/TurnIndicator/TurnIndicator.tsx (new) renders a MUI Chip with two visual states: 'Your Turn' (filled, primary color — affordance to move) and 'Opponent's Turn' (outlined or info color, less prominent — passive state). Props: { gameState: GameState | null, role: Role | null }. Returns null when gameState === null OR role === null OR the game is in a terminal status (isTerminalStatus(gameState.status) === true).",
+      "Chip carries an explicit aria-label ('It is your turn to move' / 'Waiting for opponent to move') so screen readers announce the state.",
+      "src/components/TurnIndicator/TurnIndicator.test.tsx covers: null gameState → null render; null role → null render; matching turn (gameState.turn === role) → 'Your Turn'; mismatched turn → 'Opponent's Turn'; terminal status (CHECKMATE/STALEMATE/DRAW/ABANDONED) → null render regardless of turn.",
+      "src/components/TurnIndicator/index.ts re-exports the component (barrel pattern consistent with OpponentStatus, GameOverByAbandonBanner).",
+      "src/pages/Play/Play.tsx renders <TurnIndicator gameState={gameState} role={role} /> next to the local player's display name at the bottom of the board area (same Stack pattern as the OpponentStatus chip next to opponent name at the top).",
+      "src/pages/Play/Play.test.tsx adds a small smoke test verifying the chip appears with the correct label when the game is active and the local player's turn (or the opponent's), and disappears on terminal status.",
+      "Visual treatment uses theme.palette tokens via MUI sx (no hex literals). Matches the chip styling vocabulary from feature 11.",
+      "Bundle delta minimal — one small new component, no new deps.",
+      "openapi.json untouched.",
+      "./init.sh passes; RUN_E2E=true ./init.sh passes."
+    ]
+  },
+  {
     "id": "board-themes",
     "title": "Selectable board themes",
     "description": "Multiple visual themes for the chessboard (classic brown, wood, midnight, neon, minimal, etc.). Theme selector surfaced in UI (drawer Settings section or Play page control — implementer decides). Persist preference in localStorage (theme is a long-lived aesthetic preference, not session-scoped — different from feature 10). react-chessboard v5 accepts light/dark square style records on the options object.",

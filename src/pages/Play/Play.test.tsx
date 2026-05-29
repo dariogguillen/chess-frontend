@@ -1130,4 +1130,57 @@ describe('Play page', () => {
     expect(await screen.findByRole('button', { name: /continue/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^new game$/i })).not.toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------
+  // turn-indicator (priority 11.7)
+  // ---------------------------------------------------------------
+
+  it("renders the TurnIndicator chip with 'Your Turn' when it is the local player's turn", async () => {
+    // Local player is WHITE; initial FEN has WHITE to move, so the chip
+    // should resolve to the active arm.
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ turn: 'WHITE' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    expect(await screen.findByLabelText(/it is your turn to move/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Your Turn$/)).toBeInTheDocument();
+  });
+
+  it("renders the TurnIndicator chip with 'Opponent's Turn' when it is the opponent's turn", async () => {
+    // Local player is WHITE; FEN says BLACK to move, so the chip should
+    // resolve to the passive arm.
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ turn: 'BLACK' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    expect(await screen.findByLabelText(/waiting for opponent to move/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Opponent's Turn$/)).toBeInTheDocument();
+  });
+
+  it('TurnIndicator is hidden on terminal status (CHECKMATE)', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ status: 'CHECKMATE', turn: 'BLACK' }), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    // Wait for the terminal dialog to appear, which confirms the GET has
+    // resolved and the page has reacted to the CHECKMATE status.
+    await screen.findByRole('heading', { name: /white wins/i });
+
+    expect(screen.queryByLabelText(/it is your turn to move/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/waiting for opponent to move/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Your Turn$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Opponent's Turn$/)).not.toBeInTheDocument();
+  });
 });

@@ -3457,3 +3457,179 @@ re-issue SUBSCRIBE frames; the always-on resync covers the state
 reconciliation but does NOT close the live-event stream gap. For
 long-running sessions with multiple WS drops, opponent moves
 after a reconnect still won't reach the page until next mount.
+
+---
+
+## 2026-05-29 — Closed `turn-indicator` (priority 11.7)
+
+**User request**: during smoke-testing feature 11.6 in production,
+the user asked for a small UX affordance — a chip next to the
+local player's display name (bottom of board area) showing whose
+turn it is in user-relative terms. Verbatim:
+
+> "podemos poner por ahi algo como Opponent's Turn o algo asi,
+> cuando no sea el propio turno, y Your Turn cuando si lo sea?"
+
+**Round 1 — base implementation**:
+
+- New pure presentational component
+  `src/components/TurnIndicator/TurnIndicator.tsx` with props
+  `{ gameState, role }`. Returns null when gameState/role null or
+  game terminal status (Checkmate/Stalemate/Draw/Abandoned).
+- Two visual states: "Your Turn" filled primary + PlayArrowIcon
+  (active affordance); "Opponent's Turn" outlined default +
+  HourglassEmptyIcon (subdued passive).
+- aria-label explicit ("It is your turn to move" / "Waiting for
+  opponent to move") for screen readers.
+- Rendered inside the local-player Grid with a `Stack
+  direction="row" alignItems="center" spacing={1}` wrapper
+  mirroring the OpponentStatus pattern at the top.
+- 9 unit tests in `TurnIndicator.test.tsx` (covering null states,
+  matching/mismatched turns including both white and black
+  perspectives, all four terminal statuses → null) + 3 in
+  `Play.test.tsx`.
+- ABANDONED interaction with feature 11's
+  GameOverByAbandonBanner: TurnIndicator returns null (via
+  isTerminalStatus), so the banner has the user's attention
+  exclusively. Reviewer flagged this as the highest-risk
+  interaction and verified it's correct.
+- `Side` vs `Role` type comparison: both `as const` derived to
+  `'WHITE' | 'BLACK'`, structurally compatible, no cast needed.
+
+Both reviewers APPROVED Round 1 with two non-blocking
+observations (chip width shimmy + aria-live missing for chip
+transitions). User picked the ambitious option to fix both
+chips + restructure if needed.
+
+**Round 2 — polish**:
+
+- Added `CHIP_MIN_WIDTH_PX = 148` constant + `minWidth` on both
+  TurnIndicator arms to lock the chip width and prevent
+  horizontal shimmy when the turn flips.
+- Wrapped both arms in `<Box role="status" aria-live="polite">`
+  for screen-reader transition announcements.
+- Same live-region treatment applied to OpponentStatus's two
+  visible arms (Reconnecting + Abandoned) for codebase
+  consistency.
+- 1 new test in each component asserting `getByRole('status')` +
+  `aria-live="polite"`.
+
+ui-reviewer REQUEST-CHANGES'd Round 2 on a real a11y problem the
+plan didn't anticipate: OpponentStatus.ReconnectingChip's
+`setInterval` updates the chip label every 1 second during the
+grace period (~30-90s). With `aria-live="polite"` on the
+wrapper, EACH per-second label update queues a new screen-reader
+announcement — `polite` doesn't deduplicate, it just doesn't
+interrupt. AT users would get ~30-90 queued
+"Reconnecting · 89s... Reconnecting · 88s..." announcements,
+some surviving past the actual reconnect.
+
+User picked the ambitious restructure option for Round 3.
+
+**Round 3 — a11y restructure ("two surfaces" pattern)**:
+
+- Removed `role="status"` / `aria-live="polite"` from the
+  ReconnectingChip's outer wrapper.
+- Added a sibling visually-hidden Box with `role="status"` +
+  `aria-live="polite"` holding STATIC text "Opponent
+  reconnecting". Mounts when the disconnected arm renders —
+  screen reader announces ONCE. Doesn't re-announce on label
+  ticks because content is a module-level constant.
+- Changed the visible Chip's `aria-label` to the same static
+  string. The visible label text (with countdown) is still
+  updated per second for sighted users.
+- Hoisted constants: `RECONNECTING_ANNOUNCEMENT` (single source
+  of truth for both surfaces) + `visuallyHiddenSx` (canonical
+  sr-only CSS recipe).
+- Removed an obsolete singular/plural aria-label test (the
+  static string has no English-grammar concern). Added 3 new
+  tests: live-region static text + no countdown digits, visible
+  chip aria-label static + no countdown digits, visible chip
+  label STILL ticks per second.
+- AbandonedChip live region unchanged (static text, no flood
+  risk).
+- TurnIndicator live regions unchanged (text changes only on
+  turn flip, low frequency).
+
+Both reviewers APPROVED Round 3.
+
+**Files**:
+
+- New: `src/components/TurnIndicator/TurnIndicator.tsx` +
+  `.test.tsx` + `index.tsx` (barrel),
+  `notes/11.7-turn-indicator.md`.
+- Modified: `src/pages/Play/Play.tsx` (import + Stack wrapper at
+  local-player Grid),
+  `src/pages/Play/Play.test.tsx` (3 new tests),
+  `src/components/OpponentStatus/OpponentStatus.tsx` (Round 2:
+  Box live-region wrappers; Round 3: ReconnectingChip
+  restructure with visually-hidden live region sibling) +
+  `OpponentStatus.test.tsx`.
+
+**Verification** (cumulative, all rounds):
+
+- Vitest: 219 → 235 (+16: 9 TurnIndicator + 3 Play + 3 a11y
+  tests added, 1 obsolete singular/plural removed).
+- Playwright: 4 → 4 (untouched).
+- Eager bundle: 472.55 → 472.55 kB (no change — TurnIndicator
+  rides in Play lazy chunk).
+- Play chunk: 204.68 → 205.95 kB (+1.27 kB cumulative).
+- `./init.sh` green (after a `npm install` to recover from a
+  `npm ci` flake — see infra note below). `RUN_E2E=true ./init.sh`
+  green.
+
+**Decisions documented in the feature note**:
+
+- Visual choice: `default` color over `info` for "Opponent's
+  Turn" passive arm — subdued visual weight for the steady
+  state.
+- `index.tsx` (not `.ts`) — matches OpponentStatus barrel
+  convention.
+- `default` (not `info`) for passive state — implementer's
+  framing partially incorrect about co-location (chips are at
+  different parts of page), but "subdued for passive" is
+  correct on its own merit.
+- `Side` vs `Role`: structurally compatible as-const derived
+  types; comparison works without cast.
+- `CHIP_MIN_WIDTH_PX = 148` named constant for future i18n
+  revisit.
+- Live region restructure for chips with per-second-updating
+  labels: separate the visible chip (with mutable label) from a
+  visually-hidden live region (with static announcement text).
+  Module-level constant prevents drift between the two
+  surfaces.
+- `visuallyHiddenSx` canonical sr-only CSS (NOT `display: none`
+  / `visibility: hidden` which would also hide from AT).
+
+**Note**: `notes/11.7-turn-indicator.md`. Covers the pure
+presentational component pattern (props in → JSX out; component
+as named derivation; Cats Eq[A] typeclass derivation analogue),
+discriminated-rendering returning null for hidden states
+(cleaner than ternary wrapping; component honest about
+identity), aria-label as semantic source of truth (visual signal
+vs semantic signal must be consistent), user-relative vs
+color-relative ("is it my turn?" is the right mental model — not
+"is it black's turn?"), and the Round 3 "two surfaces" a11y
+pattern for chips with per-second-updating labels (separate
+visible from announced; visually-hidden CSS recipe; module-level
+constant as single source of truth).
+
+**Carry-overs identified during reviews**:
+
+- `harness-init-flakiness` (NEW): `./init.sh`'s `npm ci`
+  produces a corrupted `node_modules` in some runs (missing
+  `.bin` links, missing `typescript/lib/*.d.ts`, eslint binstub
+  errors). Suspected interaction between supply-chain hardening
+  (`ignore-scripts=true`, `min-release-age=7`,
+  `legacy-peer-deps=true`) and a recent npm/eslint release.
+  Workaround: `npm install` (not `npm ci`) recovers the tree.
+  Both reviewers flagged this. Either fold into
+  `harness-tooling-pass` or open as a standalone fix.
+- `opponent-status-i18n-revisit` (NEW): the `minWidth: 148px`
+  on the TurnIndicator chip is calibrated to default English font
+  metrics. At 1.5× browser zoom or longer i18n strings, the chip
+  may overflow / truncate. Future i18n feature should revisit.
+- `aria-live-pattern-extension`: if more chatty chips appear in
+  the codebase, the "two surfaces" pattern from Round 3 is the
+  template. `visuallyHiddenSx` could be hoisted to a shared
+  module if a third consumer appears.

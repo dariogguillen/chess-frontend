@@ -20,6 +20,7 @@ import { CustomDialog } from '../../components/CustomDialog';
 import { GameOverByAbandonBanner } from '../../components/GameOverByAbandonBanner';
 import { OpponentStatus } from '../../components/OpponentStatus';
 import { PromotionDialog } from '../../components/PromotionDialog';
+import { TurnIndicator } from '../../components/TurnIndicator';
 import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
 import {
   GameStatus,
@@ -761,7 +762,10 @@ const Play = () => {
           </Box>
         </Grid>
         <Grid size={{ xs: 12, md: 8 }}>
-          <Typography variant="body1">{displayName}</Typography>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Typography variant="body1">{displayName}</Typography>
+            <TurnIndicator gameState={gameState} role={role} />
+          </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
           <Stack spacing={1}>

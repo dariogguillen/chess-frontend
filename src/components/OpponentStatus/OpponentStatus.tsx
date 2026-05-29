@@ -1,4 +1,4 @@
-import { Chip } from '@mui/material';
+import { Box, Chip } from '@mui/material';
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import { useEffect, useState } from 'react';
@@ -25,11 +25,29 @@ import type { OpponentConnectionStatus } from '../../api/wsEvents';
  *    state.
  *
  * Accessibility:
- *  - The chip carries an explicit `aria-label` describing the state in
- *    words ("Opponent reconnecting, 42 seconds remaining") so screen
- *    readers do not depend on the visible string format.
  *  - The chip is small and out-of-band; the page never relies on the
  *    icon alone to convey meaning.
+ *  - `abandoned` arm: the chip is wrapped in a `role="status"` +
+ *    `aria-live="polite"` Box. Static text ("Disconnected"), no flood
+ *    risk, announced once on transition.
+ *  - `disconnected` arm: uses the **"two surfaces" pattern**. The
+ *    visible Chip keeps the per-second countdown ("Reconnecting · 42s")
+ *    for sighted users, but carries a STATIC `aria-label`
+ *    ("Opponent reconnecting") with no countdown — so direct
+ *    screen-reader navigation to the chip hears the steady state, not
+ *    a moving target. A SIBLING visually-hidden `Box role="status"`
+ *    `aria-live="polite"` holds the static announcement text
+ *    ("Opponent reconnecting") and mounts only while the disconnected
+ *    arm is active. Mounting fires the announcement ONCE; the live
+ *    region's content never changes, so the per-second visible-label
+ *    updates do NOT trigger re-announcements. This avoids the
+ *    screen-reader flood that a naive `aria-live` wrapper around the
+ *    Chip would cause (one queued announcement per second across the
+ *    ~30–90s grace window — `polite` queues but does not deduplicate).
+ *  - `polite` is the right politeness level for all arms: a disconnect
+ *    is a status update, not a genuine error or warning, and the page
+ *    routes the truly terminal abandonment case into the inline
+ *    `GameOverByAbandonBanner` afterwards.
  *
  * Performance:
  *  - The `setInterval` only mounts when the kind is `disconnected`.
@@ -52,6 +70,31 @@ const remainingSeconds = (deadlineIso: string, now: number): number => {
   return Math.ceil(diffMs / 1000);
 };
 
+/**
+ * CSS for a visually-hidden but accessibility-tree-visible element.
+ * Standard "sr-only" pattern: zero-size, off-screen via clip, but not
+ * `display: none` or `visibility: hidden` (both of which would also
+ * hide the element from assistive tech).
+ */
+const visuallyHiddenSx = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+} as const;
+
+/**
+ * Static announcement string for the disconnected arm. The visible
+ * chip's label updates per second; this string does NOT, so the live
+ * region announces it exactly once on mount.
+ */
+const RECONNECTING_ANNOUNCEMENT = 'Opponent reconnecting';
+
 const ReconnectingChip = ({ gracePeriodEndsAt }: { gracePeriodEndsAt: string }) => {
   // Seed with the initial computation so the first render already shows
   // the right number — no zero flash before the interval fires.
@@ -68,31 +111,46 @@ const ReconnectingChip = ({ gracePeriodEndsAt }: { gracePeriodEndsAt: string }) 
 
   const remaining = remainingSeconds(gracePeriodEndsAt, now);
   const label = `Reconnecting · ${remaining}s`;
-  const ariaLabel = `Opponent reconnecting, ${remaining} ${remaining === 1 ? 'second' : 'seconds'} remaining`;
 
+  // Two surfaces:
+  //  1. Visible Chip: per-second countdown for sighted users. Its
+  //     `aria-label` is intentionally STATIC (no countdown) so direct
+  //     AT navigation to the chip hears the steady state, not a number
+  //     that mutates while focus rests on it.
+  //  2. Hidden live region (sibling): static text inside a polite
+  //     `role="status"` Box. Mounts when this arm renders → announced
+  //     ONCE. Content never changes → no re-announcement flood as the
+  //     visible label ticks down.
   return (
-    <Chip
-      icon={<HourglassBottomIcon />}
-      label={label}
-      size="small"
-      color="info"
-      variant="outlined"
-      aria-label={ariaLabel}
-      sx={{ alignSelf: 'center' }}
-    />
+    <Box sx={{ display: 'inline-flex' }}>
+      <Chip
+        icon={<HourglassBottomIcon />}
+        label={label}
+        size="small"
+        color="info"
+        variant="outlined"
+        aria-label={RECONNECTING_ANNOUNCEMENT}
+        sx={{ alignSelf: 'center' }}
+      />
+      <Box role="status" aria-live="polite" sx={visuallyHiddenSx}>
+        {RECONNECTING_ANNOUNCEMENT}
+      </Box>
+    </Box>
   );
 };
 
 const AbandonedChip = () => (
-  <Chip
-    icon={<CloudOffIcon />}
-    label="Disconnected"
-    size="small"
-    color="warning"
-    variant="outlined"
-    aria-label="Opponent disconnected"
-    sx={{ alignSelf: 'center' }}
-  />
+  <Box role="status" aria-live="polite" sx={{ display: 'inline-flex' }}>
+    <Chip
+      icon={<CloudOffIcon />}
+      label="Disconnected"
+      size="small"
+      color="warning"
+      variant="outlined"
+      aria-label="Opponent disconnected"
+      sx={{ alignSelf: 'center' }}
+    />
+  </Box>
 );
 
 export const OpponentStatus = ({ status }: OpponentStatusProps) => {
