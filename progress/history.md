@@ -3672,3 +3672,49 @@ kB (62.95 kB gzip), eager bundle unchanged.
   spectate without going through `/new`. Needs a join-vs-spectate
   decision and `POST /api/rooms/{id}/join` wiring; cross-repo
   considerations.
+
+## 2026-05-29 — board-themes
+
+**Status:** done
+
+**Summary:** Shipped selectable chessboard themes, persisted as a
+long-lived aesthetic preference. Key API finding: react-chessboard v5
+exposes `darkSquareStyle`/`lightSquareStyle` on the `options` object
+(verified in the installed types), so a theme is a pair of square-style
+records and the feature 11.5 move-hint `squareStyles` stays a separate
+per-square overlay layer (no merge). Five themes shipped as typed
+records: Classic (the brown/cream defaults), Wood, Midnight, Forest,
+Ocean; the three dark themes pin notation-coordinate colors for
+legibility. State lives in a new `BoardThemeContext` (provider +
+`useBoardTheme()` guard hook, modelled on `UserContext`) because the
+selector and the board render in separate React trees (Header shell vs
+the router `<Outlet />`), so a local `useState` could not sync them
+live. Persistence mirrors `useColorMode`: lazy read on mount + effect
+write, SSR/private-mode guarded, validated via `isBoardTheme` against
+`Object.values(BoardTheme)`, default Classic. The selector is a Header
+palette icon-button → MUI Menu beside the color-mode toggle (no new
+`/settings` route, so routing/README untouched); active theme signalled
+by three non-color cues (CheckIcon, `aria-current`, MUI `selected`).
+Both reviewers approved; `./init.sh` green; Vitest 237 → 250 (+13). No
+new deps, no schema change. Also fixed a pre-existing Prettier
+whitespace drift in `notes/11.8-play-no-room-redirect.md` that had left
+`./init.sh` red on HEAD a814ef5 (whitespace only, content identical).
+
+**Files touched:** `src/boardThemes.ts` (new),
+`src/context/BoardThemeContext.tsx` (+ test, new),
+`src/context/index.tsx`, `src/components/BoardThemeSelector/`
+(BoardThemeSelector.tsx + index.tsx + test, new),
+`src/components/Header/Header.tsx` (+ test), `src/App.tsx`,
+`src/pages/Play/Play.tsx` (+ Play.test.tsx, Play.resync.test.tsx),
+`docs/architecture.md`, `notes/11.8-play-no-room-redirect.md`
+(whitespace fix).
+
+**Feature note:** `notes/12-board-themes.md`.
+
+**Carry-over identified:**
+
+- `barrel-export-lint-warnings` (NEW, non-blocking): 11
+  `react-refresh/only-export-components` warnings remain (context
+  barrels, `UserContext`, `Drawer`, and the two new board-theme
+  barrels following the same convention). Warnings only, 0 errors.
+  Candidate for a future `harness-tooling-pass`.

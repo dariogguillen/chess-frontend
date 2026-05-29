@@ -4,7 +4,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Drawer from './components/Drawer';
 import Header from './components/Header';
-import { UserContextProvider } from './context';
+import { BoardThemeProvider, UserContextProvider } from './context';
 import { createAppTheme, useColorMode } from './theme';
 
 /**
@@ -32,31 +32,33 @@ const App = () => {
 
   return (
     <UserContextProvider>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-          <Header
-            authed={authed}
-            open={open}
-            setOpen={setOpen}
-            mode={mode}
-            onToggleMode={toggleMode}
-          />
-          <Drawer open={open} setOpen={setOpen} />
-          <Box component="main" sx={{ flexGrow: 1, p: 0 }}>
-            <Toolbar />
-            <Suspense
-              fallback={
-                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-                  <CircularProgress />
-                </Box>
-              }
-            >
-              <Outlet />
-            </Suspense>
+      <BoardThemeProvider>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+            <Header
+              authed={authed}
+              open={open}
+              setOpen={setOpen}
+              mode={mode}
+              onToggleMode={toggleMode}
+            />
+            <Drawer open={open} setOpen={setOpen} />
+            <Box component="main" sx={{ flexGrow: 1, p: 0 }}>
+              <Toolbar />
+              <Suspense
+                fallback={
+                  <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
+                    <CircularProgress />
+                  </Box>
+                }
+              >
+                <Outlet />
+              </Suspense>
+            </Box>
           </Box>
-        </Box>
-      </ThemeProvider>
+        </ThemeProvider>
+      </BoardThemeProvider>
     </UserContextProvider>
   );
 };

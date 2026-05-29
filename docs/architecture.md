@@ -168,6 +168,33 @@ URL and calls `leaveRoom()`; a 404 / `GAME_ALREADY_ENDED` from the
 rehydrate-time `GET /api/games/{id}` clears the session via
 `leaveRoom()` and routes the user back to `/new`.
 
+**Board-theme preference (feature 12).** The selectable chessboard
+theme (classic / wood / midnight / forest / ocean) lives in a second
+global Context, `BoardThemeContext` (`src/context/BoardThemeContext.tsx`),
+provided in `App.tsx` alongside `UserContextProvider`. The theme
+_definitions_ — a `BoardTheme` const-object discriminant plus a typed
+`Record<BoardTheme, BoardThemeStyles>` of light/dark square styles (and
+optional notation styles for dark boards) — live in `src/boardThemes.ts`,
+which is the board theme's home the way `theme.tsx` is the MUI palette's
+home (board square colours are deliberately fixed hex, independent of
+the MUI light/dark _mode_). The preference is persisted to
+`window.localStorage` under `chess-room.boardTheme` — `localStorage`, not
+`sessionStorage` (contrast the session-persistence note above): a board
+theme is a long-lived, origin-scoped aesthetic preference that should
+survive tab close and browser restart, the opposite of the tab-scoped
+room session. Persistence follows the `useColorMode` pattern (lazy
+`useState` initialiser reads on first render so the first paint matches;
+a `useEffect` writes back on change), with a storage-boundary decoder
+(`isBoardTheme`) falling back to Classic on absent/invalid values. A
+Context (not a local hook) is required because the selector lives in the
+app shell (`Header`) while the board lives in the page under the router
+`<Outlet />` — two sibling subtrees that a local `useState` could not
+keep in sync. The active theme's square styles feed
+react-chessboard v5's `light/darkSquareStyle` options; the feature-11.5
+move-hint overlay stays on the separate per-square `squareStyles` layer
+(the library renders hints on a child div over the coloured square, so
+the two layers compose without conflict).
+
 ## Boundary with `chess-backend-java`
 
 The frontend is a client of the backend's API. The contract is:

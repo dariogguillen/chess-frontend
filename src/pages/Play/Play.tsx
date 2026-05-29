@@ -34,7 +34,8 @@ import type { GameState, MoveSummary } from '../../api/games';
 import { Role } from '../../api/rooms';
 import { ConnectionState, DiscoveryState } from '../../api/wsEvents';
 import type { GameAbandonedEvent, MoveEvent } from '../../api/wsEvents';
-import { RoomPhase, useUserContext } from '../../context';
+import { RoomPhase, useBoardTheme, useUserContext } from '../../context';
+import { boardThemeStyles } from '../../boardThemes';
 import { useGameStomp } from '../../hooks/useGameStomp';
 import { useMoveHints } from '../../hooks/useMoveHints';
 import { useRoomDiscovery } from '../../hooks/useRoomDiscovery';
@@ -109,6 +110,7 @@ const terminalMessage = (status: GameStatus, turn: Side): string => {
  */
 const Play = () => {
   const { identity, room, leaveRoom, setGameId } = useUserContext();
+  const { boardTheme } = useBoardTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const roomIdFromUrl = searchParams.get('roomId') || undefined;
@@ -708,6 +710,13 @@ const Play = () => {
   // of a key as "no override", so an empty record is the cheap no-op.
   const moveHints = useMoveHints(chess, selectedSquare);
 
+  // Active board theme. The base square colours go to react-chessboard's
+  // `light/darkSquareStyle` options; the move-hint `squareStyles` overlay
+  // (above) is a separate per-square layer that composes ON TOP of these
+  // base colours (the library renders hints on a child div over the
+  // coloured square — see the feature note), so the two never conflict.
+  const activeBoardTheme = boardThemeStyles[boardTheme];
+
   const opponentDisplayName: string | undefined = useMemo(() => {
     if (gameState === null || role === null) return undefined;
     return role === Role.White ? gameState.black.displayName : gameState.white.displayName;
@@ -784,6 +793,10 @@ const Play = () => {
                 canDragPiece,
                 boardOrientation,
                 allowDrawingArrows: true,
+                lightSquareStyle: activeBoardTheme.light,
+                darkSquareStyle: activeBoardTheme.dark,
+                lightSquareNotationStyle: activeBoardTheme.lightNotation,
+                darkSquareNotationStyle: activeBoardTheme.darkNotation,
                 squareStyles: moveHints,
               }}
             />

@@ -10,6 +10,7 @@ import { useState } from 'react';
 import type { MouseEvent } from 'react';
 import type { PaletteMode } from '@mui/material/styles';
 import type { DrawerComponentProps } from '../Drawer';
+import { BoardThemeSelector } from '../BoardThemeSelector';
 
 export interface HeaderProps extends DrawerComponentProps {
   /** True when a user is signed in; toggles the Account menu. Today this
@@ -46,6 +47,7 @@ const Header = ({ authed, open, setOpen, mode, onToggleMode }: HeaderProps) => {
         <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
           Chess Room
         </Typography>
+        <BoardThemeSelector />
         <IconButton
           size="large"
           aria-label="Toggle color mode"

@@ -528,7 +528,7 @@
     "id": "board-themes",
     "title": "Selectable board themes",
     "description": "Multiple visual themes for the chessboard (classic brown, wood, midnight, neon, minimal, etc.). Theme selector surfaced in UI (drawer Settings section or Play page control — implementer decides). Persist preference in localStorage (theme is a long-lived aesthetic preference, not session-scoped — different from feature 10). react-chessboard v5 accepts light/dark square style records on the options object.",
-    "status": "pending",
+    "status": "done",
     "priority": 12,
     "acceptance": [
       "At least 3 themes shipped (e.g. classic, wood, midnight). Each is a typed record with light/dark square styles.",

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
 import Play from './Play';
-import { UserContextProvider } from '../../context';
+import { BoardThemeProvider, UserContextProvider } from '../../context';
 import type { RoomState } from '../../context/UserContext';
 import { RoomPhase } from '../../context';
 import { TEST_API_BASE_URL, server } from '../../test/msw-server';
@@ -130,7 +130,9 @@ const renderWithProviders = (initialEntry: string = '/play', initialRoom?: RoomS
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <UserContextProvider initialRoom={initialRoom}>
-        <Play />
+        <BoardThemeProvider>
+          <Play />
+        </BoardThemeProvider>
       </UserContextProvider>
     </MemoryRouter>,
   );

@@ -6,9 +6,10 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Play from './Play';
-import { UserContextProvider } from '../../context';
+import { BoardThemeProvider, UserContextProvider } from '../../context';
 import type { RoomState } from '../../context/UserContext';
 import { RoomPhase } from '../../context';
+import { BoardTheme, boardThemeStyles } from '../../boardThemes';
 import { TEST_API_BASE_URL, server } from '../../test/msw-server';
 import type { MockStompClient } from '../../utils/ws';
 import type {
@@ -50,6 +51,10 @@ type ChessboardCaptureOptions = {
   }) => boolean;
   boardOrientation?: 'white' | 'black';
   squareStyles?: Record<string, CSSProperties>;
+  lightSquareStyle?: CSSProperties;
+  darkSquareStyle?: CSSProperties;
+  lightSquareNotationStyle?: CSSProperties;
+  darkSquareNotationStyle?: CSSProperties;
 };
 let lastChessboardOptions: ChessboardCaptureOptions | null = null;
 
@@ -176,11 +181,17 @@ const sampleGameAbandoned = (overrides: Partial<GameAbandonedEvent> = {}): GameA
   ...overrides,
 });
 
-const renderWithProviders = (initialEntry: string = '/play', initialRoom?: RoomState) =>
+const renderWithProviders = (
+  initialEntry: string = '/play',
+  initialRoom?: RoomState,
+  initialTheme?: BoardTheme,
+) =>
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <UserContextProvider initialRoom={initialRoom}>
-        <Play />
+        <BoardThemeProvider initialTheme={initialTheme}>
+          <Play />
+        </BoardThemeProvider>
       </UserContextProvider>
     </MemoryRouter>,
   );
@@ -196,10 +207,12 @@ const renderWithRoutes = (initialEntry: string = '/play', initialRoom?: RoomStat
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <UserContextProvider initialRoom={initialRoom}>
-        <Routes>
-          <Route path="/play" element={<Play />} />
-          <Route path="/new" element={<NewGameSentinel />} />
-        </Routes>
+        <BoardThemeProvider>
+          <Routes>
+            <Route path="/play" element={<Play />} />
+            <Route path="/new" element={<NewGameSentinel />} />
+          </Routes>
+        </BoardThemeProvider>
       </UserContextProvider>
     </MemoryRouter>,
   );
@@ -210,6 +223,9 @@ beforeEach(() => {
   lastChessboardOptions = null;
   navigateMock.mockReset();
   window.sessionStorage.clear();
+  // Board theme persists to localStorage; clear it so a test that picks
+  // a non-default initialTheme does not leak into the next.
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -219,6 +235,7 @@ afterEach(() => {
   mockClients = [];
   lastChessboardOptions = null;
   window.sessionStorage.clear();
+  window.localStorage.clear();
 });
 
 describe('Play page', () => {
@@ -277,6 +294,57 @@ describe('Play page', () => {
       expect(screen.getByTestId('chessboard-mock')).toBeInTheDocument();
     });
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------
+  // board-themes (feature 12) — integration smoke
+  // ---------------------------------------------------------------
+  //
+  // The board receives the active theme's base square styles via the
+  // `light/darkSquareStyle` options, while the move-hint overlay keeps
+  // riding on the separate `squareStyles` layer. These two are distinct
+  // and must coexist.
+
+  it('passes the active board theme square styles to the Chessboard', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite, BoardTheme.Midnight);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chessboard-mock')).toBeInTheDocument();
+    });
+
+    const midnight = boardThemeStyles[BoardTheme.Midnight];
+    expect(lastChessboardOptions?.lightSquareStyle).toEqual(midnight.light);
+    expect(lastChessboardOptions?.darkSquareStyle).toEqual(midnight.dark);
+    expect(lastChessboardOptions?.lightSquareNotationStyle).toEqual(midnight.lightNotation);
+    expect(lastChessboardOptions?.darkSquareNotationStyle).toEqual(midnight.darkNotation);
+    // The move-hint overlay layer is still present and untouched (empty
+    // record when nothing is selected — a distinct key from the base
+    // square styles).
+    expect(lastChessboardOptions?.squareStyles).toEqual({});
+  });
+
+  it('defaults the board to the Classic theme square styles when no preference is set', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chessboard-mock')).toBeInTheDocument();
+    });
+
+    const classic = boardThemeStyles[BoardTheme.Classic];
+    expect(lastChessboardOptions?.lightSquareStyle).toEqual(classic.light);
+    expect(lastChessboardOptions?.darkSquareStyle).toEqual(classic.dark);
   });
 
   it('loads the game state and shows the opponent name when in a room with a gameId', async () => {
@@ -673,7 +741,9 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
         <UserContextProvider>
-          <Play />
+          <BoardThemeProvider>
+            <Play />
+          </BoardThemeProvider>
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -704,10 +774,12 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=OTHER1']}>
         <UserContextProvider>
-          <Routes>
-            <Route path="/play" element={<Play />} />
-            <Route path="/new" element={<NewGameSentinel />} />
-          </Routes>
+          <BoardThemeProvider>
+            <Routes>
+              <Route path="/play" element={<Play />} />
+              <Route path="/new" element={<NewGameSentinel />} />
+            </Routes>
+          </BoardThemeProvider>
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -743,7 +815,9 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
         <UserContextProvider>
-          <Play />
+          <BoardThemeProvider>
+            <Play />
+          </BoardThemeProvider>
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -774,7 +848,9 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
         <UserContextProvider>
-          <Play />
+          <BoardThemeProvider>
+            <Play />
+          </BoardThemeProvider>
         </UserContextProvider>
       </MemoryRouter>,
     );
