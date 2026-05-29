@@ -29,7 +29,7 @@ import type { MockGameStateResponse } from './fixtures/mockRest';
  *     the auto-redirect timer.
  */
 
-const ROOM_ID = 'ABAND1';
+const ROOM_ID = 'ABAND7';
 const GAME_ID = '11111111-aaaa-bbbb-cccc-555555555555';
 const PLAYER_A = '00000000-aaaa-0000-0000-00000000000A';
 const PLAYER_B = '00000000-bbbb-0000-0000-00000000000B';

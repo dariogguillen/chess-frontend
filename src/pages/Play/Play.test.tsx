@@ -1383,4 +1383,80 @@ describe('Play page', () => {
     expect(screen.queryByText(/^Your Turn$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Opponent's Turn$/)).not.toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------
+  // room-link-share-and-join (feature 13.5): copy actions on /play
+  // ---------------------------------------------------------------
+
+  describe('share actions', () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>();
+
+    // `userEvent.setup()` installs its OWN `navigator.clipboard` stub, so
+    // our spy has to be (re)installed AFTER setup or the click would hit
+    // userEvent's stub instead. Returns the configured user-event.
+    const setupWithClipboard = () => {
+      const user = userEvent.setup();
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      return user;
+    };
+
+    beforeEach(() => {
+      writeText.mockReset();
+      writeText.mockResolvedValue(undefined);
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+      );
+    });
+
+    it('does not render the copy controls when there is no room', async () => {
+      // none-arm mount redirects to /new; render in routes and confirm
+      // the copy buttons are absent.
+      renderWithRoutes('/play');
+      await waitFor(() => {
+        expect(screen.getByTestId('new-game-route')).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('button', { name: /copy room code/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy invite link/i })).not.toBeInTheDocument();
+    });
+
+    it('copies the room code and confirms via a snackbar', async () => {
+      const user = setupWithClipboard();
+      renderWithProviders('/play', inRoomWhite);
+
+      const copyCode = await screen.findByRole('button', { name: /copy room code/i });
+      await user.click(copyCode);
+
+      expect(writeText).toHaveBeenCalledWith('K7M3X9');
+      expect(await screen.findByText(/room code copied/i)).toBeInTheDocument();
+    });
+
+    it('copies a full invite link respecting origin and BASE_URL', async () => {
+      const user = setupWithClipboard();
+      renderWithProviders('/play', inRoomWhite);
+
+      const copyLink = await screen.findByRole('button', { name: /copy invite link/i });
+      await user.click(copyLink);
+
+      const expected = `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, '')}/new?roomId=K7M3X9`;
+      expect(writeText).toHaveBeenCalledWith(expected);
+      expect(await screen.findByText(/invite link copied/i)).toBeInTheDocument();
+    });
+
+    it('surfaces a failure message when the clipboard write rejects', async () => {
+      writeText.mockRejectedValueOnce(new Error('denied'));
+      const user = setupWithClipboard();
+      renderWithProviders('/play', inRoomWhite);
+
+      const copyCode = await screen.findByRole('button', { name: /copy room code/i });
+      await user.click(copyCode);
+
+      expect(await screen.findByText(/could not copy/i)).toBeInTheDocument();
+    });
+  });
 });

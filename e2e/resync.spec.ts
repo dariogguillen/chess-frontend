@@ -50,7 +50,7 @@ import type { MockGameStateResponse } from './fixtures/mockRest';
  * variants (wake-from-sleep, multi-drop) extend this file naturally.
  */
 
-const ROOM_ID = 'RESYN1';
+const ROOM_ID = 'RESYN7';
 const GAME_ID = '11111111-7777-8888-9999-aaaaaaaaaaaa';
 const PLAYER_A = '00000000-aaaa-0000-0000-00000000000A';
 const PLAYER_B = '00000000-bbbb-0000-0000-00000000000B';
@@ -114,7 +114,9 @@ test('resync: opponent moves during WS drop → reconnect → board reflects all
   await page.goto('/');
   await page.getByRole('link', { name: 'New Game' }).first().click();
   await page.getByLabel('Nickname').fill('Bob');
-  await page.getByRole('checkbox').first().check();
+  // No create-vs-join checkbox anymore (feature 13.5): the Room ID input
+  // is the mode. Typing a room code derives join mode and flips the
+  // button label to "Join game".
   await page.getByLabel('Room ID').fill(ROOM_ID);
   await page.getByRole('button', { name: 'Join game' }).click();
   await expect(page).toHaveURL(/\/play$/);

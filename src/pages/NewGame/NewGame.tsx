@@ -12,11 +12,12 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import type { ChangeEvent, MouseEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import ToggleButtons from '../../components/ToggleButton';
 import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
 import { createRoom, joinRoom } from '../../api/rooms';
 import { IdentityKind, useUserContext } from '../../context';
+import { isValidRoomIdFormat, normalizeRoomId } from '../../utils/roomId';
 import {
   Opponent,
   Position,
@@ -28,21 +29,40 @@ import {
 
 const DEFAULT_DISPLAY_NAME = 'Guest';
 
+const ROOM_ID_HELPER = 'Leave empty to create a new game, or enter a Room ID to join.';
+const ROOM_ID_ERROR = 'A Room ID is 6 characters (letters and digits, no I/L/O/0/1).';
+
 /**
- * Configuration page for a new game: nickname, join-vs-create toggle,
- * board side, opponent type, timer (placeholder). The Start/Join button
- * hits `POST /api/rooms` or `POST /api/rooms/{id}/join` and, on success,
- * promotes the context's `room` slice via `enterRoom` and navigates to
- * `/play`. The legacy piece-color toggle is preserved as decoration but
- * the server's assignment is authoritative.
+ * Configuration page for a new game: nickname, optional Room ID, board
+ * side, opponent type, timer (placeholder).
+ *
+ * The form has no explicit create-vs-join toggle. The Room ID input
+ * *is* the mode: empty derives "create" (`POST /api/rooms`), filled
+ * derives "join" (`POST /api/rooms/{id}/join`). Deriving the mode from
+ * the single source of truth (the input value) removes the prior
+ * boolean `join` flag that could drift out of sync with the field.
+ *
+ * On success the context's `room` slice is promoted via `enterRoom` and
+ * we navigate to `/play`. The piece-color / opponent / timer toggles are
+ * decorative while joining — the server assigns the joiner's side.
+ *
+ * Deep-link pre-fill: `?roomId=XXXXXX` seeds the input (normalised to the
+ * canonical upper-case 6-char form), so an invite link opens this page
+ * already in join mode and the friend only types a nickname.
  */
 const NewGame = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { identity, opponent, setIdentity, setOpponent, enterRoom } = useUserContext();
 
   const [time, setTime] = useState<Time>(Time.None);
-  const [join, setJoin] = useState(false);
-  const [roomIdInput, setRoomIdInput] = useState('');
+  // Seed once from the `?roomId` query param (lazy initialiser → runs
+  // only on first mount, like a Scala `lazy val`). Normalised so the
+  // rendered value is already canonical and `joinMode` derives correctly
+  // on the very first render. Subsequent edits flow through `handleRoomId`.
+  const [roomIdInput, setRoomIdInput] = useState<string>(() =>
+    normalizeRoomId(searchParams.get('roomId') ?? ''),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // `position` is a UI-only preference now — the backend assigns sides
@@ -58,10 +78,6 @@ const NewGame = () => {
 
   const handlePosition = (_event: MouseEvent<HTMLElement>, newPos: Position | null) => {
     if (newPos !== null) setLocalPosition(newPos);
-  };
-
-  const handleJoin = (_event: ChangeEvent<HTMLInputElement>, newValue: boolean) => {
-    setJoin(newValue);
   };
 
   const handleTime = (_event: MouseEvent<HTMLElement>, newTime: Time | null) => {
@@ -82,17 +98,27 @@ const NewGame = () => {
     }
   };
 
+  // The input value is the single source of truth for the mode. Any
+  // non-empty content means "join an existing room"; empty means
+  // "create a new one".
+  const joinMode = roomIdInput.trim().length > 0;
+  // Format gate: only meaningful in join mode. We validate the SHAPE
+  // here (no network); the server stays the source of truth for whether
+  // the (well-formed) code actually maps to a room — a valid-but-unknown
+  // code surfaces as `404 ROOM_NOT_FOUND` via the error Snackbar below.
+  const isRoomIdFormatValid = isValidRoomIdFormat(roomIdInput);
+  const showRoomIdError = joinMode && !isRoomIdFormatValid;
+
   const isDisplayNameValid = identity.displayName.trim().length > 0;
-  const isRoomIdValid = roomIdInput.trim().length > 0;
-  const canSubmit = !submitting && isDisplayNameValid && (!join || isRoomIdValid);
+  const canSubmit = !submitting && isDisplayNameValid && (!joinMode || isRoomIdFormatValid);
 
   const handleStart = async () => {
-    if (submitting) return;
+    if (submitting || !canSubmit) return;
     setSubmitting(true);
     setErrorMessage(null);
     try {
-      const response = join
-        ? await joinRoom(roomIdInput.trim(), identity.displayName)
+      const response = joinMode
+        ? await joinRoom(normalizeRoomId(roomIdInput), identity.displayName)
         : await createRoom(identity.displayName);
       enterRoom(response);
       navigate('/play');
@@ -137,17 +163,17 @@ const NewGame = () => {
           />
         </Paper>
         <Paper sx={{ p: 2 }}>
-          <Typography variant="body1">
-            <Checkbox checked={join} value={join} onChange={handleJoin} />
-            Join an existing game
+          <Typography variant="body1" gutterBottom>
+            Room ID
           </Typography>
           <TextField
             label="Room ID"
             variant="standard"
-            disabled={!join}
             fullWidth
             value={roomIdInput}
             onChange={handleRoomId}
+            error={showRoomIdError}
+            helperText={showRoomIdError ? ROOM_ID_ERROR : ROOM_ID_HELPER}
             slotProps={{ htmlInput: { maxLength: 6, style: { textTransform: 'uppercase' } } }}
           />
         </Paper>
@@ -155,23 +181,23 @@ const NewGame = () => {
           <Typography variant="body1" gutterBottom>
             Play as:
           </Typography>
-          <ToggleButtons {...positionButtons} disabled={join} />
+          <ToggleButtons {...positionButtons} disabled={joinMode} />
         </Paper>
         <Paper sx={{ p: 2 }}>
           <Typography variant="body1" gutterBottom>
             Play against:
           </Typography>
-          <ToggleButtons {...opponentButtons} disabled={join} />
+          <ToggleButtons {...opponentButtons} disabled={joinMode} />
         </Paper>
         <Paper sx={{ p: 2 }}>
           <Typography variant="body1" gutterBottom>
             <Checkbox disabled />
             Timer (min). <small>Coming soon</small>
           </Typography>
-          <ToggleButtons {...timeButtons} disabled={join} />
+          <ToggleButtons {...timeButtons} disabled={joinMode} />
         </Paper>
         <Button variant="contained" onClick={handleStart} disabled={!canSubmit}>
-          {join ? 'Join game' : 'Start'}
+          {joinMode ? 'Join game' : 'Start'}
         </Button>
       </Stack>
       <Snackbar

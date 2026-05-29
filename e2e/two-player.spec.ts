@@ -37,7 +37,7 @@ import type { MockGameStateResponse } from './fixtures/mockRest';
  * the responses on both pages are consistent.
  */
 
-const ROOM_ID = 'PLAY01';
+const ROOM_ID = 'PWAY23';
 const GAME_ID = '11111111-2222-3333-4444-555555555555';
 const PLAYER_A = '00000000-0000-0000-0000-00000000000A';
 const PLAYER_B = '00000000-0000-0000-0000-00000000000B';
@@ -148,11 +148,9 @@ test('two-player: create + join + opening moves sync across contexts', async ({ 
   await pageB.goto('/');
   await pageB.getByRole('link', { name: 'New Game' }).first().click();
   await pageB.getByLabel('Nickname').fill('Bob');
-  // The "join existing game" checkbox has no aria-label; the visible
-  // text "Join an existing game" is on the parent Typography. The
-  // first enabled checkbox on the page is this one (the second is
-  // the timer placeholder, which is disabled).
-  await pageB.getByRole('checkbox').first().check();
+  // No create-vs-join checkbox anymore (feature 13.5): the Room ID input
+  // is the mode. Typing a room code derives join mode and flips the
+  // button label to "Join game".
   await pageB.getByLabel('Room ID').fill(ROOM_ID);
   await pageB.getByRole('button', { name: 'Join game' }).click();
   await expect(pageB).toHaveURL(/\/play$/);

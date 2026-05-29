@@ -27,13 +27,13 @@ import { mockCreateRoom, mockGetRoomState } from './fixtures/mockRest';
  */
 test('smoke: create-room flow lands on the Play page', async ({ page }) => {
   await mockCreateRoom(page, {
-    roomId: 'SMOKE1',
+    roomId: 'SMKE27',
     playerId: '00000000-0000-0000-0000-000000000001',
     role: 'WHITE',
     gameId: null,
   });
   await mockGetRoomState(page, {
-    roomId: 'SMOKE1',
+    roomId: 'SMKE27',
     players: [
       {
         id: '00000000-0000-0000-0000-000000000001',
@@ -68,6 +68,6 @@ test('smoke: create-room flow lands on the Play page', async ({ page }) => {
   // The Room ID label is the most stable signature of the Play surface
   // (it carries the canonical room id we mocked above).
   await expect(page).toHaveURL(/\/play$/);
-  await expect(page.getByText('Room ID: SMOKE1')).toBeVisible();
+  await expect(page.getByText('Room ID: SMKE27')).toBeVisible();
   await expect(page.getByText('Waiting for opponent')).toBeVisible();
 });

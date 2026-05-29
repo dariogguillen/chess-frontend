@@ -5,12 +5,15 @@ import {
   CircularProgress,
   Container,
   Grid2 as Grid,
+  IconButton,
   Snackbar,
   Stack,
   Tooltip,
   Typography,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import LinkIcon from '@mui/icons-material/Link';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -224,6 +227,10 @@ const Play = () => {
   // the position changes (own or opponent move) or the game reaches a
   // terminal status.
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  // One-shot confirmation toast for the share actions. Holds the message
+  // to show (code copied vs invite-link copied / a clipboard failure)
+  // and `null` when nothing is pending.
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
   /** Replace local chess.js + FEN with the authoritative server state. */
   const syncFromServer = useCallback(
@@ -749,6 +756,45 @@ const Play = () => {
     navigate('/home');
   };
 
+  // Build the invite link from the deployed origin + the router's
+  // `BASE_URL`, not a bare `/new?roomId=`. Under Cloudflare Pages
+  // `BASE_URL` is `/` (no-op join), but a future sub-path deployment
+  // would otherwise produce a link that 404s. The friend who opens this
+  // link lands on `/new` already in join mode (NewGame reads `?roomId`).
+  const buildInviteLink = useCallback((id: string): string => {
+    // `import.meta.env.BASE_URL` always has a trailing slash ('/' or
+    // '/sub/'); strip it so the join with the leading-slash path is clean.
+    const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+    return `${window.location.origin}${base}/new?roomId=${encodeURIComponent(id)}`;
+  }, []);
+
+  // Copy `text` to the clipboard and toast `successMessage`. The
+  // Clipboard API is async, permission-gated, and only available in a
+  // secure context (HTTPS / localhost); we guard against its absence and
+  // a rejected write so a copy attempt can never crash the page.
+  const copyToClipboard = useCallback(async (text: string, successMessage: string) => {
+    if (typeof navigator === 'undefined' || navigator.clipboard === undefined) {
+      setCopyMessage('Clipboard unavailable in this browser.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMessage(successMessage);
+    } catch {
+      setCopyMessage('Could not copy to the clipboard.');
+    }
+  }, []);
+
+  const handleCopyCode = useCallback(() => {
+    if (roomId === undefined) return;
+    void copyToClipboard(roomId, 'Room code copied');
+  }, [copyToClipboard, roomId]);
+
+  const handleCopyInviteLink = useCallback(() => {
+    if (roomId === undefined) return;
+    void copyToClipboard(buildInviteLink(roomId), 'Invite link copied');
+  }, [buildInviteLink, copyToClipboard, roomId]);
+
   // Render-time short-circuit for the entry guard and the reconciliation
   // mismatch. Placed AFTER all hooks so the Rules of Hooks hold (the hook
   // call order is identical on the render that returns <Navigate> and on
@@ -778,6 +824,24 @@ const Play = () => {
         <Grid size={{ xs: 12, md: 4 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="body1">Room ID: {roomId || '—'}</Typography>
+            {roomId !== undefined && (
+              <Fragment>
+                <Tooltip title="Copy room code">
+                  <IconButton size="small" aria-label="Copy room code" onClick={handleCopyCode}>
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Copy invite link">
+                  <IconButton
+                    size="small"
+                    aria-label="Copy invite link"
+                    onClick={handleCopyInviteLink}
+                  >
+                    <LinkIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Fragment>
+            )}
             {connectionState === ConnectionState.Connecting && (
               <CircularProgress size="15px" aria-label="Connecting to live updates" />
             )}
@@ -894,6 +958,21 @@ const Play = () => {
           variant="filled"
         >
           Opponent reconnected
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={copyMessage !== null}
+        autoHideDuration={3000}
+        onClose={() => setCopyMessage(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          severity="success"
+          onClose={() => setCopyMessage(null)}
+          sx={{ width: '100%' }}
+          variant="filled"
+        >
+          {copyMessage}
         </Alert>
       </Snackbar>
       {/*

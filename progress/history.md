@@ -3747,3 +3747,52 @@ needed). No new deps, no schema change, README/architecture untouched.
 `src/routes/Public.tsx` (eager `Home` import + `/home` element swap).
 
 **Feature note:** `notes/13-home-page-real.md`.
+
+## 2026-05-29 — room-link-share-and-join
+
+**Status:** done
+
+**Summary:** Two intertwined UX improvements, decided after validating
+the backend contract (auth + viewer-count done; spectator/lobby work
+deferred on the backend, so we shipped the lightweight share path
+instead). (1) On /play, next to the "Room ID" label, two accessible
+copy actions: copy the 6-char room code, and copy an invite link to
+/new?roomId={id} (built from window.location.origin +
+import.meta.env.BASE_URL, respecting the router basename;
+encodeURIComponent on the id). navigator.clipboard guarded against
+undefined/rejection + confirmation Snackbar. (2) Reworked the New Game
+form: removed the "Join an existing game" checkbox and the `join`
+state — a single optional "Room ID" input now derives the mode
+(empty → createRoom, filled → joinRoom; button label Start/Join game;
+Position/Opponent/Timer toggles disabled in joinMode). New shared
+helper src/utils/roomId.ts (ROOM_ID_ALPHABET / ROOM_ID_LENGTH /
+isValidRoomIdFormat / normalizeRoomId) mirrors the backend's
+RoomCodeGenerator (alphabet ABCDEFGHJKMNPQRSTUVWXYZ23456789, length 6,
+case-insensitive) — a documented soft coupling. Invalid format →
+TextField error + disabled submit, no API round-trip; a well-formed
+nonexistent code still falls back to the server's 404 ROOM_NOT_FOUND.
+NewGame reads ?roomId from useSearchParams and pre-fills the input, so
+the copied invite link opens /new already in join mode. This makes the
+Home page's "share a link" copy true. No backend changes
+(createRoom/joinRoom reused); openapi.json/schema.ts untouched.
+Reviewer rejected round 1 over an E2E regression (the new format
+validation invalidated the fixtures' ROOM_IDs PLAY01/RESYN1, and
+resync.spec.ts still drove the removed checkbox); fixed in round 2 by
+migrating resync.spec.ts to the no-checkbox flow and renaming all four
+specs' codes to alphabet-valid values (PWAY23, RESYN7, ABAND7,
+SMKE27). Both reviewers approved; ./init.sh + RUN_E2E=true ./init.sh
+green; Vitest 253 → 275 (+22). No new deps.
+
+**Files touched:** `src/utils/roomId.ts` (new) + `roomId.test.ts`
+(new), `src/pages/NewGame/NewGame.tsx` (+ test),
+`src/pages/Play/Play.tsx` (+ test), `e2e/{two-player,resync,
+abandonment,smoke}.spec.ts` (fixture ROOM_IDs + resync join flow).
+
+**Feature note:** `notes/13.5-room-link-share-and-join.md`.
+
+**Carry-over identified:**
+
+- `creator-side-selection` (NEW): the backend now supports
+  `CreateRoomRequest.preferredSide` (WHITE/BLACK/RANDOM), but
+  NewGame's Position toggle stays decorative (createRoom only sends
+  displayName). Wiring it up is a small standalone feature.

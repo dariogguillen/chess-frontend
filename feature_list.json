@@ -557,6 +557,24 @@
     ]
   },
   {
+    "id": "room-link-share-and-join",
+    "title": "Share room link/code from /play + simplify the New Game join flow",
+    "description": "Two intertwined UX improvements decided with the user 2026-05-29 after validating the backend contract (auth + spectators done; spectator/lobby work deferred on the backend, so we ship the lightweight share path now). (1) On /play, next to the 'Room ID: {roomId}' label, add two copy actions: copy the room code (the 6-char id) and copy an invite link to /new?roomId={id}. (2) Rework the New Game form (src/pages/NewGame/NewGame.tsx): remove the 'Join an existing game' checkbox (and the `join` state). A single optional 'Room ID' input now derives the mode — empty => create a new game (createRoom), filled => join (joinRoom). Validate the room-id FORMAT client-side against the backend's RoomCodeGenerator (alphabet ABCDEFGHJKMNPQRSTUVWXYZ23456789, length 6, case-insensitive/uppercased); a well-formed-but-nonexistent code still falls back to the server's 404 ROOM_NOT_FOUND. (3) NewGame reads ?roomId from the URL and pre-fills the input, so the copied invite link opens /new already in join mode (the friend only types their name). This makes the 'share a link' copy on the Home page (feature 13) true. No backend changes (createRoom/joinRoom/getRoomState already exist); no schema changes. Inserted at priority 13.5, before about-page-real (14).",
+    "status": "done",
+    "priority": 13.5,
+    "acceptance": [
+      "src/pages/Play/Play.tsx: next to 'Room ID: {roomId}', two copy actions — copy the room code (the id string) and copy an invite link to /new?roomId={id}. Visible ONLY when a roomId exists (not in the '—' empty state). Use navigator.clipboard.writeText with a confirmation Snackbar; controls are accessible (IconButton with aria-label or buttons with text). The invite link must respect the router basename / deployed origin (build it from window.location.origin + import.meta.env.BASE_URL or an equivalent that does not hardcode the path), NOT a bare '/new?roomId='.",
+      "src/pages/NewGame/NewGame.tsx: the 'Join an existing game' Checkbox and the `join` state are removed. A single 'Room ID' TextField (always enabled, optional) drives the mode: joinMode = roomIdInput.trim().length > 0. Empty => createRoom; non-empty => joinRoom. The submit button label reflects the mode ('Start' vs 'Join game').",
+      "Client-side format validation: a shared constant/regex aligned to the backend RoomCodeGenerator (ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', length 6, case-insensitive -> uppercased). When the input has content but an invalid format, the TextField shows an error state + helperText and submit is disabled (no API round-trip). A well-formed code that does not exist still surfaces the server's 404 ROOM_NOT_FOUND via the existing error Snackbar.",
+      "Helper text on the Room ID field communicates the dual behavior (e.g. 'Leave empty to create a new game, or enter a Room ID to join').",
+      "The Position / Opponent / Timer toggles are disabled in joinMode (the backend assigns the joiner's side), mirroring today's `disabled={join}` behavior with the derived `joinMode`.",
+      "Deep-link pre-fill: NewGame reads ?roomId from useSearchParams and uses it as the initial input value (uppercased, truncated to 6), so a copied invite link opens /new in join mode with the code filled; the user only enters a nickname.",
+      "Tests (Vitest): /play copy-code and copy-link actions (mock navigator.clipboard, assert writeText called with the code / the full invite URL, Snackbar shown); NewGame empty input => createRoom + navigate /play; valid code => joinRoom; invalid format => submit disabled / error visible, NO API call; ?roomId pre-fill initializes the input and derives joinMode. MSW for the API calls.",
+      "No new dependencies; openapi.json and src/api/generated/schema.ts untouched; createRoom/joinRoom reused as-is.",
+      "./init.sh passes end-to-end."
+    ]
+  },
+  {
     "id": "about-page-real",
     "title": "Build out the about page (replace WIP placeholder)",
     "description": "Replace the WIP placeholder at src/pages/About/ with a real about page. Content: project background, tech stack overview, links to backend repo (chess-backend-java), license, harness engineering docs (CLAUDE.md / AGENTS.md / progress/). Controlled overlap with the README — in-app voice is more conversational and shorter.",
