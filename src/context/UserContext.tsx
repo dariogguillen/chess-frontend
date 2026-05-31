@@ -8,8 +8,12 @@ import {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
+import type { AuthSession } from '../api/auth';
+import { me } from '../api/auth';
+import { ApiError, ApiErrorCode } from '../api/errors';
 import type { Role, RoomResponse } from '../api/rooms';
 import { Opponent } from '../pages/NewGame/utils';
+import { clearToken, readToken, writeToken } from '../utils/authToken';
 import {
   clearSession,
   readSession,
@@ -116,6 +120,23 @@ export type UserContextValue = Readonly<{
    * still rehydrates with the gameId set.
    */
   setGameId: (gameId: string) => void;
+  /**
+   * Promote `identity` to the `Authenticated` arm from a successful
+   * auth result. Persists `session.token` to localStorage and lifts
+   * `session.user` into the identity. This is the seam the login /
+   * register / OAuth-callback flows (sub-features 20.3 / 20.4) call —
+   * they already hold the user, so there is NO extra `me()` round-trip
+   * on that path. The token lives in storage only, never in React state.
+   */
+  setAuthenticated: (session: AuthSession) => void;
+  /**
+   * Sign out: clear the persisted token, reset `identity` to the guest
+   * default, and `leaveRoom()` (a registered user logging out mid-game
+   * is ejected from the room). The pure primitive only — the
+   * "you have a game in progress" confirmation dialog is 20.3's job,
+   * gated ahead of this call when `room.phase === RoomPhase.InRoom`.
+   */
+  logout: () => void;
 }>;
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
@@ -277,6 +298,80 @@ export const UserContextProvider = ({
     });
   }, []);
 
+  const setAuthenticated = useCallback((session: AuthSession) => {
+    // Token to storage (never React state); identity to the
+    // Authenticated arm. The two halves are independent: the token is
+    // the credential the Authorization middleware reads per request, the
+    // identity is what the UI renders.
+    writeToken(session.token);
+    setIdentityState({
+      kind: IdentityKind.Authenticated,
+      userId: session.user.userId,
+      displayName: session.user.displayName,
+    });
+  }, []);
+
+  const logout = useCallback(() => {
+    clearToken();
+    setIdentityState(defaultGuest);
+    // A registered user logging out mid-game is ejected from the room.
+    // `leaveRoom` also clears the persisted room session.
+    leaveRoom();
+  }, [leaveRoom]);
+
+  // Rehydration on mount. If a token is stored AND the caller did not
+  // pass an explicit `initialIdentity` (which always wins — see the
+  // lazy initialiser above), validate the token against the server via
+  // `me()` and lift the result into the Authenticated identity.
+  //
+  // Failure handling distinguishes two cases:
+  //   - auth failure (the token is stale/expired/forged): the server
+  //     answers 401 / AUTHENTICATION_REQUIRED. Clear the token so the
+  //     next load does not retry a dead credential; stay guest.
+  //   - transport failure (NETWORK_ERROR, or any non-auth error): leave
+  //     the token in place — a transient blip should not sign the user
+  //     out of a possibly-valid session. Stay guest for this load.
+  //
+  // The `cancelled` flag is the standard guard against a post-unmount
+  // state update: StrictMode double-invokes effects in dev, and a fast
+  // route change could unmount the Provider before `me()` resolves.
+  // Read at mount-time only (the `initialIdentity` branch and the token
+  // are both first-render facts), so the effect runs once — the empty
+  // dep list is intentional and the disable comment documents why.
+  useEffect(() => {
+    if (initialIdentity !== undefined) return;
+    if (readToken() === null) return;
+
+    let cancelled = false;
+    me()
+      .then((user) => {
+        if (cancelled) return;
+        setIdentityState({
+          kind: IdentityKind.Authenticated,
+          userId: user.userId,
+          displayName: user.displayName,
+        });
+      })
+      .catch((error: unknown) => {
+        const isAuthFailure =
+          error instanceof ApiError &&
+          (error.code === ApiErrorCode.AuthenticationRequired || error.httpStatus === 401);
+        if (isAuthFailure) {
+          // Stale credential — drop it so we do not retry on next load.
+          clearToken();
+        }
+        // Either way, stay guest. A transport failure keeps the token.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // Mount-only: `initialIdentity` is a first-render fact and the token
+    // is read live; re-running on identity changes would re-fetch `me()`
+    // after every login, which is exactly what we want to avoid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const value = useMemo<UserContextValue>(
     () => ({
       identity,
@@ -287,8 +382,21 @@ export const UserContextProvider = ({
       enterRoom,
       leaveRoom,
       setGameId,
+      setAuthenticated,
+      logout,
     }),
-    [identity, opponent, room, setIdentity, setOpponent, enterRoom, leaveRoom, setGameId],
+    [
+      identity,
+      opponent,
+      room,
+      setIdentity,
+      setOpponent,
+      enterRoom,
+      leaveRoom,
+      setGameId,
+      setAuthenticated,
+      logout,
+    ],
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

@@ -2,14 +2,24 @@ import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { IdentityKind, UserContextProvider } from '../../context';
+import type { Identity } from '../../context';
 import Drawer from './Drawer';
 
-const renderDrawer = () => {
+const renderDrawer = (initialIdentity?: Identity) => {
   return render(
     <MemoryRouter initialEntries={['/home']}>
-      <Drawer open={true} setOpen={vi.fn()} />
+      <UserContextProvider initialIdentity={initialIdentity}>
+        <Drawer open={true} setOpen={vi.fn()} />
+      </UserContextProvider>
     </MemoryRouter>,
   );
+};
+
+const authedIdentity: Identity = {
+  kind: IdentityKind.Authenticated,
+  userId: 'u-1',
+  displayName: 'Ada',
 };
 
 describe('Drawer', () => {
@@ -39,6 +49,18 @@ describe('Drawer', () => {
     newGameLinks.forEach((link) => {
       expect(link).toHaveAttribute('href', '/new');
     });
+  });
+
+  it('shows the "Log in" entry for a guest', () => {
+    renderDrawer();
+    expect(screen.getAllByText('Log in').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('hides the "Log in" entry for an authenticated user', () => {
+    renderDrawer(authedIdentity);
+    expect(screen.queryByText('Log in')).toBeNull();
+    // About stays visible regardless of auth.
+    expect(screen.getAllByText('About').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders both temporary and permanent Drawer variants', () => {

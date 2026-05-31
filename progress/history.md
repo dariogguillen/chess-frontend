@@ -3907,3 +3907,97 @@ polish).
 (+ `src/api/errors.test.ts`).
 
 **Feature note:** `notes/20.1-auth-openapi-resnapshot.md`.
+
+---
+
+## 2026-05-30 — `auth-core` (priority 20.2) ✅
+
+Sub-feature 2 of 4 of `user-accounts`. Non-UI auth plumbing. Shipped in
+two rounds (round 1 rejected solely for Prettier drift in the feature
+note — `*emphasis*` vs the repo's `_emphasis_`; round 2 green after
+`prettier --write`).
+
+- **`src/utils/authToken.ts`** (new) — JWT in localStorage under
+  `chess-room.authToken`, guarded exactly like `sessionStorage.ts`
+  (getStorage try/catch → null; read/write/clear never throw).
+  localStorage (not session) because the JWT is a 7-day credential meant
+  to outlive a tab.
+- **`src/api/http.ts`** (new) — `wrapNetwork` extracted from `rooms.ts`
+  (shared by rooms + auth; rooms.ts body byte-identical, its tests
+  unchanged).
+- **`src/api/auth.ts`** (new) — `login`/`register`/`me` typed wrappers;
+  `AuthUser = {userId, displayName, email}` narrowed from `MeResponse`
+  (id→userId; throws `ApiError(UnknownError)` on missing fields),
+  `AuthSession = {token, user}` narrowed from `AuthResponse`. Errors via
+  the existing `mapError`; the 3 auth codes came from 20.1 (no new codes).
+- **`src/api/client.ts`** — `authMiddleware` (openapi-fetch `.use()`)
+  injects `Authorization: Bearer <token>` only when `readToken()` is
+  non-null, token read FRESH per request; omits the header when null
+  (auth is additive — anonymous play unaffected). `withAuth(client)`
+  applied to BOTH `apiClient` and the `createApiClient` test hatch.
+- **`src/context/UserContext.tsx`** — `setAuthenticated(session)` (persist
+  token + Authenticated arm), `logout()` (clearToken + defaultGuest +
+  `leaveRoom`), and mount rehydration (token present + no `initialIdentity`
+  → `me()`; 401/`AUTHENTICATION_REQUIRED` → clearToken + guest; transport
+  failure → keep token + guest; `cancelled` guard for StrictMode).
+  **Decision (with user):** logout ejects from any room because logout
+  only applies to a registered user; the confirmation warning ("you have
+  a game in progress; logging out abandons it") is deferred to 20.3 where
+  the Logout button lives.
+
+Reviewer approved (no UI surface → ui-reviewer skipped). `./init.sh`
+green; Vitest 293 → 318 (+25: authToken 6, auth 10, middleware 3,
+UserContext +). No new runtime deps (openapi-fetch already had `.use()`).
+No UI, no routes.
+
+**Files touched:** `src/utils/authToken.ts` (+test), `src/api/http.ts`,
+`src/api/auth.ts` (+test), `src/api/client.ts` (+`client.test.ts`),
+`src/api/rooms.ts`, `src/context/UserContext.tsx` (+test).
+
+**Feature note:** `notes/20.2-auth-core.md`.
+
+---
+
+## 2026-05-30 — `auth-ui` (priority 20.3) ✅
+
+Sub-feature 3 of 4 of `user-accounts`. Email/password UI + Header authed
+wiring. Shipped in one round; ui-reviewer + reviewer both approved.
+
+- **`src/pages/Login/`** (new) — real login form replacing the `/login`
+  WIP placeholder. Email + password → `login()` → `setAuthenticated` →
+  `/home`; error via the NewGame Snackbar/Alert pattern (`messageFor`);
+  already-authed → `<Navigate to="/home" replace />`; link to /register.
+- **`src/pages/Register/`** (new) — email + displayName + password →
+  `register()` → `setAuthenticated` → `/home`; covers `EMAIL_ALREADY_TAKEN`;
+  same authed-redirect guard; link to /login.
+- **`src/components/AccountMenu/`** (new) — self-gating control mounted in
+  Header next to BoardThemeSelector. Guest → null; authenticated →
+  AccountCircle + Menu (displayName disabled row + Log out). Logout flow:
+  if `room.phase === InRoom`, a confirmation Dialog ("you have a game in
+  progress; logging out will abandon it") gates the call; else direct.
+  Confirm → `logout()` (the auth-core primitive — clears token + identity
+  + leaveRoom; NOT reimplemented) + `navigate('/home')`.
+- Removed the dead `authed` plumbing: dropped the hardcoded
+  `useState(false)` in `App.tsx`, the `authed` prop on `HeaderProps`, and
+  the old stubbed authed-slot markup in Header. Header is auth-agnostic
+  again.
+- `Drawer.tsx` hides the "Log in" entry when authenticated (guests still
+  see it; logout lives in the header menu, reachable on xs).
+- `Public.tsx`: `/login` → real lazy `Login`; new lazy `/register`;
+  removed the now-unused `WIP` import (WIP page itself retained).
+
+a11y (ui-reviewer verified): single `<h1>` per page, real `<form>`
+onSubmit, labelled fields, `type`/`autoComplete` correct, submit disabled
+while submitting, error Alert announced; AccountMenu IconButton
+`aria-haspopup`/`aria-controls`/`aria-expanded`, Dialog `aria-labelledby`
++ focus trap; AppBar Toolbar spacer intact; dark-mode reactive
+(`color="inherit"`). Anonymous play ungated (no RequireAuth/router guard).
+
+`./init.sh` green; Vitest 318 → 339 (+21). No new runtime deps.
+
+**Files touched:** `src/pages/Login/*`, `src/pages/Register/*`,
+`src/components/AccountMenu/*`, `src/components/Header/Header.tsx` (+test),
+`src/App.tsx`, `src/components/Drawer/Drawer.tsx` (+test),
+`src/routes/Public.tsx`.
+
+**Feature note:** `notes/20.3-auth-ui.md`.

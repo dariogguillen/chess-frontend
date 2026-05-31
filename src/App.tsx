@@ -23,10 +23,6 @@ import { createAppTheme, useColorMode } from './theme';
 const App = () => {
   const [open, setOpen] = useState(false);
   const { mode, toggle: toggleMode } = useColorMode();
-  // Authed is hard-coded to `false` while auth is a future feature. The
-  // shape (boolean prop on Header) matches what the auth feature will
-  // need so the wiring is in place.
-  const [authed] = useState(false);
 
   const theme = useMemo(() => createAppTheme(mode), [mode]);
 
@@ -36,13 +32,7 @@ const App = () => {
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-            <Header
-              authed={authed}
-              open={open}
-              setOpen={setOpen}
-              mode={mode}
-              onToggleMode={toggleMode}
-            />
+            <Header open={open} setOpen={setOpen} mode={mode} onToggleMode={toggleMode} />
             <Drawer open={open} setOpen={setOpen} />
             <Box component="main" sx={{ flexGrow: 1, p: 0 }}>
               <Toolbar />

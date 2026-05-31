@@ -8,6 +8,7 @@ import { Fragment, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import DrawerSection from './DrawerSection';
 import type { DrawerSectionElement } from './DrawerSection';
+import { IdentityKind, useUserContext } from '../../context';
 
 export const DRAWER_WIDTH = 200;
 
@@ -23,19 +24,24 @@ export interface DrawerComponentProps {
  * styled by the theme's `MuiListItem` override.
  */
 const DrawerComponent = ({ open, setOpen }: DrawerComponentProps) => {
+  const { identity } = useUserContext();
   const [isClosing, setIsClosing] = useState(false);
   const handleDrawerTransitionEnd = () => setIsClosing(false);
   const handleDrawerToggle = () => {
     if (!isClosing) setOpen(!open);
   };
 
+  const isAuthenticated = identity.kind === IdentityKind.Authenticated;
+
   const drawerIconsS1: DrawerSectionElement[] = [
     { name: 'Home', path: '/home', icon: () => <HomeIcon /> },
     { name: 'New Game', path: '/new', icon: () => <GamepadIcon /> },
   ];
 
+  // "Log in" is only meaningful for a guest. An authenticated user signs
+  // out from the header account menu, so the Drawer drops the entry.
   const drawerIconsS2: DrawerSectionElement[] = [
-    { name: 'Log in', path: '/login', icon: () => <LoginIcon /> },
+    ...(isAuthenticated ? [] : [{ name: 'Log in', path: '/login', icon: () => <LoginIcon /> }]),
     { name: 'About', path: '/about', icon: () => <InfoIcon /> },
   ];
 

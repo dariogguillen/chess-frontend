@@ -1,36 +1,34 @@
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import MenuIcon from '@mui/icons-material/Menu';
 import ModeNightIcon from '@mui/icons-material/ModeNight';
-import { AppBar, Menu, MenuItem } from '@mui/material';
+import { AppBar } from '@mui/material';
 import IconButton from '@mui/material/IconButton';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
-import { useState } from 'react';
-import type { MouseEvent } from 'react';
 import type { PaletteMode } from '@mui/material/styles';
 import type { DrawerComponentProps } from '../Drawer';
+import { AccountMenu } from '../AccountMenu';
 import { BoardThemeSelector } from '../BoardThemeSelector';
 
 export interface HeaderProps extends DrawerComponentProps {
-  /** True when a user is signed in; toggles the Account menu. Today this
-   * is always false — auth is a future feature. */
-  authed: boolean;
   mode: PaletteMode;
   onToggleMode: () => void;
 }
 
 /**
  * Top app bar: hamburger (xs only) + product title + dark/light toggle
- * + (gated) Account menu. The mode toggle is wired to the
- * `useColorMode` hook one level up — Header itself is presentational.
+ * + board-theme picker + (self-gating) account menu. The mode toggle is
+ * wired to the `useColorMode` hook one level up — Header itself stays
+ * presentational and auth-agnostic.
+ *
+ * Auth state is no longer threaded through a prop. `AccountMenu` reads
+ * `useUserContext` directly (the `BoardThemeSelector` precedent): it
+ * renders nothing for a guest and the account control for an
+ * authenticated user. Keeping that decision inside the child keeps the
+ * Header from caring who is signed in.
  */
-const Header = ({ authed, open, setOpen, mode, onToggleMode }: HeaderProps) => {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-
+const Header = ({ open, setOpen, mode, onToggleMode }: HeaderProps) => {
   const handleDrawerOpen = () => setOpen(!open);
-  const handleMenu = (event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget);
-  const handleClose = () => setAnchorEl(null);
 
   return (
     <AppBar position="fixed" sx={{ zIndex: 1400 }}>
@@ -56,32 +54,7 @@ const Header = ({ authed, open, setOpen, mode, onToggleMode }: HeaderProps) => {
         >
           {mode === 'dark' ? <LightModeIcon /> : <ModeNightIcon />}
         </IconButton>
-        {authed && (
-          <div>
-            <IconButton
-              size="large"
-              aria-label="account of current user"
-              aria-controls="menu-appbar"
-              aria-haspopup="true"
-              onClick={handleMenu}
-              color="inherit"
-            >
-              <AccountCircleIcon />
-            </IconButton>
-            <Menu
-              id="menu-appbar"
-              anchorEl={anchorEl}
-              anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-              keepMounted
-              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-              open={Boolean(anchorEl)}
-              onClose={handleClose}
-            >
-              <MenuItem onClick={handleClose}>Profile</MenuItem>
-              <MenuItem onClick={handleClose}>My account</MenuItem>
-            </Menu>
-          </div>
-        )}
+        <AccountMenu />
       </Toolbar>
     </AppBar>
   );

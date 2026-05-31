@@ -1,6 +1,7 @@
 import type { Client } from 'openapi-fetch';
 import { apiClient } from './client';
 import { ApiError, ApiErrorCode, mapError } from './errors';
+import { wrapNetwork } from './http';
 import type { components, paths } from './generated/schema';
 
 /**
@@ -90,22 +91,6 @@ const narrowRoomResponse = (raw: GeneratedRoomResponse | undefined): RoomRespons
     role: narrowRole(raw.role),
     gameId: raw.gameId ?? null,
   };
-};
-
-/**
- * Translate transport-layer exceptions (DNS failure, connection refused,
- * AbortError, etc.) into the same `ApiError` discriminated union the
- * page layer already handles. Without this every caller would have to
- * special-case `try`/`catch` separately from the `{ error }` channel.
- */
-const wrapNetwork = async <T>(work: () => Promise<T>): Promise<T> => {
-  try {
-    return await work();
-  } catch (cause) {
-    if (cause instanceof ApiError) throw cause;
-    const message = cause instanceof Error ? cause.message : null;
-    throw new ApiError(ApiErrorCode.NetworkError, null, message);
-  }
 };
 
 type ClientFor = Client<paths>;

@@ -1,12 +1,20 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { HttpResponse, http } from 'msw';
 import { UserContextProvider, useUserContext } from './UserContext';
 import type { Identity } from './UserContext';
 import { Opponent } from '../pages/NewGame/utils';
 import { SESSION_STORAGE_KEY } from '../utils/sessionStorage';
 import type { StoredSession } from '../utils/sessionStorage';
 import { Role } from '../api/rooms';
+import { AUTH_TOKEN_KEY, readToken, writeToken } from '../utils/authToken';
+import { TEST_API_BASE_URL, server } from '../test/msw-server';
+
+const authSession = {
+  token: 'jwt.token.value',
+  user: { userId: 'user-uuid-1', email: 'alice@example.com', displayName: 'Alice' },
+} as const;
 
 const storedSession: StoredSession = {
   roomId: 'K7M3X9',
@@ -24,10 +32,12 @@ const readRawSession = (): StoredSession | null => {
 describe('UserContext', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
     window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it('throws when useUserContext is called outside a provider', () => {
@@ -306,5 +316,137 @@ describe('UserContext', () => {
     });
 
     expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  // ---------------------------------------------------------------
+  // auth-core (priority 20.2)
+  // ---------------------------------------------------------------
+
+  it('setAuthenticated persists the token and flips identity to authenticated', () => {
+    const { result } = renderHook(() => useUserContext(), {
+      // Explicit initialIdentity suppresses the mount rehydration effect
+      // so this test exercises only setAuthenticated.
+      wrapper: ({ children }) => (
+        <UserContextProvider initialIdentity={{ kind: 'guest', displayName: 'Guest' }}>
+          {children}
+        </UserContextProvider>
+      ),
+    });
+
+    act(() => {
+      result.current.setAuthenticated(authSession);
+    });
+
+    expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBe('jwt.token.value');
+    expect(result.current.identity.kind).toBe('authenticated');
+    if (result.current.identity.kind === 'authenticated') {
+      expect(result.current.identity.userId).toBe('user-uuid-1');
+      expect(result.current.identity.displayName).toBe('Alice');
+    } else {
+      throw new Error('expected authenticated identity');
+    }
+  });
+
+  it('logout clears the token, returns to guest, and leaves the room', () => {
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => (
+        <UserContextProvider initialIdentity={{ kind: 'guest', displayName: 'Guest' }}>
+          {children}
+        </UserContextProvider>
+      ),
+    });
+
+    act(() => {
+      result.current.setAuthenticated(authSession);
+    });
+    act(() => {
+      result.current.enterRoom({
+        roomId: 'K7M3X9',
+        playerId: 'player-1',
+        role: Role.White,
+        gameId: 'game-1',
+      });
+    });
+    act(() => {
+      result.current.logout();
+    });
+
+    expect(readToken()).toBeNull();
+    expect(result.current.identity).toEqual({ kind: 'guest', displayName: 'Guest' });
+    expect(result.current.room).toEqual({ phase: 'none' });
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('rehydrates an authenticated identity on mount when a token is stored', async () => {
+    writeToken('jwt.token.value');
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/me`, () =>
+        HttpResponse.json(
+          { id: 'user-uuid-1', email: 'alice@example.com', displayName: 'Alice' },
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.identity.kind).toBe('authenticated');
+    });
+    if (result.current.identity.kind === 'authenticated') {
+      expect(result.current.identity.userId).toBe('user-uuid-1');
+      expect(result.current.identity.displayName).toBe('Alice');
+    } else {
+      throw new Error('expected authenticated identity after rehydration');
+    }
+    // The valid token is preserved.
+    expect(readToken()).toBe('jwt.token.value');
+  });
+
+  it('clears a stale token and stays guest when me() returns 401', async () => {
+    writeToken('stale.token');
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/me`, () =>
+        HttpResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 }),
+      ),
+    );
+
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    await waitFor(() => {
+      expect(readToken()).toBeNull();
+    });
+    expect(result.current.identity).toEqual({ kind: 'guest', displayName: 'Guest' });
+  });
+
+  it('keeps the token but stays guest when me() fails at the transport layer', async () => {
+    writeToken('maybe.valid.token');
+    server.use(http.get(`${TEST_API_BASE_URL}/api/me`, () => HttpResponse.error()));
+
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    // A transport blip must not nuke a possibly-valid token. Allow the
+    // effect's promise chain to settle, then assert the token survived.
+    await waitFor(() => {
+      expect(result.current.identity.kind).toBe('guest');
+    });
+    expect(readToken()).toBe('maybe.valid.token');
+  });
+
+  it('does not call me() and stays guest when no token is stored', () => {
+    // No MSW handler registered. The vitest setup runs with
+    // onUnhandledRequest: 'error', so any `me()` call would fail the
+    // test loudly. The effect must early-return before fetching.
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => <UserContextProvider>{children}</UserContextProvider>,
+    });
+
+    expect(result.current.identity).toEqual({ kind: 'guest', displayName: 'Guest' });
   });
 });

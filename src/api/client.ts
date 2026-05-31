@@ -1,5 +1,7 @@
 import createClient from 'openapi-fetch';
+import type { Client, Middleware } from 'openapi-fetch';
 import { backendUrl } from '../utils/config.default';
+import { readToken } from '../utils/authToken';
 import type { paths } from './generated/schema';
 
 /**
@@ -49,14 +51,54 @@ const lazyFetch: typeof fetch = (...args) => globalThis.fetch(...args);
  * The wrappers in `rooms.ts` collapse that shape into a thrown
  * `ApiError` for the React layer.
  */
-export const apiClient = createClient<paths>({
-  baseUrl: resolveBaseUrl(),
-  fetch: lazyFetch,
-});
+/**
+ * Authorization-injection middleware.
+ *
+ * On every outgoing request it reads the persisted JWT via `readToken()`
+ * and, when one is present, sets `Authorization: Bearer <token>`. When
+ * no token is stored it sets NO header at all — auth is *additive* here:
+ * anonymous room create/join/move must keep working untouched, so an
+ * absent token must mean an absent header (not an empty one).
+ *
+ * The token is read fresh per request (not captured once at client
+ * construction) so a login/logout that mutates localStorage takes effect
+ * on the very next call without rebuilding the client.
+ *
+ * `Request.headers` is a live, mutable `Headers` instance; we mutate it
+ * in place and return nothing — openapi-fetch keeps the same `request`
+ * when `onRequest` returns `void`.
+ */
+const authMiddleware: Middleware = {
+  onRequest({ request }) {
+    const token = readToken();
+    if (token !== null) {
+      request.headers.set('Authorization', `Bearer ${token}`);
+    }
+  },
+};
+
+/**
+ * Register the Authorization middleware on a client. Applied to BOTH the
+ * production singleton and the `createApiClient` test hatch so MSW tests
+ * exercise the real header-injection path rather than a bypass.
+ */
+const withAuth = (client: Client<paths>): Client<paths> => {
+  client.use(authMiddleware);
+  return client;
+};
+
+export const apiClient = withAuth(
+  createClient<paths>({
+    baseUrl: resolveBaseUrl(),
+    fetch: lazyFetch,
+  }),
+);
 
 /**
  * Test-only escape hatch: build a fresh client against a custom base URL.
- * Used by `rooms.test.ts` to point at the MSW server's origin.
+ * Used by `rooms.test.ts` / `auth.test.ts` to point at the MSW server's
+ * origin. Wrapped with `withAuth` so the token-injection middleware is
+ * exercised by tests exactly as in production.
  */
 export const createApiClient = (baseUrl: string) =>
-  createClient<paths>({ baseUrl, fetch: lazyFetch });
+  withAuth(createClient<paths>({ baseUrl, fetch: lazyFetch }));

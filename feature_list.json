@@ -628,7 +628,7 @@
     "id": "auth-core",
     "title": "Auth plumbing: api/auth client, token storage, Authorization middleware, UserContext authenticated arm + logout",
     "description": "Sub-feature 2 of 4 for user-accounts. The non-UI plumbing. Adds src/api/auth.ts (typed login/register/me wrappers over the regenerated schema), JWT token persistence in localStorage (key chess-room.authToken, guarded read/write mirroring useColorMode/useBoardTheme), a central openapi-fetch middleware (.use, supported by openapi-fetch@0.17) that injects `Authorization: Bearer <token>` when a token is present, UserContext changes to populate the existing Authenticated identity arm (userId + displayName; token stays in storage, NOT in React state) with rehydration on app load (if a token exists, GET /api/me validates and rehydrates; 401 clears it back to guest), a logout() operation that clears token + identity, and new ApiErrorCode entries for auth (INVALID_CREDENTIALS, USER_ALREADY_EXISTS, INVALID_TOKEN/UNAUTHORIZED) with messages. No login/register pages yet (that is auth-ui). Decision (confirmed with user): token in localStorage because the backend issues a 7-day JWT with no refresh endpoint. Plan to be detailed when this sub-feature is opened.",
-    "status": "pending",
+    "status": "done",
     "priority": 20.2,
     "acceptance": [
       "src/api/auth.ts exposes typed login(email, password), register(email, password, displayName), me() wrappers using the regenerated schema and the existing ApiError translation pattern.",
@@ -644,7 +644,7 @@
     "id": "auth-ui",
     "title": "Login & register pages + Header authed wiring + logout",
     "description": "Sub-feature 3 of 4 for user-accounts. The email/password UI. Replaces the /login WIP placeholder with a real LoginPage, adds a RegisterPage (or a combined toggle), wires forms to auth-core's login/register, handles errors via the existing Snackbar/Alert pattern, and wires the Header's existing authed slot (AccountCircle + Menu, currently gated by a hardcoded `authed=false` prop) to derive from UserContext identity, with a working Logout action. Anonymous play remains fully usable. Plan detailed when opened.",
-    "status": "pending",
+    "status": "done",
     "priority": 20.3,
     "acceptance": [
       "/login renders a real login form (email + password) wired to auth-core; /register renders a registration form (email + password + displayName) or a combined toggle.",

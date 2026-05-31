@@ -4,10 +4,11 @@ import App from '../App';
 import About from '../pages/About';
 import ErrorPage from '../pages/Error';
 import Home from '../pages/Home';
-import WIP from '../pages/WIP';
 
 const NewGame = lazy(() => import('../pages/NewGame'));
 const Play = lazy(() => import('../pages/Play'));
+const Login = lazy(() => import('../pages/Login'));
+const Register = lazy(() => import('../pages/Register'));
 
 /**
  * Normalise Vite's `import.meta.env.BASE_URL` into the form
@@ -36,7 +37,8 @@ const router = createBrowserRouter(
         { path: 'home', element: <Home /> },
         { path: 'new', element: <NewGame /> },
         { path: 'play', element: <Play /> },
-        { path: 'login', element: <WIP str="Log in" /> },
+        { path: 'login', element: <Login /> },
+        { path: 'register', element: <Register /> },
         { path: 'about', element: <About /> },
       ],
     },
