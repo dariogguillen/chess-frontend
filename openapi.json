@@ -17,6 +17,14 @@
       "description": "Player history endpoints."
     },
     {
+      "name": "Authentication",
+      "description": "Authenticated-user endpoints."
+    },
+    {
+      "name": "Authentication",
+      "description": "Authenticated-user information."
+    },
+    {
       "name": "Rooms",
       "description": "Create, join, and read chess rooms."
     },
@@ -236,6 +244,110 @@
         }
       }
     },
+    "/api/auth/register": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Register a new account",
+        "description": "Creates a user with the given email + password (BCrypt-hashed) + display name and returns a freshly issued JWT. The token is immediately usable as the Authorization: Bearer header on subsequent authenticated requests — there is no separate confirmation step.",
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Account created; response carries the JWT and the user profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (malformed email, missing field, password outside 8-72 chars, etc.).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An account with this email already exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Log in with email and password",
+        "description": "Validates the credentials and returns a freshly issued JWT. The failure response is uniform — wrong password and unknown email both surface as 401 INVALID_CREDENTIALS with the same generic message, to avoid leaking which accounts exist.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Authenticated; response carries the JWT and the user profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (malformed email, missing field).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid email or password.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/rooms/{id}": {
       "get": {
         "tags": [
@@ -313,6 +425,105 @@
           },
           "400": {
             "description": "Invalid request (malformed UUID in path).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Get the authenticated user",
+        "description": "Returns the user identified by the Authorization: Bearer JWT. Requires a valid token issued by this backend; the response includes the user's id, canonical email, and display name. JWT issuance ships in feature 17; this endpoint is the validator side of the contract.",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "Authenticated user details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired, or unsigned-by-us JWT. Feature 17's AuthEntryPoint writes a structured ErrorResponse body with code AUTHENTICATION_REQUIRED — the same envelope every other 4xx in the API uses.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/games": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "List the authenticated user's archived games",
+        "description": "Returns the archived (terminal-status) games where the caller participated as either side, newest first, in the standard Spring Data Page envelope. Pagination params: page (default 0, min 0); size (default 20, min 1, max 100). Requires a valid Bearer JWT — anonymous requests get 401 AUTHENTICATION_REQUIRED. The page shape is the standard Spring Data envelope: { content, totalElements, totalPages, size, number, ... }.",
+        "operationId": "getMyGames",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of archived games (possibly empty).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyGamesPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination parameter (page < 0 or size outside [1, 100]).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired, or unsigned-by-us JWT. Body is the standard ErrorResponse envelope with code AUTHENTICATION_REQUIRED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -455,7 +666,10 @@
               "NOT_YOUR_TURN",
               "VALIDATION_FAILED",
               "MALFORMED_REQUEST",
-              "MISSING_HEADER"
+              "MISSING_HEADER",
+              "AUTHENTICATION_REQUIRED",
+              "EMAIL_ALREADY_TAKEN",
+              "INVALID_CREDENTIALS"
             ],
             "example": "ROOM_NOT_FOUND"
           },
@@ -514,10 +728,10 @@
             "type": "string"
           },
           "white": {
-            "$ref": "#/components/schemas/Player"
+            "$ref": "#/components/schemas/PlayerView"
           },
           "black": {
-            "$ref": "#/components/schemas/Player"
+            "$ref": "#/components/schemas/PlayerView"
           },
           "fen": {
             "type": "string",
@@ -573,15 +787,87 @@
           }
         }
       },
-      "Player": {
+      "PlayerView": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Player id.",
+            "example": "8b3c1f04-1234-5678-9abc-def012345678"
           },
           "displayName": {
-            "type": "string"
+            "type": "string",
+            "description": "Display name provided at game start.",
+            "example": "Alice"
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Account email; case-insensitive, normalised to lowercase server-side.",
+            "maxLength": 254,
+            "minLength": 0
+          },
+          "password": {
+            "type": "string",
+            "description": "Plain-text password; 8-72 chars (72 is BCrypt's input cap — longer passwords would be silently truncated by the hash function).",
+            "maxLength": 72,
+            "minLength": 8
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable name shown in the UI.",
+            "maxLength": 100,
+            "minLength": 0
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT to send on subsequent authenticated requests as Authorization: Bearer ..."
+          },
+          "user": {
+            "$ref": "#/components/schemas/MeResponse"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Authenticated user's UUID; equal to the JWT 'sub' claim."
+          },
+          "email": {
+            "type": "string",
+            "description": "Canonical lowercase email associated with the account."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable name shown in the UI."
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Account email; case-insensitive, normalised to lowercase server-side.",
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "description": "Plain-text password.",
+            "minLength": 1
           }
         }
       },
@@ -688,6 +974,117 @@
             "format": "int32",
             "description": "Number of moves played in the game.",
             "example": 42
+          }
+        }
+      },
+      "MyGameSummary": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Archived game id.",
+            "example": "0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000"
+          },
+          "roomId": {
+            "type": "string",
+            "description": "Room id the game was played in.",
+            "example": "K7M3X9"
+          },
+          "opponentDisplayName": {
+            "type": "string",
+            "description": "Audit-time display name of the opponent (frozen at game time; a later user-rename does not rewrite past games).",
+            "example": "Bob"
+          },
+          "selfSide": {
+            "type": "string",
+            "description": "Side the authenticated user was on.",
+            "enum": [
+              "WHITE",
+              "BLACK"
+            ],
+            "example": "WHITE"
+          },
+          "status": {
+            "type": "string",
+            "description": "Terminal status of the game.",
+            "enum": [
+              "CHECKMATE",
+              "STALEMATE",
+              "DRAW",
+              "ABANDONED"
+            ],
+            "example": "CHECKMATE"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Instant the game was archived.",
+            "example": "2026-05-19T10:23:11.123Z"
+          },
+          "moveCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of moves played in the game.",
+            "example": 42
+          }
+        }
+      },
+      "MyGamesPage": {
+        "type": "object",
+        "description": "Spring Data Page envelope for MyGameSummary entries. Carries the page contents plus the pagination metadata the frontend uses to render navigation controls.",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "Games on this page, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/MyGameSummary"
+            }
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of games across all pages.",
+            "example": 42
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total number of pages.",
+            "example": 3
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Page size that was requested (or the default).",
+            "example": 20
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Zero-based page index.",
+            "example": 0
+          },
+          "first": {
+            "type": "boolean",
+            "description": "True when this is the first page.",
+            "example": true
+          },
+          "last": {
+            "type": "boolean",
+            "description": "True when this is the last page.",
+            "example": false
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of entries on this page.",
+            "example": 20
+          },
+          "empty": {
+            "type": "boolean",
+            "description": "True when this page is empty.",
+            "example": false
           }
         }
       },

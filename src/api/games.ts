@@ -139,7 +139,7 @@ export type MoveRequestBody = Readonly<{
 }>;
 
 type GeneratedGameStateResponse = components['schemas']['GameStateResponse'];
-type GeneratedPlayer = components['schemas']['Player'];
+type GeneratedPlayer = components['schemas']['PlayerView'];
 type GeneratedMoveSummary = components['schemas']['MoveSummary'];
 
 const narrowSide = (raw: GeneratedGameStateResponse['turn']): Side => {

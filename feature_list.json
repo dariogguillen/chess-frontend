@@ -609,19 +609,62 @@
     ]
   },
   {
-    "id": "user-accounts",
-    "title": "User accounts and authentication",
-    "description": "Move identity from guest (displayName-only) to authenticated accounts. Decision pending on auth strategy: JWT vs session-based vs OAuth (Google / GitHub) vs managed (Auth0 / Clerk). Cross-repo: backend needs auth implementation (Spring Security, user table, session/token model). Frontend: login/signup pages, AuthContext, token storage, refresh flow, route guards. Enables game-reviews (priority 21).",
-    "status": "pending",
-    "priority": 20,
+    "id": "auth-openapi-resnapshot",
+    "title": "Re-snapshot openapi.json + regenerate schema.ts with the auth endpoints",
+    "description": "Enabler sub-feature 1 of 4 for user-accounts. The backend auth bundle is deployed (verified against prod /v3/api-docs 2026-05-29), but the frontend's committed openapi.json snapshot predates it. Re-snapshot from the deployed backend and regenerate src/api/generated/schema.ts so the auth surface is type-available for the next sub-features. Diff is small and low-risk: ADDITIVE — 4 new paths (/api/auth/login, /api/auth/register, /api/me, /api/me/games) + 7 new schemas (AuthResponse, LoginRequest, RegisterRequest, MeResponse, MyGameSummary, MyGamesPage, PlayerView); plus ONE mechanical change to existing types — the schema component `Player` was renamed to `PlayerView` (identical shape {id, displayName}), so GameStateResponse.white/black now $ref PlayerView. This breaks two frontend type aliases (games.ts:142 `components['schemas']['Player']`, wsEvents.ts:341 same) that must be retargeted to `PlayerView`. No new auth code in this sub-feature (that is auth-core). Just codegen + the mechanical type fix + init.sh green. The `openapi:fetch` script points at localhost:8080; since the backend is only deployed (not local), fetch from prod (curl https://chess-backend.duckdns.org/v3/api-docs) — either a one-off or by making the script's backend URL configurable; document the choice.",
+    "status": "done",
+    "priority": 20.1,
     "acceptance": [
-      "Auth strategy decided and documented in docs/architecture.md.",
-      "Frontend: login + signup routes, AuthContext exposing user identity + token, login/logout flows, route guards on protected routes.",
-      "Backend (cross-repo): user table, auth endpoints (/auth/login, /auth/signup, /auth/logout, /auth/me), token middleware on protected REST endpoints, equivalent on STOMP CONNECT.",
-      "Existing guest flow either deprecated with migration note or kept functional for backward compat — to decide in plan.",
-      "Tests: login happy path, signup happy path, token expiry handling, route guard redirects, AuthContext provider.",
-      "Cross-repo coordination plan documented before implementation starts.",
-      "./init.sh passes."
+      "openapi.json regenerated from the deployed backend (https://chess-backend.duckdns.org/v3/api-docs). It now contains the 4 auth paths and the 7 new schemas; `Player` is gone, replaced by `PlayerView`.",
+      "src/api/generated/schema.ts regenerated via `npm run openapi:generate` (openapi-typescript). Codegen idempotency preserved (re-running produces no diff).",
+      "The two frontend aliases referencing the removed `Player` component are retargeted to `PlayerView`: src/api/games.ts:142 (`GeneratedPlayer`) and src/api/wsEvents.ts:341 (`Player`). Shape is identical ({id, displayName}), so narrowing logic is unchanged — purely a rename of the schema reference.",
+      "If `npm run openapi:fetch` is used, document that it was pointed at prod (or the script was made backend-URL-configurable); a bare localhost run would fail since the backend is not local.",
+      "No new auth modules, routes, UI, or context changes in this sub-feature (those are auth-core / auth-ui / auth-google-oauth).",
+      "Bundle delta zero (schema types are compile-time only). No new runtime deps.",
+      "./init.sh green end-to-end (the typecheck step is the real gate — it must compile against the regenerated schema with the PlayerView rename applied)."
+    ]
+  },
+  {
+    "id": "auth-core",
+    "title": "Auth plumbing: api/auth client, token storage, Authorization middleware, UserContext authenticated arm + logout",
+    "description": "Sub-feature 2 of 4 for user-accounts. The non-UI plumbing. Adds src/api/auth.ts (typed login/register/me wrappers over the regenerated schema), JWT token persistence in localStorage (key chess-room.authToken, guarded read/write mirroring useColorMode/useBoardTheme), a central openapi-fetch middleware (.use, supported by openapi-fetch@0.17) that injects `Authorization: Bearer <token>` when a token is present, UserContext changes to populate the existing Authenticated identity arm (userId + displayName; token stays in storage, NOT in React state) with rehydration on app load (if a token exists, GET /api/me validates and rehydrates; 401 clears it back to guest), a logout() operation that clears token + identity, and new ApiErrorCode entries for auth (INVALID_CREDENTIALS, USER_ALREADY_EXISTS, INVALID_TOKEN/UNAUTHORIZED) with messages. No login/register pages yet (that is auth-ui). Decision (confirmed with user): token in localStorage because the backend issues a 7-day JWT with no refresh endpoint. Plan to be detailed when this sub-feature is opened.",
+    "status": "pending",
+    "priority": 20.2,
+    "acceptance": [
+      "src/api/auth.ts exposes typed login(email, password), register(email, password, displayName), me() wrappers using the regenerated schema and the existing ApiError translation pattern.",
+      "Token persisted in localStorage under chess-room.authToken (guarded read/write helper, SSR/private-mode safe, consistent with the repo's storage pattern).",
+      "Central Authorization injection via openapi-fetch middleware (.use) reading the stored token; anonymous requests omit the header (auth is additive; anonymous play unaffected).",
+      "UserContext: Authenticated arm populated from {token -> GET /api/me}; rehydration on mount; 401 clears to guest; logout() clears token + identity.",
+      "New ApiErrorCode auth values + messages mapped.",
+      "Tests (MSW) cover login/register/me happy + error paths, token persistence, rehydration, 401-clears, logout.",
+      "./init.sh green. (Plan detailed at open-time.)"
+    ]
+  },
+  {
+    "id": "auth-ui",
+    "title": "Login & register pages + Header authed wiring + logout",
+    "description": "Sub-feature 3 of 4 for user-accounts. The email/password UI. Replaces the /login WIP placeholder with a real LoginPage, adds a RegisterPage (or a combined toggle), wires forms to auth-core's login/register, handles errors via the existing Snackbar/Alert pattern, and wires the Header's existing authed slot (AccountCircle + Menu, currently gated by a hardcoded `authed=false` prop) to derive from UserContext identity, with a working Logout action. Anonymous play remains fully usable. Plan detailed when opened.",
+    "status": "pending",
+    "priority": 20.3,
+    "acceptance": [
+      "/login renders a real login form (email + password) wired to auth-core; /register renders a registration form (email + password + displayName) or a combined toggle.",
+      "Form error handling for invalid credentials / email already registered / validation, consistent with existing error Snackbars.",
+      "Header derives authed state from UserContext (no more hardcoded prop), shows the Account menu when authenticated, and a working Logout that returns to guest.",
+      "Responsive, accessible (labels, single h1 per page, keyboard-usable); ui-reviewer required.",
+      "Tests cover render, submit success -> authenticated, submit error, logout. ./init.sh green."
+    ]
+  },
+  {
+    "id": "auth-google-oauth",
+    "title": "Google OAuth: Sign-in button + /auth/callback fragment handling",
+    "description": "Sub-feature 4 of 4 for user-accounts. Adds a 'Sign in with Google' affordance that navigates to the backend's GET /oauth2/authorization/google, and a new /auth/callback route that reads the JWT from the URL fragment (the backend redirects to {frontendBase}/auth/callback#token=<jwt>, or #error=email_taken / #error=oauth_missing_profile), persists the token via auth-core, fetches GET /api/me, sets the authenticated identity, and redirects to /home (handling the error fragments with a friendly message). Plan detailed when opened.",
+    "status": "pending",
+    "priority": 20.4,
+    "acceptance": [
+      "A 'Sign in with Google' control (on the login page) navigates to the backend's GET /oauth2/authorization/google (absolute backend URL).",
+      "New /auth/callback route reads window.location.hash: #token=<jwt> -> persist + GET /api/me + set identity + redirect /home; #error=... -> friendly message + redirect to /login.",
+      "The fragment is cleared from the URL after handling (no token left in history/address bar).",
+      "Tests cover the token-fragment success path and at least one error-fragment path. ./init.sh green."
     ]
   },
   {

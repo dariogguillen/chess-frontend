@@ -338,7 +338,7 @@ export type RoomEventType = (typeof RoomEventType)[keyof typeof RoomEventType];
  * looser shape here because `RoomJoinedEvent` consumers (the
  * discovery flow) only need `id` and treat the rest defensively.
  */
-type Player = components['schemas']['Player'];
+type Player = components['schemas']['PlayerView'];
 
 /**
  * Mirror of the backend's `RoomJoinedEvent.java` record (Spring

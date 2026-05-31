@@ -1,129 +1,102 @@
 # Current session
 
-**Status:** closed — `click-to-move` (priority 15) shipped 2026-05-29
-in a single round. chess.com-style click-to-move alongside drag; shared
-`attemptMove` for both input modes; source-square selection cue. Both
-reviewers approved.
+**Status:** CLOSED — `auth-openapi-resnapshot` (priority 20.1) shipped
+2026-05-30 in one round (one leader-authorized scope deviation: mirroring
+the 3 new `ErrorResponse.error` auth codes into `errors.ts` to keep the
+regenerated schema compiling). Reviewer approved; no UI surface so
+ui-reviewer was skipped. `./init.sh` green (293 tests). See history.md.
 
-## Counts
+**Counts:** 36 done · 4 pending (20.2 auth-core, 20.3 auth-ui,
+20.4 auth-google-oauth, 21 game-reviews).
 
-- **Done:** 35 (priorities 0 → 15).
-- **Pending:** 2 (priorities 20, 21).
+**Next:** `auth-core` (20.2) — api/auth.ts typed wrappers, JWT token
+storage in localStorage (`chess-room.authToken`), Authorization
+middleware via openapi-fetch `.use()`, UserContext Authenticated arm +
+rehydration on mount (GET /api/me; 401 → guest) + logout(). No UI yet
+(that is auth-ui). The auth error codes + neutral messages already exist
+in `errors.ts` from 20.1 — auth-core wires `mapError` promotion behavior
+and may refine messages. Token-in-localStorage decided (backend JWT is
+7-day, no refresh endpoint). Draft the plan, surface it, then delegate.
 
-## What just closed
+---
 
-`click-to-move` — one round:
+## Previous plan (20.1, completed)
 
-- Extracted `attemptMove(from, to)` from `onDrop` → drag and click
-  share one move pipeline (turn/legality/promotion/optimistic+submit).
-- `onSquareClick` five-transition state machine over `selectedSquare`
-  (select / toggle-off / re-focus own piece / move / no-op); shared
-  `isOwnPiece` gate; `onSquareClick` only (no `onPieceClick`).
-- Source-square cue in `useMoveHints` (fill + inset ring via
-  `alpha(primary)`, not color alone), composed without clobbering
-  destination hints.
-- Verified: completed drag doesn't fire spurious `onSquareClick`; touch
-  taps fire it, touch-drags route through `onDrop`.
+Enabler: re-snapshot the OpenAPI contract from the deployed backend and
+regenerate the TypeScript schema so the auth surface becomes
+type-available for 20.2–20.4. No auth code yet.
 
-Vitest 278 → 286 (+8); E2E two-player now exercises click-to-move. No
-new deps, no schema change.
+## Why this first
 
-## 📋 Remaining lineup — both large & cross-repo
+The backend auth bundle is DEPLOYED (validated against prod
+`/v3/api-docs` on 2026-05-29) but the committed `openapi.json` predates
+it. Until the snapshot is refreshed, none of the auth endpoints/schemas
+exist in the generated types, so `auth-core` cannot compile against them.
+This sub-feature is pure codegen + one mechanical rename + `init.sh`
+green.
 
-| # | Feature | Scope | Cross-repo |
-|---|---|---|---|
-| 20 | `user-accounts` | Large, decision-first (backend ready) | **Yes** |
-| 21 | `game-reviews` | Large (`/api/me/games`; needs an account) | **Yes** (after 20) |
+## Scope (the validated diff)
 
-The small-feature backlog is exhausted again. `user-accounts` (20) is
-next — decision-first; the user paused mid-design-discussion to slot in
-click-to-move, so resume that discussion before drafting a plan.
+ADDITIVE — 4 new paths:
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/me`
+- `GET /api/me/games`
 
-### `user-accounts` (20) — readiness notes (from backend validation)
-Backend auth DONE; CORS allows the Cloudflare origin + Authorization /
-X-Player-Id. Key facts for planning:
-- `POST /api/auth/{register,login}` → `{token, user}`; `GET /api/me`;
-  `GET /api/me/games` (Bearer JWT, 7-day).
-- Google OAuth: `GET /oauth2/authorization/google` → redirects to the
-  frontend with the token in the URL **fragment**:
-  `{frontendBase}/auth/callback#token=<jwt>` → frontend needs an
-  `/auth/callback` route reading `window.location.hash`.
-- Auth is OPTIONAL/additive — anonymous play still works; STOMP CONNECT
-  never rejected; `playerId` pin-on-first-use per session.
-- Decisions to settle in the design discussion: token storage
-  (localStorage vs in-memory + refresh), how authed identity composes
-  with the guest `UserContext` discriminated union (IdentityKind
-  Guest/Authenticated already exists), the `/auth/callback` handling,
-  the Header's authed slot (Account menu, stubbed), how Authorization
-  is injected into the openapi-fetch client, and whether the frontend
-  openapi.json/schema.ts needs re-snapshotting for the auth endpoints.
-- Likely worth decomposing into sub-features (mirror the backend's
-  auth-core / jwt / google-oauth / my-games split) rather than one
-  large feature.
+ADDITIVE — 7 new schemas: `AuthResponse`, `LoginRequest`,
+`RegisterRequest`, `MeResponse`, `MyGameSummary`, `MyGamesPage`,
+`PlayerView`.
 
-## 🎯 Production state
+ONE mechanical breaking change to EXISTING types: the schema component
+`Player` was renamed to `PlayerView` (identical shape `{id, displayName}`).
+`GameStateResponse.white/black` now `$ref` `PlayerView`. This breaks
+exactly two frontend aliases that must be retargeted:
+- `src/api/games.ts:142` — `type GeneratedPlayer = components['schemas']['Player']`
+- `src/api/wsEvents.ts:341` — `type Player = components['schemas']['Player']`
 
-| | |
-|---|---|
-| Frontend | `https://chess-frontend-52i.pages.dev/` (Cloudflare Pages, MIT) |
-| Backend | `https://chess-backend.duckdns.org/` (auth + CORS live) |
-| OpenAPI | `https://chess-backend.duckdns.org/v3/api-docs` |
-| Tests | 286 Vitest + 4 Playwright |
-| Refresh-mid-game (feature 10) | ✅ |
-| Opponent disconnect UX (feature 11) | ✅ |
-| Move hints (feature 11.5) | ✅ |
-| Turn indicator chip (feature 11.7) | ✅ |
-| `/play` no-room redirect (feature 11.8) | ✅ |
-| Selectable board themes (feature 12) | ✅ |
-| Real home landing (feature 13) | ✅ |
-| Share room link/code + simplified join (feature 13.5) | ✅ |
-| Real about page (feature 14) | ✅ |
-| **Click-to-move + drag (feature 15)** | ✅ |
-| Brave Shields caveat | Documented in README |
+Both become `components['schemas']['PlayerView']`. Shape is identical, so
+the narrowing logic downstream is unchanged — purely a reference rename.
 
-## Carry-overs still on the radar
+`CreateRoomRequest` / `RoomResponse.role` are UNCHANGED.
 
-### Queued small follow-ups
-- **`creator-side-selection`**: backend supports
-  `CreateRoomRequest.preferredSide`; NewGame's Position toggle is still
-  decorative. Small standalone feature.
-- **`drag-cancel-edge-cases`** (open since 11.5; touched-adjacent by
-  feature 15): handle right-click + `pointercancel` drag aborts so
-  move-hints don't persist.
-- **lobby + spectator view**: deferred pending the user's planned
-  backend improvements to the join/spectator model.
+## Steps for the implementer
 
-### Tech polish
-- per-route `document.title` (flagged on 12/13/13.5/14/15).
-- `barrel-export-lint-warnings` (11 warnings, 0 errors).
-- `csp-policy`, `og-url-templating`, `wrangler-iac`,
-  `readme-og-image`, `readme-badges`, `readme-screenshots`.
-- prod E2E now possible (CORS done) — could add a live-backend smoke.
+1. Re-snapshot from the DEPLOYED backend (the `openapi:fetch` npm script
+   points at `localhost:8080`, which is not running). Run a one-off:
+   `curl -fsSL https://chess-backend.duckdns.org/v3/api-docs | jq . > openapi.json`
+   Document in the feature note that the fetch was pointed at prod (do NOT
+   permanently rewrite the script's URL in this sub-feature — just record
+   the choice; a configurable-URL script is a separate polish item).
+2. `npm run openapi:generate` (openapi-typescript → `src/api/generated/schema.ts`).
+3. Retarget the two `Player` aliases to `PlayerView` (games.ts:142,
+   wsEvents.ts:341).
+4. Confirm codegen idempotency (re-running step 2 yields no diff).
+5. `./init.sh` green end-to-end — the **typecheck** step is the real gate:
+   it must compile against the regenerated schema with the rename applied.
 
-### Standing UX / a11y
-- `a11y-pass`, `ux-polish-pass`,
-  `roomresponse-role-narrowing-cleanup` (cross-repo).
-- `opponent-status-i18n-revisit`, `aria-live-pattern-extension`.
-- board squares not keyboard-operable for move entry (react-chessboard
-  limitation, noted on feature 15 — informational).
+## Out of scope (later sub-features)
 
-### Harness / infra
-- `harness-tooling-pass` (could fold in `barrel-export-lint-warnings`).
-- `harness-init-flakiness`: `npm ci --silent` sometimes corrupts
-  node_modules; workaround `npm install`. (Not recurring lately.)
-- transient flake observed once on the GAME_ABANDONED Play test in a
-  combined run (implementer); reviewer could not reproduce. Watch.
+No `src/api/auth.ts`, no token storage, no middleware, no UserContext
+changes, no login/register/callback routes or UI. Those are auth-core
+(20.2) / auth-ui (20.3) / auth-google-oauth (20.4).
 
-### Networking robustness
-- `reconnect-resubscribe` (open since 11.1).
+## Acceptance
 
-### Stretch
-- `spectator-mode`, `light-theme-polish`, `custom-domain`,
-  `e2e-integration`, `replay-mode` (folded into `game-reviews`),
-  `winnerId-on-rest` (cross-repo).
+See `feature_list.json` → `auth-openapi-resnapshot`. Bundle delta zero
+(schema types are compile-time only); no new runtime deps.
 
-## Next session
+## After this closes — remaining lineup
 
-Resume the `user-accounts` (20) design discussion (paused for
-click-to-move), then plan — likely as sub-features. Surface the
-decision points above to the user before drafting.
+| # | Feature | Notes |
+|---|---|---|
+| 20.2 | `auth-core` | api/auth.ts, token storage, Authorization middleware, UserContext authed arm + logout |
+| 20.3 | `auth-ui` | login/register pages + Header authed wiring |
+| 20.4 | `auth-google-oauth` | Google button + /auth/callback fragment handling |
+| 21 | `game-reviews` | needs an account (`/api/me/games`) |
+
+Carry-overs unchanged (see git history of this file): `user-preferences-sync`
+(server-side board/color prefs for registered users — surfaced during the
+board-theme discussion, post-user-accounts), `creator-side-selection`,
+lobby+spectator (deferred pending backend rework), `drag-cancel-edge-cases`,
+per-route `document.title`, `barrel-export-lint-warnings`, `csp-policy`,
+`winnerId-on-rest`.

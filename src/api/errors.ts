@@ -49,6 +49,9 @@ export const ApiErrorCode = {
   ValidationFailed: 'VALIDATION_FAILED',
   MalformedRequest: 'MALFORMED_REQUEST',
   MissingHeader: 'MISSING_HEADER',
+  AuthenticationRequired: 'AUTHENTICATION_REQUIRED',
+  EmailAlreadyTaken: 'EMAIL_ALREADY_TAKEN',
+  InvalidCredentials: 'INVALID_CREDENTIALS',
   NetworkError: 'NETWORK_ERROR',
   UnknownError: 'UNKNOWN_ERROR',
 } as const satisfies Record<string, ApiErrorCode>;
@@ -132,6 +135,9 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<ServerErrorCode>([
   ApiErrorCode.ValidationFailed,
   ApiErrorCode.MalformedRequest,
   ApiErrorCode.MissingHeader,
+  ApiErrorCode.AuthenticationRequired,
+  ApiErrorCode.EmailAlreadyTaken,
+  ApiErrorCode.InvalidCredentials,
 ]);
 
 /**
@@ -170,6 +176,9 @@ export const errorMessages: Readonly<Record<ApiErrorCode, string>> = {
   [ApiErrorCode.ValidationFailed]: 'Some fields are invalid. Please review and try again.',
   [ApiErrorCode.MalformedRequest]: 'The request was malformed.',
   [ApiErrorCode.MissingHeader]: 'A required request header is missing.',
+  [ApiErrorCode.AuthenticationRequired]: 'Please sign in to continue.',
+  [ApiErrorCode.EmailAlreadyTaken]: 'That email is already registered. Try signing in instead.',
+  [ApiErrorCode.InvalidCredentials]: 'Incorrect email or password.',
   [ApiErrorCode.NetworkError]: 'Could not reach the server. Check your connection and try again.',
   [ApiErrorCode.UnknownError]: 'Something went wrong. Please try again.',
 };

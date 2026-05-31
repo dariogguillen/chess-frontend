@@ -64,6 +64,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a new account
+         * @description Creates a user with the given email + password (BCrypt-hashed) + display name and returns a freshly issued JWT. The token is immediately usable as the Authorization: Bearer header on subsequent authenticated requests — there is no separate confirmation step.
+         */
+        post: operations["register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Log in with email and password
+         * @description Validates the credentials and returns a freshly issued JWT. The failure response is uniform — wrong password and unknown email both surface as 401 INVALID_CREDENTIALS with the same generic message, to avoid leaking which accounts exist.
+         */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/rooms/{id}": {
         parameters: {
             query?: never;
@@ -96,6 +136,46 @@ export interface paths {
          * @description Returns archived (terminal-status) games for the given player, newest first, capped at 50 entries. An unknown player id returns 200 with an empty array — guests have no registry, so 404 is not used.
          */
         get: operations["getPlayerGames"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the authenticated user
+         * @description Returns the user identified by the Authorization: Bearer JWT. Requires a valid token issued by this backend; the response includes the user's id, canonical email, and display name. JWT issuance ships in feature 17; this endpoint is the validator side of the contract.
+         */
+        get: operations["me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/games": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated user's archived games
+         * @description Returns the archived (terminal-status) games where the caller participated as either side, newest first, in the standard Spring Data Page envelope. Pagination params: page (default 0, min 0); size (default 20, min 1, max 100). Requires a valid Bearer JWT — anonymous requests get 401 AUTHENTICATION_REQUIRED. The page shape is the standard Spring Data envelope: { content, totalElements, totalPages, size, number, ... }.
+         */
+        get: operations["getMyGames"];
         put?: never;
         post?: never;
         delete?: never;
@@ -183,7 +263,7 @@ export interface components {
              * @example ROOM_NOT_FOUND
              * @enum {string}
              */
-            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER";
+            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER" | "AUTHENTICATION_REQUIRED" | "EMAIL_ALREADY_TAKEN" | "INVALID_CREDENTIALS";
             message?: string;
             /** Format: date-time */
             timestamp?: string;
@@ -213,8 +293,8 @@ export interface components {
             /** Format: uuid */
             id?: string;
             roomId?: string;
-            white?: components["schemas"]["Player"];
-            black?: components["schemas"]["Player"];
+            white?: components["schemas"]["PlayerView"];
+            black?: components["schemas"]["PlayerView"];
             /**
              * @description Current position in Forsyth-Edwards Notation.
              * @example rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
@@ -248,10 +328,48 @@ export interface components {
              */
             promotion?: string;
         };
-        Player: {
-            /** Format: uuid */
+        PlayerView: {
+            /**
+             * Format: uuid
+             * @description Player id.
+             * @example 8b3c1f04-1234-5678-9abc-def012345678
+             */
             id?: string;
+            /**
+             * @description Display name provided at game start.
+             * @example Alice
+             */
             displayName?: string;
+        };
+        RegisterRequest: {
+            /** @description Account email; case-insensitive, normalised to lowercase server-side. */
+            email?: string;
+            /** @description Plain-text password; 8-72 chars (72 is BCrypt's input cap — longer passwords would be silently truncated by the hash function). */
+            password?: string;
+            /** @description Human-readable name shown in the UI. */
+            displayName?: string;
+        };
+        AuthResponse: {
+            /** @description JWT to send on subsequent authenticated requests as Authorization: Bearer ... */
+            token?: string;
+            user?: components["schemas"]["MeResponse"];
+        };
+        MeResponse: {
+            /**
+             * Format: uuid
+             * @description Authenticated user's UUID; equal to the JWT 'sub' claim.
+             */
+            id?: string;
+            /** @description Canonical lowercase email associated with the account. */
+            email?: string;
+            /** @description Human-readable name shown in the UI. */
+            displayName?: string;
+        };
+        LoginRequest: {
+            /** @description Account email; case-insensitive, normalised to lowercase server-side. */
+            email?: string;
+            /** @description Plain-text password. */
+            password?: string;
         };
         PlayerInRoom: {
             /**
@@ -323,6 +441,98 @@ export interface components {
              * @example 42
              */
             moveCount?: number;
+        };
+        MyGameSummary: {
+            /**
+             * Format: uuid
+             * @description Archived game id.
+             * @example 0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000
+             */
+            gameId?: string;
+            /**
+             * @description Room id the game was played in.
+             * @example K7M3X9
+             */
+            roomId?: string;
+            /**
+             * @description Audit-time display name of the opponent (frozen at game time; a later user-rename does not rewrite past games).
+             * @example Bob
+             */
+            opponentDisplayName?: string;
+            /**
+             * @description Side the authenticated user was on.
+             * @example WHITE
+             * @enum {string}
+             */
+            selfSide?: "WHITE" | "BLACK";
+            /**
+             * @description Terminal status of the game.
+             * @example CHECKMATE
+             * @enum {string}
+             */
+            status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED";
+            /**
+             * Format: date-time
+             * @description Instant the game was archived.
+             * @example 2026-05-19T10:23:11.123Z
+             */
+            endedAt?: string;
+            /**
+             * Format: int32
+             * @description Number of moves played in the game.
+             * @example 42
+             */
+            moveCount?: number;
+        };
+        /** @description Spring Data Page envelope for MyGameSummary entries. Carries the page contents plus the pagination metadata the frontend uses to render navigation controls. */
+        MyGamesPage: {
+            /** @description Games on this page, newest first. */
+            content?: components["schemas"]["MyGameSummary"][];
+            /**
+             * Format: int64
+             * @description Total number of games across all pages.
+             * @example 42
+             */
+            totalElements?: number;
+            /**
+             * Format: int32
+             * @description Total number of pages.
+             * @example 3
+             */
+            totalPages?: number;
+            /**
+             * Format: int32
+             * @description Page size that was requested (or the default).
+             * @example 20
+             */
+            size?: number;
+            /**
+             * Format: int32
+             * @description Zero-based page index.
+             * @example 0
+             */
+            number?: number;
+            /**
+             * @description True when this is the first page.
+             * @example true
+             */
+            first?: boolean;
+            /**
+             * @description True when this is the last page.
+             * @example false
+             */
+            last?: boolean;
+            /**
+             * Format: int32
+             * @description Number of entries on this page.
+             * @example 20
+             */
+            numberOfElements?: number;
+            /**
+             * @description True when this page is empty.
+             * @example false
+             */
+            empty?: boolean;
         };
         HealthResponse: {
             /**
@@ -501,6 +711,90 @@ export interface operations {
             };
         };
     };
+    register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Account created; response carries the JWT and the user profile. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation failed (malformed email, missing field, password outside 8-72 chars, etc.). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An account with this email already exists. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Authenticated; response carries the JWT and the user profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation failed (malformed email, missing field). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid email or password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getRoom: {
         parameters: {
             query?: never;
@@ -554,6 +848,76 @@ export interface operations {
             };
             /** @description Invalid request (malformed UUID in path). */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated user details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Missing, malformed, expired, or unsigned-by-us JWT. Feature 17's AuthEntryPoint writes a structured ErrorResponse body with code AUTHENTICATION_REQUIRED — the same envelope every other 4xx in the API uses. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getMyGames: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of archived games (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyGamesPage"];
+                };
+            };
+            /** @description Invalid pagination parameter (page < 0 or size outside [1, 100]). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing, malformed, expired, or unsigned-by-us JWT. Body is the standard ErrorResponse envelope with code AUTHENTICATION_REQUIRED. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

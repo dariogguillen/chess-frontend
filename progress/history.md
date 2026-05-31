@@ -3865,3 +3865,45 @@ Vitest 278 → 286 (+8). No new deps, no schema change. Play chunk
 `src/pages/Play/Play.test.tsx`, `e2e/two-player.spec.ts`.
 
 **Feature note:** `notes/15-click-to-move.md`.
+
+---
+
+## 2026-05-30 — `auth-openapi-resnapshot` (priority 20.1) ✅
+
+Sub-feature 1 of 4 of `user-accounts`. Pure contract/codegen enabler:
+re-snapshotted `openapi.json` from the DEPLOYED backend
+(`curl https://chess-backend.duckdns.org/v3/api-docs`, since the
+`openapi:fetch` script targets localhost which isn't running) and
+regenerated `src/api/generated/schema.ts` so the auth surface is
+type-available for 20.2–20.4. Verified byte-identical to prod after
+`jq -S` normalization; codegen idempotent (second run = zero diff). The
+diff was additive — 4 auth paths (`/api/auth/{login,register}`,
+`/api/me`, `/api/me/games`) + 7 schemas (`AuthResponse`, `LoginRequest`,
+`RegisterRequest`, `MeResponse`, `MyGameSummary`, `MyGamesPage`,
+`PlayerView`) — plus the mechanical `Player` → `PlayerView` rename
+(identical `{id, displayName}` shape; `GameStateResponse.white/black`
+now `$ref` PlayerView). Retargeted the only two `schemas']['Player']`
+aliases: `src/api/games.ts:142`, `src/api/wsEvents.ts:341`.
+
+**Scope deviation (leader-authorized, Option A):** the re-snapshot also
+expanded `ErrorResponse.error` with 3 new codes
+(`AUTHENTICATION_REQUIRED`, `EMAIL_ALREADY_TAKEN`, `INVALID_CREDENTIALS`),
+which trip the deliberate compile-time exhaustiveness check in
+`errors.ts`. Mirrored them into the `ApiErrorCode` const object,
+`KNOWN_CODES`, and `errorMessages` (neutral placeholder strings — final
+UX wording belongs to auth-ui) to keep the regenerated schema compiling.
+No login/register/token/middleware code shipped — that is auth-core
+(20.2). Added `errors.test.ts` (+7) covering `mapError` promotion and
+`messageFor` for the new codes.
+
+Reviewer approved (no UI surface → ui-reviewer skipped). `./init.sh`
+green (293 tests, build, `npm audit` clean). Bundle delta zero (schema
+types are compile-time only); no new runtime deps. The `openapi:fetch`
+script URL was left untouched (configurable-URL script deferred as
+polish).
+
+**Files touched:** `openapi.json`, `src/api/generated/schema.ts`,
+`src/api/games.ts`, `src/api/wsEvents.ts`, `src/api/errors.ts`
+(+ `src/api/errors.test.ts`).
+
+**Feature note:** `notes/20.1-auth-openapi-resnapshot.md`.
