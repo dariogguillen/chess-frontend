@@ -4,14 +4,19 @@ import { HttpResponse, http } from 'msw';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import type { MemoryRouterProps } from 'react-router-dom';
 import Login from './Login';
 import { IdentityKind, UserContextProvider } from '../../context';
 import type { Identity } from '../../context';
+import { googleAuthUrl } from '../../utils/config.default';
 import { TEST_API_BASE_URL, server } from '../../test/msw-server';
 
-const renderLogin = (initialIdentity?: Identity) =>
+const renderLogin = (
+  initialIdentity?: Identity,
+  initialEntries: MemoryRouterProps['initialEntries'] = ['/login'],
+) =>
   render(
-    <MemoryRouter initialEntries={['/login']}>
+    <MemoryRouter initialEntries={initialEntries}>
       <UserContextProvider initialIdentity={initialIdentity}>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -97,5 +102,19 @@ describe('Login page', () => {
     renderLogin(authedIdentity);
     expect(screen.getByTestId('home-page')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 1, name: /log in/i })).toBeNull();
+  });
+
+  it('renders the Google sign-in control as a link to the backend OAuth URL', () => {
+    renderLogin();
+    const googleLink = screen.getByRole('link', { name: /sign in with google/i });
+    // A real anchor (full-page navigation), not a react-router route.
+    expect(googleLink).toHaveAttribute('href', googleAuthUrl);
+  });
+
+  it('seeds the error alert from an authError in location state', () => {
+    renderLogin(undefined, [
+      { pathname: '/login', state: { authError: 'OAuth blew up spectacularly.' } },
+    ]);
+    expect(screen.getByText(/oauth blew up spectacularly/i)).toBeInTheDocument();
   });
 });

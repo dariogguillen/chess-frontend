@@ -9,6 +9,7 @@ const NewGame = lazy(() => import('../pages/NewGame'));
 const Play = lazy(() => import('../pages/Play'));
 const Login = lazy(() => import('../pages/Login'));
 const Register = lazy(() => import('../pages/Register'));
+const AuthCallback = lazy(() => import('../pages/AuthCallback'));
 
 /**
  * Normalise Vite's `import.meta.env.BASE_URL` into the form
@@ -39,6 +40,7 @@ const router = createBrowserRouter(
         { path: 'play', element: <Play /> },
         { path: 'login', element: <Login /> },
         { path: 'register', element: <Register /> },
+        { path: 'auth/callback', element: <AuthCallback /> },
         { path: 'about', element: <About /> },
       ],
     },

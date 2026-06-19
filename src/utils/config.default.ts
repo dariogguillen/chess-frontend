@@ -56,3 +56,26 @@ export const backendUrl = resolveBackendUrl();
  * which the Vite proxy (`ws: true`) forwards to `ws://localhost:8080/ws`.
  */
 export const wsUrl = `${backendUrl.replace(/^http/, 'ws')}/ws`;
+
+/**
+ * Google OAuth start URL. The backend exposes the Spring Security OAuth2
+ * entry point at `/oauth2/authorization/google`; navigating the browser
+ * there (a top-level navigation, NOT a `fetch`) begins the redirect dance
+ * through Google and back to `{frontendBase}/auth/callback#token=<jwt>`.
+ *
+ * Built on `backendUrl` so it follows the same dev/prod split as the REST
+ * and WS URLs:
+ *   - In prod, `backendUrl` is the absolute backend origin, so this is an
+ *     absolute cross-origin URL the browser navigates to directly.
+ *   - In dev, `backendUrl` is `''`, so this resolves to the path-relative
+ *     `/oauth2/authorization/google`. The browser resolves it against the
+ *     page origin (`http://localhost:5173`) and the Vite dev-server proxy
+ *     (`vite.config.ts` → `server.proxy['/oauth2']`) forwards it to the
+ *     backend on `http://localhost:8080`.
+ *
+ * Because this is a full-page navigation to a (possibly cross-origin)
+ * backend URL — not an in-app route — the Login page renders it as a real
+ * anchor (`<Button component="a" href={googleAuthUrl}>`), never a
+ * react-router `Link`.
+ */
+export const googleAuthUrl = `${backendUrl}/oauth2/authorization/google`;

@@ -1,29 +1,207 @@
 # Current session
 
-**Status:** CLOSED — `auth-ui` (priority 20.3) shipped 2026-05-30 in one
-round; ui-reviewer + reviewer both approved. `./init.sh` green (339
-tests). See history.md.
+**Status:** CLOSED — `auth-google-oauth` (priority 20.4) shipped
+2026-05-30 in two rounds (round 1 rejected for a non-deterministic test
+flake, not a functional defect; round 2 green after a test-infra
+stabilisation). ui-reviewer + reviewer both approved. `./init.sh` green
+(349 tests, 10/10 consecutive green runs). Session ended for the day
+after this close. See history.md.
 
-**Counts:** 38 done · 2 pending (20.4 auth-google-oauth, 21 game-reviews).
+🏁 **`user-accounts` (20.x) is COMPLETE** — all four sub-features
+(20.1 resnapshot → 20.2 core → 20.3 ui → 20.4 google-oauth) shipped.
 
-**Note:** the working tree carries uncommitted 20.1/20.2/20.3 surface
-(user commits manually between features). `./init.sh` is green with all
-of it present.
+**Counts:** 39 done · 1 pending (`game-reviews`, priority 21).
 
-**Next:** `auth-google-oauth` (20.4) — the LAST sub-feature of
-`user-accounts`. Adds a "Sign in with Google" control on the login page
-that navigates to the backend's `GET /oauth2/authorization/google`
-(absolute backend URL — use `backendUrl` from `utils/config.default`),
-plus a new `/auth/callback` route that reads `window.location.hash`:
-`#token=<jwt>` → persist via the auth-core seam (call `me()` then
-`setAuthenticated`, OR — since OAuth gives only the token, not the user —
-fetch `me()` to build the AuthSession) → redirect /home; `#error=...`
-(`email_taken` / `oauth_missing_profile`) → friendly message + redirect
-to /login. The fragment MUST be cleared from the URL after handling (no
-token left in history/address bar). Seam ready: `me()` and
-`setAuthenticated` exist; the login page exists to host the button.
-ui-reviewer REQUIRED (touches the login page UI). Draft the plan,
-surface it, then delegate.
+## ⚠️ Uncommitted working tree — handoff note
+
+The user commits manually between features and ended the day right after
+this close. The working tree currently carries the **entire uncommitted
+20.1→20.4 surface** plus the test-infra changes. `./init.sh` is green
+with all of it present. Next session: confirm with the user whether this
+was committed before doing more work (a `git status` / `git log` check at
+start is worth it).
+
+## Next session — `game-reviews` (priority 21)
+
+The only remaining backlog item. Large, cross-repo, and **requires an
+account** (consumes `GET /api/me/games` — Bearer JWT). The auth plumbing
+it depends on now exists end-to-end (auth.ts, the Authorization
+middleware, the authenticated UserContext arm). Decision-first: surface
+scope to the user before planning (likely: a "My games" list gated to
+authenticated users + a replay/review view per game; `replay-mode` was
+folded into this). Probably worth decomposing into sub-features like
+user-accounts was.
+
+## Carry-overs still on the radar
+
+### Queued small follow-ups
+- **`test-suite-stability`** (NEW, flagged by the 20.4 reviewer): the
+  root cause of the Login/Register slowness is `userEvent.type` under
+  full-suite CPU contention. 20.4 stabilised it pragmatically (raised
+  `testTimeout` to 15s + RTL `asyncUtilTimeout` to 10s + two `waitFor`
+  wraps). A more honest fix is `userEvent.setup({ delay: null })` (or an
+  input-throttle tweak) so the timeouts can come back down. Not urgent —
+  suite is deterministically green today.
+- **`user-preferences-sync`**: server-side board/colour prefs for
+  registered users (cross-repo, surfaced during the board-theme
+  discussion). Now unblocked by user-accounts.
+- **`creator-side-selection`**: backend supports
+  `CreateRoomRequest.preferredSide`; NewGame's Position toggle is still
+  decorative.
+- **`drag-cancel-edge-cases`** (open since 11.5; touched-adjacent by
+  feature 15): right-click + `pointercancel` drag aborts leaving stale
+  move-hints.
+- **lobby + spectator view**: deferred pending the user's planned backend
+  improvements to the join/spectator model.
+
+### Tech polish
+- per-route `document.title` (flagged repeatedly, incl. on the new auth
+  pages — `Login`/`Register`/`AuthCallback` set no title).
+- `barrel-export-lint-warnings` (11 warnings, 0 errors).
+- `csp-policy`, `og-url-templating`, `wrangler-iac`, `readme-og-image`,
+  `readme-badges`, `readme-screenshots`.
+- prod E2E now possible (CORS done) — could add a live-backend smoke;
+  could also add a real OAuth end-to-end smoke once Google-console
+  redirect-URI + backend `frontendBase` are confirmed for an env.
+
+### Standing UX / a11y
+- `a11y-pass`, `ux-polish-pass`,
+  `roomresponse-role-narrowing-cleanup` (cross-repo).
+- `opponent-status-i18n-revisit`, `aria-live-pattern-extension`.
+- board squares not keyboard-operable for move entry (react-chessboard
+  limitation, noted on feature 15 — informational).
+
+### Harness / infra
+- `harness-init-flakiness`: `npm ci --silent` sometimes corrupts
+  node_modules; workaround `npm install`.
+
+### Networking robustness
+- `reconnect-resubscribe` (open since 11.1).
+
+### Stretch
+- `spectator-mode`, `light-theme-polish`, `custom-domain`,
+  `e2e-integration`, `winnerId-on-rest` (cross-repo).
+
+---
+
+## Previous sub-feature (20.4, completed) — full detail in history.md
+
+## Backend contract (from earlier validation)
+
+- `GET /oauth2/authorization/google` (browser top-level navigation, NOT
+  fetch) starts the flow. The backend bounces through Google and then
+  redirects the BROWSER to the frontend:
+  `{frontendBase}/auth/callback#token=<jwt>` on success, or
+  `{frontendBase}/auth/callback#error=email_taken` /
+  `#error=oauth_missing_profile` on failure.
+- OAuth gives the frontend ONLY the token in the fragment — NOT the user
+  object. So the callback must persist the token, then `me()` to build
+  the `AuthSession`.
+
+## Environment facts that shape the design
+
+- `backendUrl` (`src/utils/config.default.ts`) is `''` in DEV (relative
+  paths through the Vite proxy) and the absolute origin in prod.
+- The Vite dev proxy (`vite.config.ts`) covers ONLY `/api` and `/ws`.
+  The OAuth START navigation `/oauth2/authorization/google` must reach
+  the backend, so add an `/oauth2` proxy entry (target
+  `http://localhost:8080`, `changeOrigin: true`) for dev. (Google's
+  own callback to the backend, `/login/oauth2/code/google`, hits the
+  backend origin directly — no frontend proxy needed.) End-to-end OAuth
+  in dev still depends on Google-console redirect-URI + backend
+  `frontendBase` config — out of frontend scope; document it.
+
+## Scope
+
+1. **Google start URL** — export `googleAuthUrl` from
+   `src/utils/config.default.ts` (or `src/api/auth.ts`):
+   `` `${backendUrl}/oauth2/authorization/google` ``. Absolute in prod,
+   relative (proxied) in dev.
+
+2. **Login page button** — on `src/pages/Login/Login.tsx`, add a "Sign in
+   with Google" control BELOW the email form, separated by a `Divider`
+   with an "or". Render it as a real link so it does a full-page
+   navigation to a (possibly cross-origin) backend URL:
+   `<Button component="a" href={googleAuthUrl} ...>` — NOT a
+   react-router `Link` (that's for in-app routes). No new dependency for
+   the icon: a text label is fine (MUI ships no official Google logo); an
+   inline Google "G" SVG is optional polish. Also seed the Login
+   Snackbar from `useLocation().state?.authError` (lazy `useState`
+   initialiser) so an error redirected from the callback is shown.
+
+3. **`/auth/callback` route + page** — new `src/pages/AuthCallback/`
+   (component + barrel + test), added lazy to `src/routes/Public.tsx`.
+   On mount:
+   - Capture `window.location.hash`, then IMMEDIATELY scrub the address
+     bar: `window.history.replaceState(null, '', window.location.pathname)`
+     (no token left visible).
+   - Parse the captured fragment with
+     `new URLSearchParams(hash.replace(/^#/, ''))`.
+   - `token` present → `await authenticateWithToken(token)` (new
+     UserContext op, below) → `navigate('/home', { replace: true })`.
+     While awaiting, render a centred `CircularProgress` ("Signing you
+     in…").
+   - `error` present → map to a friendly message (`email_taken` →
+     "That Google account's email is already registered — sign in with
+     your email and password instead."; `oauth_missing_profile` →
+     "Google didn't share enough profile info to sign you in.") →
+     `navigate('/login', { replace: true, state: { authError: message } })`.
+   - On `authenticateWithToken` failure (stale/invalid token, `me()`
+     rejects) → same `/login` redirect with a generic message.
+   - Neither token nor error (direct hit / cancelled) →
+     `navigate('/login', { replace: true })`, no message.
+   - Use a `cancelled`/ran-once guard so StrictMode's double-invoke
+     doesn't double-process.
+
+4. **`UserContext` — `authenticateWithToken(token): Promise<void>`**
+   (new op): `writeToken(token)` (so the Authorization middleware
+   attaches it to the `me()` request) → `await me()` → `setAuthenticated({
+   token, user })` (reuses the existing seam; the second token write is
+   idempotent). On `me()` failure → `clearToken()` + rethrow (so the
+   callback can show the error). Add to `UserContextValue`, the `useMemo`
+   value, and its dep array. This parallels the auth-core
+   rehydration-on-mount logic but as an imperatively callable op.
+
+## Tests (Vitest + RTL + MSW)
+
+- `AuthCallback.test.tsx`: token fragment → `me()` (MSW) → identity
+  becomes Authenticated + navigates to /home (replace); address-bar hash
+  scrubbed (assert `history.replaceState` / no token in location).
+  `#error=email_taken` → navigates to /login with the friendly message
+  in state. Token-but-`me()`-401 → token cleared + /login redirect with
+  message. No-fragment → /login redirect, no message.
+- `UserContext.test.tsx`: `authenticateWithToken` success → token
+  persisted + identity Authenticated; `me()` failure → token cleared +
+  promise rejects.
+- `Login.test.tsx`: the Google button renders as a link with
+  `href === googleAuthUrl`; an `authError` passed via location state
+  seeds the error Alert.
+
+## Accessibility (ui-reviewer REQUIRED — touches Login UI + new page)
+
+Google control is a focusable link/button with a clear accessible name
+("Sign in with Google"); the Divider "or" is decorative (not a heading);
+the callback page has a single `<h1>` (visually-hidden is fine) or an
+accessible loading status (`role="status"` / `aria-live` on the spinner
+label) so a screen reader announces "Signing you in…"; redirects don't
+trap focus.
+
+## Acceptance
+
+See `feature_list.json` → `auth-google-oauth`. `./init.sh` green.
+Anonymous play unaffected. No new runtime deps.
+
+## Out of scope (later / other features)
+
+A real Profile page; Google button on the Register page (login only per
+acceptance); return-to-origin after login; server-side preference sync;
+`game-reviews` (21).
+
+---
+
+## Previous sub-feature (20.3, completed)
+
+`auth-ui` — email/password UI + Header authed wiring.
 
 ---
 

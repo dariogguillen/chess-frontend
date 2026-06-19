@@ -449,4 +449,67 @@ describe('UserContext', () => {
 
     expect(result.current.identity).toEqual({ kind: 'guest', displayName: 'Guest' });
   });
+
+  // ---------------------------------------------------------------
+  // auth-google-oauth (priority 20.4)
+  // ---------------------------------------------------------------
+
+  it('authenticateWithToken persists the token and flips identity via me()', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/me`, () =>
+        HttpResponse.json(
+          { id: 'user-uuid-1', email: 'alice@example.com', displayName: 'Alice' },
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const { result } = renderHook(() => useUserContext(), {
+      // Explicit initialIdentity suppresses the mount rehydration effect so
+      // this test exercises only authenticateWithToken.
+      wrapper: ({ children }) => (
+        <UserContextProvider initialIdentity={{ kind: 'guest', displayName: 'Guest' }}>
+          {children}
+        </UserContextProvider>
+      ),
+    });
+
+    await act(async () => {
+      await result.current.authenticateWithToken('oauth.jwt.value');
+    });
+
+    expect(readToken()).toBe('oauth.jwt.value');
+    expect(result.current.identity.kind).toBe('authenticated');
+    if (result.current.identity.kind === 'authenticated') {
+      expect(result.current.identity.userId).toBe('user-uuid-1');
+      expect(result.current.identity.displayName).toBe('Alice');
+    } else {
+      throw new Error('expected authenticated identity');
+    }
+  });
+
+  it('authenticateWithToken clears the token and rejects when me() fails', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/me`, () =>
+        HttpResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 }),
+      ),
+    );
+
+    const { result } = renderHook(() => useUserContext(), {
+      wrapper: ({ children }) => (
+        <UserContextProvider initialIdentity={{ kind: 'guest', displayName: 'Guest' }}>
+          {children}
+        </UserContextProvider>
+      ),
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.authenticateWithToken('stale.jwt.value');
+      }),
+    ).rejects.toThrow();
+
+    expect(readToken()).toBeNull();
+    expect(result.current.identity).toEqual({ kind: 'guest', displayName: 'Guest' });
+  });
 });

@@ -130,6 +130,22 @@ export type UserContextValue = Readonly<{
    */
   setAuthenticated: (session: AuthSession) => void;
   /**
+   * Promote `identity` to the `Authenticated` arm from a bare JWT — the
+   * OAuth-callback path (sub-feature 20.4). Unlike {@link setAuthenticated},
+   * the caller holds ONLY the token (the backend redirects with
+   * `#token=<jwt>` and no user object), so this op persists the token,
+   * fetches `me()` to build the profile, then flips identity.
+   *
+   * Sequencing: `writeToken(token)` first, so the Authorization middleware
+   * in `client.ts` attaches `Bearer <token>` to the `me()` request; then
+   * `await me()`; then `setAuthenticated({ token, user })` (the second
+   * token write is idempotent). On `me()` failure → `clearToken()` and
+   * rethrow, so the callback can redirect to `/login` with a message
+   * rather than leaving a dead credential in storage. Mirrors the
+   * mount-rehydration logic, but as an imperatively callable promise.
+   */
+  authenticateWithToken: (token: string) => Promise<void>;
+  /**
    * Sign out: clear the persisted token, reset `identity` to the guest
    * default, and `leaveRoom()` (a registered user logging out mid-game
    * is ejected from the room). The pure primitive only — the
@@ -311,6 +327,28 @@ export const UserContextProvider = ({
     });
   }, []);
 
+  const authenticateWithToken = useCallback(
+    async (token: string): Promise<void> => {
+      // Persist first so the Authorization middleware attaches the token to
+      // the `me()` request. OAuth only hands us the token, so we must
+      // round-trip to `me()` to build the profile.
+      writeToken(token);
+      try {
+        const user = await me();
+        // Reuse the existing seam: it persists the token (idempotent — we
+        // just wrote it) and flips identity to the Authenticated arm.
+        setAuthenticated({ token, user });
+      } catch (cause) {
+        // The token was stale, forged, or the call failed — drop it so we
+        // do not retry a dead credential, and rethrow so the caller (the
+        // /auth/callback page) can surface a friendly error.
+        clearToken();
+        throw cause;
+      }
+    },
+    [setAuthenticated],
+  );
+
   const logout = useCallback(() => {
     clearToken();
     setIdentityState(defaultGuest);
@@ -383,6 +421,7 @@ export const UserContextProvider = ({
       leaveRoom,
       setGameId,
       setAuthenticated,
+      authenticateWithToken,
       logout,
     }),
     [
@@ -395,6 +434,7 @@ export const UserContextProvider = ({
       leaveRoom,
       setGameId,
       setAuthenticated,
+      authenticateWithToken,
       logout,
     ],
   );

@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Container,
+  Divider,
   Link,
   Snackbar,
   Stack,
@@ -11,10 +12,11 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { Link as RouterLink, Navigate, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { login } from '../../api/auth';
 import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
 import { IdentityKind, useUserContext } from '../../context';
+import { googleAuthUrl } from '../../utils/config.default';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -32,6 +34,18 @@ const PASSWORD_ERROR = 'Passwords are at least 8 characters.';
 const looksLikeEmail = (value: string): boolean => /^\S+@\S+$/.test(value.trim());
 
 /**
+ * Defensively read an `authError` message off react-router's location
+ * state. The `/auth/callback` page redirects here with
+ * `navigate('/login', { state: { authError } })` when an OAuth flow fails;
+ * `location.state` is typed `unknown`, so we narrow before trusting it.
+ */
+const authErrorFromState = (state: unknown): string | null => {
+  if (typeof state !== 'object' || state === null) return null;
+  const candidate = (state as { authError?: unknown }).authError;
+  return typeof candidate === 'string' ? candidate : null;
+};
+
+/**
  * `/login` — email + password sign-in form.
  *
  * Submit flow: `login()` → `setAuthenticated(session)` (persists token +
@@ -46,12 +60,18 @@ const looksLikeEmail = (value: string): boolean => /^\S+@\S+$/.test(value.trim()
  */
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { identity, setAuthenticated } = useUserContext();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Lazy initialiser: seed the error Snackbar from any `authError` the
+  // `/auth/callback` page redirected here with. Runs once on first render
+  // (location.state is a first-render fact for this mount).
+  const [errorMessage, setErrorMessage] = useState<string | null>(() =>
+    authErrorFromState(location.state),
+  );
   // Validation messages stay hidden until the user has interacted with a
   // field (touched) so the form does not shout errors on first paint.
   const [touched, setTouched] = useState({ email: false, password: false });
@@ -135,6 +155,16 @@ const Login = () => {
           </Typography>
         </Stack>
       </Box>
+      <Divider sx={{ my: 3 }}>or</Divider>
+      {/*
+        Real anchor, not a react-router Link: this is a full-page
+        navigation to the backend's OAuth entry point (cross-origin in
+        prod), which begins the redirect dance through Google. A
+        client-side route transition would never leave the SPA.
+      */}
+      <Button component="a" href={googleAuthUrl} variant="outlined" fullWidth>
+        Sign in with Google
+      </Button>
       <Snackbar
         open={errorMessage !== null}
         autoHideDuration={6000}

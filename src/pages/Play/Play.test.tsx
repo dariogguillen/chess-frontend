@@ -1483,8 +1483,14 @@ describe('Play page', () => {
       // The PromotionDialog renders its piece-choice buttons (Queen, etc).
       expect(await screen.findByRole('button', { name: /promote to queen/i })).toBeInTheDocument();
       // The selection stays put while the dialog is open — the origin
-      // cue on e7 is still in the overlay.
-      expect(Object.keys(lastChessboardOptions!.squareStyles ?? {})).toContain('e7');
+      // cue on e7 is still in the overlay. Poll for it: the dialog button
+      // and the chessboard's squareStyles are set by separate renders, so
+      // under load the dialog can appear a render before the e7 cue is
+      // captured into `lastChessboardOptions`. waitFor settles that race
+      // without changing what is asserted (mirrors line ~1455 above).
+      await waitFor(() => {
+        expect(Object.keys(lastChessboardOptions!.squareStyles ?? {})).toContain('e7');
+      });
     });
 
     it('clicking when it is not your turn surfaces NotYourTurn and does not submit', async () => {
@@ -1621,8 +1627,14 @@ describe('Play page', () => {
     // The abandonment flow navigates itself to /home. The mount-time
     // entry guard must NOT race it with a /new redirect — the guard
     // captured the in-room phase at mount and ignores the later
-    // transition into `none` that leaveRoom triggers.
-    expect(navigateMock).toHaveBeenCalledWith('/home');
+    // transition into `none` that leaveRoom triggers. The click triggers
+    // navigation asynchronously (state update → effect → navigate), so
+    // poll for it via waitFor — matching the navigateMock assertion idiom
+    // used throughout this file — rather than asserting synchronously
+    // right after the awaited click (which races the dispatch under load).
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/home');
+    });
     expect(navigateMock).not.toHaveBeenCalledWith('/new', expect.anything());
   });
 

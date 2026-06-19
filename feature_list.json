@@ -658,7 +658,7 @@
     "id": "auth-google-oauth",
     "title": "Google OAuth: Sign-in button + /auth/callback fragment handling",
     "description": "Sub-feature 4 of 4 for user-accounts. Adds a 'Sign in with Google' affordance that navigates to the backend's GET /oauth2/authorization/google, and a new /auth/callback route that reads the JWT from the URL fragment (the backend redirects to {frontendBase}/auth/callback#token=<jwt>, or #error=email_taken / #error=oauth_missing_profile), persists the token via auth-core, fetches GET /api/me, sets the authenticated identity, and redirects to /home (handling the error fragments with a friendly message). Plan detailed when opened.",
-    "status": "pending",
+    "status": "done",
     "priority": 20.4,
     "acceptance": [
       "A 'Sign in with Google' control (on the login page) navigates to the backend's GET /oauth2/authorization/google (absolute backend URL).",

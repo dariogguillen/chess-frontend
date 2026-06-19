@@ -4001,3 +4001,68 @@ while submitting, error Alert announced; AccountMenu IconButton
 `src/routes/Public.tsx`.
 
 **Feature note:** `notes/20.3-auth-ui.md`.
+
+---
+
+## 2026-05-30 — `auth-google-oauth` (priority 20.4) ✅ — completes `user-accounts`
+
+Sub-feature 4 of 4 (LAST) of `user-accounts`. "Sign in with Google" +
+the `/auth/callback` fragment handler. Shipped in two rounds (round 1
+rejected for a non-deterministic `./init.sh` — a test-suite flake, not a
+functional defect; round 2 green after a test-infra stabilisation).
+ui-reviewer + reviewer both approved.
+
+- **`googleAuthUrl`** (`src/utils/config.default.ts`) =
+  `${backendUrl}/oauth2/authorization/google` — absolute in prod,
+  relative (proxied) in dev.
+- **`vite.config.ts`** — added an `/oauth2` dev proxy entry (→ :8080)
+  so the OAuth start navigation reaches the backend in dev.
+- **`src/pages/Login/Login.tsx`** — "Sign in with Google" control below
+  the email form behind a decorative `Divider` "or", rendered as a real
+  `<Button component="a" href={googleAuthUrl}>` (full-page nav, not a
+  router Link). Also seeds the error Snackbar from
+  `useLocation().state?.authError` (defensively unknown-typed).
+- **`src/pages/AuthCallback/`** (new, lazy `auth/callback` route) —
+  captures `window.location.hash`, immediately scrubs the address bar via
+  `history.replaceState`, parses with `URLSearchParams`: `#token=<jwt>` →
+  `authenticateWithToken` → `/home` (replace); `#error=email_taken` /
+  `oauth_missing_profile` → friendly message → `/login` (replace, message
+  in location state); auth failure → `/login` with a generic message; no
+  fragment → `/login`. `handled` ran-once ref + `cancelled` flag guard
+  StrictMode. Accessible loading status (`role="status"` "Signing you
+  in…"). Token never left in the address bar or history.
+- **`src/context/UserContext.tsx`** — new op `authenticateWithToken(token)`:
+  `writeToken(token)` (so the Authorization middleware attaches it to the
+  request) → `me()` → reuse `setAuthenticated({token, user})`; on `me()`
+  failure → `clearToken()` + rethrow. Added to the type, `useMemo` value,
+  and dep array.
+
+**Test-infra stabilisation (round 2, test files only — no production
+change, no assertion weakening):** the suite was non-deterministically
+red (~1/3) from THREE distinct causes, all pre-existing/contention-driven
+and surfaced by the added parallel load of `AuthCallback.test.tsx`:
+(1) Login/Register `userEvent.type`+`waitFor(navigation)` exceeding the
+default 5s per-test timeout → `vitest.config.ts` `testTimeout` 5s→15s;
+(2) Play.test.tsx `findBy*` "element not found" hitting RTL's separate
+1s `asyncUtilTimeout` → `configure({ asyncUtilTimeout: 10000 })` in
+`vitest.setup.ts` (10s < the 15s testTimeout, so a stuck query is still
+caught); (3) two Play.test.tsx assertions evaluated synchronously after
+an async boundary (effect-driven navigate; dialog vs board cue on
+separate renders) → wrapped in `waitFor`, mirroring existing idioms in
+that file. Verified by 10 consecutive green `npm run test` runs (349
+tests) + `./init.sh` exit 0.
+
+`./init.sh` green; Vitest 339 → 349 (+10). No new runtime deps.
+
+**Files touched:** `src/utils/config.default.ts`, `vite.config.ts`,
+`src/pages/Login/Login.tsx` (+test), `src/pages/AuthCallback/*` (new),
+`src/routes/Public.tsx`, `src/context/UserContext.tsx` (+test),
+`vitest.config.ts`, `vitest.setup.ts`, `src/pages/Play/Play.test.tsx`.
+
+**Feature note:** `notes/20.4-auth-google-oauth.md`.
+
+### 🏁 `user-accounts` (20.x) COMPLETE
+Email/password register+login, JWT-in-localStorage with Authorization
+middleware, authenticated UserContext arm + rehydration + logout, login/
+register pages, Header account menu, and Google OAuth — all shipped
+(20.1 → 20.4). Only `game-reviews` (21) remains in the backlog.

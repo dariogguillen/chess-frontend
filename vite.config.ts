@@ -32,6 +32,16 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+      // The Google OAuth START navigation `/oauth2/authorization/google`
+      // (a top-level browser navigation, not a fetch) must reach the
+      // backend in dev where `backendUrl` is empty and the URL is
+      // path-relative. Mirrors the `/api` entry. Google's own callback to
+      // the backend (`/login/oauth2/code/google`) hits the backend origin
+      // directly and needs no frontend proxy.
+      '/oauth2': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 });
