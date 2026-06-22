@@ -33,6 +33,7 @@ export const GameStatus = {
   Stalemate: 'STALEMATE',
   Draw: 'DRAW',
   Abandoned: 'ABANDONED',
+  Timeout: 'TIMEOUT',
 } as const satisfies Record<string, RawGameStatus>;
 export type GameStatus = (typeof GameStatus)[keyof typeof GameStatus];
 
@@ -90,7 +91,8 @@ export const isTerminalStatus = (status: GameStatus): boolean =>
   status === GameStatus.Checkmate ||
   status === GameStatus.Stalemate ||
   status === GameStatus.Draw ||
-  status === GameStatus.Abandoned;
+  status === GameStatus.Abandoned ||
+  status === GameStatus.Timeout;
 
 /**
  * Narrowed player record. The generated schema types every field as
@@ -171,6 +173,8 @@ const narrowStatus = (raw: GeneratedGameStateResponse['status']): GameStatus => 
       return GameStatus.Draw;
     case GameStatus.Abandoned:
       return GameStatus.Abandoned;
+    case GameStatus.Timeout:
+      return GameStatus.Timeout;
     default:
       throw new ApiError(
         ApiErrorCode.UnknownError,

@@ -52,6 +52,7 @@ export const ApiErrorCode = {
   AuthenticationRequired: 'AUTHENTICATION_REQUIRED',
   EmailAlreadyTaken: 'EMAIL_ALREADY_TAKEN',
   InvalidCredentials: 'INVALID_CREDENTIALS',
+  InvalidJoinToken: 'INVALID_JOIN_TOKEN',
   NetworkError: 'NETWORK_ERROR',
   UnknownError: 'UNKNOWN_ERROR',
 } as const satisfies Record<string, ApiErrorCode>;
@@ -138,6 +139,7 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<ServerErrorCode>([
   ApiErrorCode.AuthenticationRequired,
   ApiErrorCode.EmailAlreadyTaken,
   ApiErrorCode.InvalidCredentials,
+  ApiErrorCode.InvalidJoinToken,
 ]);
 
 /**
@@ -179,6 +181,8 @@ export const errorMessages: Readonly<Record<ApiErrorCode, string>> = {
   [ApiErrorCode.AuthenticationRequired]: 'Please sign in to continue.',
   [ApiErrorCode.EmailAlreadyTaken]: 'That email is already registered. Try signing in instead.',
   [ApiErrorCode.InvalidCredentials]: 'Incorrect email or password.',
+  [ApiErrorCode.InvalidJoinToken]:
+    'That join link is invalid or has expired. Ask the room creator for a fresh link.',
   [ApiErrorCode.NetworkError]: 'Could not reach the server. Check your connection and try again.',
   [ApiErrorCode.UnknownError]: 'Something went wrong. Please try again.',
 };

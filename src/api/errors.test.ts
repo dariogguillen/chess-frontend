@@ -34,6 +34,14 @@ describe('mapError', () => {
     expect(result.code).toBe(ApiErrorCode.InvalidCredentials);
   });
 
+  it('promotes INVALID_JOIN_TOKEN to a typed ApiError', () => {
+    const response = new Response(null, { status: 403 });
+    const result = mapError({ error: ApiErrorCode.InvalidJoinToken }, response);
+
+    expect(result.code).toBe(ApiErrorCode.InvalidJoinToken);
+    expect(result.httpStatus).toBe(403);
+  });
+
   it('falls back to UNKNOWN_ERROR for an unrecognised body', () => {
     const response = new Response(null, { status: 500 });
     const result = mapError({ something: 'else' }, response);

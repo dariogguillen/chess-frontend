@@ -217,6 +217,7 @@ describe('isTerminalStatus', () => {
     expect(isTerminalStatus(GameStatus.Stalemate)).toBe(true);
     expect(isTerminalStatus(GameStatus.Draw)).toBe(true);
     expect(isTerminalStatus(GameStatus.Abandoned)).toBe(true);
+    expect(isTerminalStatus(GameStatus.Timeout)).toBe(true);
   });
 
   it('returns false for in-progress statuses', () => {

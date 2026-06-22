@@ -82,6 +82,12 @@ const terminalMessage = (status: GameStatus, turn: Side): string => {
       return 'Draw.';
     case GameStatus.Abandoned:
       return 'Game abandoned.';
+    case GameStatus.Timeout: {
+      // The side to move is the one whose clock expired, so the winner
+      // is the opposite side.
+      const winner = turn === Side.White ? 'Black' : 'White';
+      return `Time out — ${winner} wins!`;
+    }
     case GameStatus.Ongoing:
     case GameStatus.Check:
       // Non-terminal — caller should not reach this branch, but we

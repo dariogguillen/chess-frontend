@@ -1,36 +1,168 @@
 # Current session
 
-**Status:** CLOSED — `auth-google-oauth` (priority 20.4) shipped
-2026-05-30 in two rounds (round 1 rejected for a non-deterministic test
-flake, not a functional defect; round 2 green after a test-infra
-stabilisation). ui-reviewer + reviewer both approved. `./init.sh` green
-(349 tests, 10/10 consecutive green runs). Session ended for the day
-after this close. See history.md.
+**Status:** 20.9 `deps-audit-overrides` and 21 `backend-contract-resnapshot`
+BOTH CLOSED (2026-06-22). reviewer + ui-reviewer approved; `./init.sh` green
+end-to-end (leader-verified first-hand, "All checks passed"). See history.md.
 
-🏁 **`user-accounts` (20.x) is COMPLETE** — all four sub-features
-(20.1 resnapshot → 20.2 core → 20.3 ui → 20.4 google-oauth) shipped.
-
-**Counts:** 39 done · 1 pending (`game-reviews`, priority 21).
+**Counts:** 41 done · 5 pending (22 room-access-token, 23 game-reviews,
+24 creator-side-selection, 25 time-control, 26 bot-opponent).
 
 ## ⚠️ Uncommitted working tree — handoff note
 
-The user commits manually between features and ended the day right after
-this close. The working tree currently carries the **entire uncommitted
-20.1→20.4 surface** plus the test-infra changes. `./init.sh` is green
-with all of it present. Next session: confirm with the user whether this
-was committed before doing more work (a `git status` / `git log` check at
-start is worth it).
+Both 20.9 and 21 are CLOSED but the working tree is UNCOMMITTED (the user
+commits manually between features). `git status` carries: openapi.json,
+src/api/generated/schema.ts, src/api/errors.ts(+test), src/api/games.ts
+(+test), src/pages/Play/Play.tsx, package.json, package-lock.json,
+feature_list.json, progress/*, and untracked notes/20.9-… +
+notes/21-backend-contract-resnapshot.md. `./init.sh` is green with all of
+it. The local branch is already fast-forwarded onto origin/main (it had the
+3 dependabot merges). Suggested split if committing: one commit for the
+20.9 overrides (package.json/lock + note), one for the 21 resnapshot
+(openapi/schema/errors/games/Play + note). Next session: confirm with the
+user whether this was committed.
 
-## Next session — `game-reviews` (priority 21)
+## 🚨 NEXT — `room-access-token` (22) is an ACTIVE PROD REGRESSION
 
-The only remaining backlog item. Large, cross-repo, and **requires an
-account** (consumes `GET /api/me/games` — Bearer JWT). The auth plumbing
-it depends on now exists end-to-end (auth.ts, the Authorization
-middleware, the authenticated UserContext arm). Decision-first: surface
-scope to the user before planning (likely: a "My games" list gated to
-authenticated users + a replay/review view per game; `replay-mode` was
-folded into this). Probably worth decomposing into sub-features like
-user-accounts was.
+The user deployed the backend's 7 commits to prod this session. Verified
+live: `RoomResponse.joinToken` + `JoinRoomRequest.joinToken` are now in
+prod. The backend mints a mandatory joinToken for every non-bot room
+(`RoomService.java:145`) and `joinRoom` rejects a missing/wrong token
+(`:346`, `InvalidJoinTokenException`). **The deployed frontend never sends
+it → play-with-a-friend (share-link join) is BROKEN in prod RIGHT NOW.**
+So 22 is no longer a planned lockstep — it is the #1 priority to ship and
+deploy. Its types are now available (joinToken landed in the 21 snapshot).
+
+Plan sketch for 22: capture `RoomResponse.joinToken` from the create
+response → carry it into the shareable join link → read it on the join side
+and pass as `JoinRoomRequest.joinToken` → surface the `INVALID_JOIN_TOKEN`
+error (friendly copy already mirrored into errors.ts by 21). The
+spectator/watch path (roomId only, GET /api/rooms/{id}, no token) and
+anonymous play stay unaffected. Touches the existing
+`room-link-share-and-join` (13) surface. ui-reviewer required (share/join
+UI). Decision-first with the user: where the token rides in the URL (path
+vs fragment vs query) — fragment keeps it out of server logs, mirrors the
+OAuth-callback token discipline from 20.4.
+
+## Deferred to feature 25 (time-control UX) — flagged by 21's ui-reviewer
+
+The 21 snapshot added a placeholder `TIMEOUT` terminal arm in Play.tsx.
+When 25 builds the real time-control UX: (1) the placeholder copy
+`"Time out — {winner} wins!"` credits a winner unconditionally — a timeout
+with insufficient mating material is a draw; (2) decide whether a clock
+running out should be an inline banner (like ABANDONED, per the
+`inline-status-over-modals` memory) rather than a modal (like CHECKMATE).
+
+---
+
+## (historical planning notes retained below)
+
+## Plan — `backend-contract-resnapshot` (priority 21) [CLOSED]
+
+Pure enabler, mirrors `auth-openapi-resnapshot` (20.1). Pre-inspected the
+prod contract vs the committed `openapi.json` (2026-06-22):
+
+- Schemas only-in-prod (NEW): **`TimeControl`** (one new component).
+- Schemas removed/renamed: **NONE** — so, unlike 20.1 (Player→PlayerView),
+
+## Plan — `backend-contract-resnapshot` (priority 21, IN PROGRESS)
+
+Pure enabler, mirrors `auth-openapi-resnapshot` (20.1). Pre-inspected the
+prod contract vs the committed `openapi.json` (2026-06-22):
+
+- Schemas only-in-prod (NEW): **`TimeControl`** (one new component).
+- Schemas removed/renamed: **NONE** — so, unlike 20.1 (Player→PlayerView),
+  there is NO alias to retarget and NO breaking typecheck change.
+- New paths: **NONE**. The whole delta is additive fields on existing DTOs
+  (`CreateRoomRequest.{preferredSide,timeControl,opponentKind,botElo}`,
+  `RoomResponse.joinToken`, `JoinRoomRequest.joinToken`,
+  `GameStateResponse.{whiteTimeRemainingMs,blackTimeRemainingMs,lastMoveAt}`,
+  status `TIMEOUT`) plus the `TimeControl` schema.
+
+### Steps for the implementer
+
+1. Re-snapshot from PROD (prod now carries the commits; the `openapi:fetch`
+   npm script points at localhost:8080 which is NOT running — do a one-off):
+   `curl -fsSL https://chess-backend.duckdns.org/v3/api-docs | jq . > openapi.json`
+   Record in the feature note that the snapshot was taken from prod
+   (not local, not the historical 20.1 prod-snapshot — this is the
+   post-deploy refresh). Do NOT permanently rewrite the script URL.
+2. `npm run openapi:generate` (→ `src/api/generated/schema.ts`).
+3. Verify NO alias retarget is needed (the 20.1 Player→PlayerView rename is
+   already applied; this snapshot renames nothing). Grep for any newly
+   broken `components['schemas'][...]` reference and confirm typecheck.
+4. Confirm codegen idempotency (re-running step 2 yields no diff).
+5. `./init.sh` green end-to-end — typecheck is the real gate (must compile
+   against the regenerated schema; the new fields are additive/optional).
+
+No feature code, no token consumption yet — that's 22. Bundle delta zero
+(types are compile-time only). The new types (`joinToken`, `TimeControl`,
+opponentKind/preferredSide enums, clock fields) become available for
+22 + 24 + 25 + 26 in one shot.
+
+---
+
+## (superseded planning note below — kept for context)
+
+**Prior status:** ROADMAP DEFINED (2026-06-19). `auth-google-oauth` (20.4)
+and the whole `user-accounts` (20.x) epic are shipped AND committed+pushed.
+
+**Counts:** 39 done · 6 pending (21 resnapshot, 22 room-access-token,
+23 game-reviews, 24 creator-side-selection, 25 time-control,
+26 bot-opponent).
+
+## Cross-repo state that shaped this roadmap (verified 2026-06-19)
+
+The companion backend (`chess-backend-java`) is **7 commits ahead of its
+own `origin/main`** — i.e. NOT yet deployed. Deployed prod tops out at the
+auth bundle + CORS, which the frontend already fully consumes, so **the
+frontend is in sync with deployed prod, not behind**. The 7 unpushed
+backend commits add four future frontend features (their wire delta is
+new DTO fields, not new paths):
+
+- `chose side on room creation` → `CreateRoomRequest.preferredSide`.
+- `game time control` → `timeControl` + clock fields + status `TIMEOUT` +
+  `GAME_TIMED_OUT` STOMP event.
+- `room access token` → `RoomResponse.joinToken` (create only) +
+  `JoinRoomRequest.joinToken`. **BREAKING for the existing
+  room-link-share-and-join (13):** the backend generates a token for every
+  non-bot room (`RoomService.java:145`) and `joinRoom` rejects a
+  missing/mismatching token (`:346`). Once the backend deploys, a friend
+  opening today's share link is rejected. So this is a **lockstep** change.
+- `bot implementation stockfish` + `elo strength` →
+  `CreateRoomRequest.opponentKind` (FRIEND/BOT) + `botElo`; a BOT room
+  creates a vs-Stockfish game immediately (non-null gameId, no joinToken).
+
+## Decisions taken with the user (2026-06-19)
+
+- The user will **deploy the backend this session**, and wants
+  `game-reviews` as the priority product feature — but those two plus
+  "prod must not break" cannot all coexist if game-reviews goes first.
+- Chosen sequence: **`room-access-token` first, then the backend deploy in
+  lockstep**, then `game-reviews`. Deploy happens this session; prod join
+  stays safe; game-reviews slips to 2nd among product features.
+- The OpenAPI re-snapshot (21) is therefore taken from the **LOCAL**
+  backend (the 7 commits), NOT prod — prod will not carry them until the
+  lockstep push. One snapshot unblocks 22 + 24 + 25 + 26 at once.
+
+## Next feature to plan — `backend-contract-resnapshot` (priority 21)
+
+Pure enabler, mirrors `auth-openapi-resnapshot` (20.1): re-snapshot
+`openapi.json` from the local backend instance and regenerate
+`src/api/generated/schema.ts` so all four new DTO surfaces become
+type-available. No feature code. Then 22 `room-access-token` consumes the
+`joinToken` types, ships, and the backend is pushed in lockstep.
+
+Order of 24–26 (creator-side / time-control / bot-opponent) is **tentative
+— to confirm with the user** before planning each; bot-opponent is the
+largest and flashiest, the user may want it ahead of the smaller two.
+
+## Pending detail for `game-reviews` (priority 23)
+
+Large, cross-repo, **requires an account** (consumes `GET /api/me/games`).
+Auth plumbing exists end-to-end. Decision-first: surface scope before
+planning (likely a "My games" list gated to authenticated users + a
+replay/review view per game; `replay-mode` folded in). Probably worth
+decomposing into sub-features like user-accounts was.
 
 ## Carry-overs still on the radar
 

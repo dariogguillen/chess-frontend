@@ -668,11 +668,55 @@
     ]
   },
   {
+    "id": "deps-audit-overrides",
+    "title": "Clear devDep audit CVEs via overrides",
+    "description": "Surfaced while verifying backend-contract-resnapshot (21): npm audit went red with 4 transitive devDependency CVEs published since the last green run (20.4, ~3 weeks prior), none reaching the production bundle: undici (high) via jsdom (Vitest), js-yaml (moderate) via openapi-typescript->@redocly/openapi-core (codegen), @babel/core (moderate) via eslint-plugin-react-hooks (lint). npm audit fix (non-force) cannot resolve them (no semver-compatible patch). Resolve via the overrides pattern established by supply-chain-hardening (0.5) for ws/esbuild: pin patched versions of the offending transitives in package.json overrides, regenerate the lockfile, and verify the three tooling paths still work (test uses jsdom, codegen uses openapi-typescript, lint uses @babel via eslint-plugin-react-hooks). Honour .npmrc min-release-age=7. This unblocks ./init.sh for all future work, not just 21. Inserted at 20.9 so it lands before 21 closes (21's code already sits in the working tree; its init.sh gate is blocked solely by this audit).",
+    "status": "done",
+    "priority": 20.9,
+    "acceptance": [
+      "package.json overrides pin patched versions of undici, js-yaml, and @babel/core (or the minimal set that clears all 4 advisories); rationale documented inline or in the feature note.",
+      "npm audit --audit-level=moderate returns 0 findings (exit 0).",
+      "No production-bundle change: overrides only touch devDependency transitives; bundle byte-delta zero (or explained).",
+      "The three tooling paths remain functional: npm test (jsdom), npm run openapi:generate (openapi-typescript), npm run lint (@babel via eslint-plugin-react-hooks) all pass.",
+      "./init.sh green end-to-end.",
+      "Overrides respect .npmrc min-release-age=7 (no version published < 7 days ago)."
+    ]
+  },
+  {
+    "id": "backend-contract-resnapshot",
+    "title": "Re-snapshot OpenAPI for the post-auth backend bundle",
+    "description": "Enabler, mirrors auth-openapi-resnapshot (20.1). The backend carries 7 unpushed local commits (chose-side, game-time-control, room-access-token, bot-opponent, elo) not yet in the frontend's openapi.json. Re-snapshot the contract and regenerate src/api/generated/schema.ts so the new fields become type-available: CreateRoomRequest.{preferredSide,timeControl,opponentKind,botElo}, RoomResponse.joinToken, JoinRoomRequest.joinToken, GameStateResponse.{whiteTimeRemainingMs,blackTimeRemainingMs,lastMoveAt}, status TIMEOUT, plus any new STOMP events (GAME_TIMED_OUT, ViewerCountEvent). CRITICAL DEVIATION FROM 20.1: snapshot from the LOCAL backend (run it on localhost:8080 and use the openapi:fetch script, or curl the local instance) NOT prod, because the backend deploy is lockstep with room-access-token (22) and prod does not yet carry these commits. Document the local-snapshot choice in the feature note. Retarget any renamed schema aliases, confirm codegen idempotency (re-run yields no diff), init.sh green (typecheck is the real gate). No auth/feature code yet. Unblocks 22, 24, 25, 26 in one shot.",
+    "status": "done",
+    "priority": 21,
+    "acceptance": [
+      "openapi.json re-snapshotted from the backend carrying the 7 local commits (local instance, not prod); feature note records the local-snapshot decision and how to reproduce it.",
+      "npm run openapi:generate regenerates src/api/generated/schema.ts; the new fields/schemas listed above are present in the generated types.",
+      "Any renamed aliases retargeted; codegen is idempotent (a second generate run produces no diff).",
+      "No runtime/feature code changed (compile-time types only); bundle delta zero.",
+      "./init.sh green end-to-end (typecheck compiles against the regenerated schema)."
+    ]
+  },
+  {
+    "id": "room-access-token",
+    "title": "Honour join tokens in share-link and join flow",
+    "description": "LOCKSTEP with the backend deploy. The backend now generates a secret joinToken for every non-bot room (RoomService.java:145) and RoomService.joinRoom rejects a mismatching/absent token when the room's token is non-null (line 346) with InvalidJoinTokenException. The existing room-link-share-and-join (priority 13) only shares the roomId, so once the backend deploys, a friend opening the share link would be rejected. This feature: capture RoomResponse.joinToken from the create response, carry it through to the share link (and/or room state), pass it as JoinRoomRequest.joinToken on join, and surface the INVALID_JOIN_TOKEN error path. Watch quotes/RoomDetails (GET /api/rooms/{id}) still works token-less for spectators. Anonymous watch unaffected. MUST ship before / together with the backend push so prod join is never broken.",
+    "status": "pending",
+    "priority": 22,
+    "acceptance": [
+      "Create-room flow captures joinToken from RoomResponse and includes it in the shareable join link.",
+      "Join flow reads the token from the link and sends it as JoinRoomRequest.joinToken; a token-protected room can be joined end-to-end.",
+      "InvalidJoinTokenException maps to a friendly error code/message; missing or wrong token surfaces it without a crash.",
+      "Spectator/watch path (roomId only, no token) is unaffected; anonymous play unaffected.",
+      "Tests cover: link carries token, join sends token, wrong/absent token error path. ./init.sh green.",
+      "Backend deploy is coordinated with this shipping (lockstep) so prod join never regresses."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",
     "status": "pending",
-    "priority": 21,
+    "priority": 23,
     "acceptance": [
       "Depends on user-accounts (priority 20) shipping first.",
       "Backend (cross-repo): GET /api/users/{userId}/games returns the user's past games; GET /api/games/{gameId}/pgn returns PGN text; GET /api/games/{gameId} already exists.",
@@ -681,6 +725,45 @@
       "PGN download button on the replay view.",
       "Tests: history list renders, replay viewer navigates moves, PGN download triggers correctly.",
       "./init.sh passes."
+    ]
+  },
+  {
+    "id": "creator-side-selection",
+    "title": "Wire the NewGame side toggle to preferredSide",
+    "description": "The backend supports CreateRoomRequest.preferredSide (WHITE/BLACK/RANDOM; null->WHITE) and the joiner takes the opposite. The NewGame Position toggle is currently decorative. Wire it to send preferredSide on create, and reflect the assigned side (from RoomResponse.role) in the board orientation. Additive: omitting the field keeps the historical creator-is-white behaviour. Order among 24-26 is tentative, to confirm.",
+    "status": "pending",
+    "priority": 24,
+    "acceptance": [
+      "NewGame side toggle (White/Black/Random) sends CreateRoomRequest.preferredSide.",
+      "Board orientation reflects the creator's assigned side from RoomResponse.role.",
+      "Random resolves server-side; the client does not bias it. Untouched toggle = white (unchanged default).",
+      "Tests cover the three choices and orientation. ./init.sh green."
+    ]
+  },
+  {
+    "id": "time-control",
+    "title": "Per-game clocks (time control)",
+    "description": "Backend feature game-time-control: CreateRoomRequest.timeControl (initialMs + Fischer incrementMs), GameStateResponse.{whiteTimeRemainingMs,blackTimeRemainingMs,lastMoveAt}, status TIMEOUT, and a GAME_TIMED_OUT STOMP event. Add an optional time-control picker on NewGame, render both clocks on Play (live countdown for the side to move derived from lastMoveAt), and handle the TIMEOUT terminal state + GAME_TIMED_OUT event. Untimed games (no timeControl) must stay byte-for-byte identical to today. Order among 24-26 is tentative, to confirm.",
+    "status": "pending",
+    "priority": 25,
+    "acceptance": [
+      "NewGame offers an optional time control; omitting it creates an untimed room (unchanged behaviour).",
+      "Play renders both clocks; the side-to-move clock counts down live from lastMoveAt.",
+      "TIMEOUT terminal status and the GAME_TIMED_OUT STOMP event end the game with correct result UI.",
+      "Untimed path is unaffected (no clocks rendered, no regressions). Tests cover timed + untimed + timeout. ./init.sh green."
+    ]
+  },
+  {
+    "id": "bot-opponent",
+    "title": "Play vs the Stockfish bot",
+    "description": "Backend feature bot-opponent: CreateRoomRequest.opponentKind (FRIEND default | BOT) + botElo (clamped to the engine's supported range; null->configured default). A BOT room creates a complete vs-Stockfish game immediately, so the create response carries a non-null gameId and NO joinToken (no human to invite). Frontend: add a 'Play vs computer' path on NewGame with an Elo/strength selector, skip the share/lobby step for BOT rooms (jump straight to /play on the returned gameId), and play out the game over the existing REST+STOMP move flow against the engine. The biggest new surface; order among 24-26 is tentative, to confirm.",
+    "status": "pending",
+    "priority": 26,
+    "acceptance": [
+      "NewGame offers a vs-computer option with an Elo/strength selector within the supported range.",
+      "Creating a BOT room jumps straight to the game (gameId from the create response) with no share/lobby step.",
+      "Moves play out vs the engine over the existing REST + STOMP flow; engine replies render correctly.",
+      "FRIEND path unchanged. Tests cover bot-room creation + an engine-reply move. ./init.sh green."
     ]
   }
 ]

@@ -4066,3 +4066,73 @@ Email/password register+login, JWT-in-localStorage with Authorization
 middleware, authenticated UserContext arm + rehydration + logout, login/
 register pages, Header account menu, and Google OAuth — all shipped
 (20.1 → 20.4). Only `game-reviews` (21) remains in the backlog.
+
+## 2026-06-22 — deps-audit-overrides (20.9)
+
+**Status:** done
+
+**Summary:** Mini-feature that surfaced while verifying 21. After the
+local branch was fast-forwarded to origin/main (3 dependabot merges:
+react-router-dom 7.17, dev-deps group, actions/checkout 6→7) and
+`npm install`, `npm audit` was still red with 4 transitive devDependency
+CVEs published since the last green run (20.4, ~3 weeks prior), none in the
+production bundle: `undici` (high) ← jsdom; `js-yaml` (mod) ←
+openapi-typescript→@redocly/openapi-core; `@babel/core` (mod) ←
+eslint-plugin-react-hooks. `npm audit fix` (non-force) could not clear
+them. Resolved via the `overrides` pattern from supply-chain-hardening
+(0.5): pinned `undici >=7.28.0`, `js-yaml >=4.2.0`, `@babel/core >=7.29.1`
+in package.json overrides; the 4th advisory (@redocly via js-yaml) cleared
+transitively. `npm audit` → 0 findings. Bundle delta zero (devDep
+transitives only). Reviewer independently confirmed each override's
+publish date respects `.npmrc min-release-age=7` (undici 7.31d — the
+tightest, by ~7h; js-yaml 22d; @babel 28.5d). One reviewer round-trip: the
+feature note had Prettier drift failing `format:check`; fixed (the
+`>> build` pipeline string was wrapped in a code span so Prettier stops
+mis-parsing it as a blockquote). `./init.sh` green (leader-verified
+first-hand).
+
+**Files touched:** package.json (overrides), package-lock.json
+(regenerated), notes/20.9-deps-audit-overrides.md (new).
+
+**Feature note:** `notes/20.9-deps-audit-overrides.md`
+
+## 2026-06-22 — backend-contract-resnapshot (21)
+
+**Status:** done
+
+**Summary:** Enabler mirroring auth-openapi-resnapshot (20.1):
+re-snapshotted `openapi.json` and regenerated `src/api/generated/schema.ts`
+so the post-deploy backend surface becomes type-available. Snapshot taken
+from PROD (the user deployed the backend's 7 commits this session; prod now
+carries them) rather than a local instance. Contract delta was purely
+additive: one new schema (`TimeControl`), zero removed/renamed schemas
+(no alias retarget, unlike 20.1's Player→PlayerView), zero new paths; new
+DTO fields `CreateRoomRequest.{preferredSide,timeControl,opponentKind,
+botElo}`, `RoomResponse.joinToken`, `JoinRoomRequest.joinToken`,
+`GameStateResponse.{whiteTimeRemainingMs,blackTimeRemainingMs,lastMoveAt}`.
+Plan deviation handled as in-scope mechanical mirroring (per 20.1
+precedent): the contract also carried two NEW enum members —
+`GameStateResponse.status: TIMEOUT` and `ErrorResponse.error:
+INVALID_JOIN_TOKEN` — which break the codebase's `Exclude<…> extends never`
+exhaustiveness guards at typecheck. Mirrored both into the runtime const
+objects: `INVALID_JOIN_TOKEN` into errors.ts (+KNOWN_CODES + errorMessages
++ test, httpStatus 403); `TIMEOUT` into games.ts GameStatus + narrowStatus
++ isTerminalStatus (+test) and a placeholder `terminalMessage` arm in
+Play.tsx. Reviewer + ui-reviewer both approved the TIMEOUT terminal-policy
+judgment call (a timeout IS a finished game; omitting it would make
+narrowStatus throw on a real payload — minimal correct mirror, not feature
+25 leakage). Codegen idempotent; bundle delta zero (compile-time types).
+No token consumption yet (that's 22).
+
+**ui-reviewer follow-ups deferred to feature 25 (time-control UX):**
+(1) the placeholder copy `"Time out — {winner} wins!"` credits a winner
+unconditionally — a timeout with insufficient mating material is a draw in
+standard rules; (2) decide whether a clock running out should be an inline
+banner (like ABANDONED, per the `inline-status-over-modals` UX memory)
+rather than a modal (like CHECKMATE).
+
+**Files touched:** openapi.json, src/api/generated/schema.ts, src/api/
+errors.ts (+test), src/api/games.ts (+test), src/pages/Play/Play.tsx,
+notes/21-backend-contract-resnapshot.md (new).
+
+**Feature note:** `notes/21-backend-contract-resnapshot.md`

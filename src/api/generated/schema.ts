@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Create a room
-         * @description Creates a new room with the caller as White. The response includes the assigned playerId and the freshly generated roomId.
+         * @description Creates a new room with the caller as its single player. The caller's side comes from the optional preferredSide field (WHITE/BLACK/RANDOM; omitted defaults to WHITE; RANDOM is coin-flipped server-side). The response role reflects the resolved side, alongside the assigned playerId and the freshly generated roomId. The response also carries a secret joinToken (only the creator obtains it) that the opponent must supply to POST /api/rooms/{id}/join.
          */
         post: operations["createRoom"];
         delete?: never;
@@ -35,7 +35,7 @@ export interface paths {
         put?: never;
         /**
          * Join a room
-         * @description Joins {id} as the second player (Black) and creates the game in the same atomic step. Path {id} is case-insensitive; the canonical uppercase form is returned in the body.
+         * @description Joins {id} as the second player and creates the game in the same atomic step. Requires the secret joinToken the creator obtained from the create response; a missing or wrong token returns 403 INVALID_JOIN_TOKEN (the roomId alone, used for watching, does not authorise joining). The joiner's role is the opposite of the side the creator chose at create time. Path {id} is case-insensitive; the canonical uppercase form is returned in the body.
          */
         post: operations["joinRoom"];
         delete?: never;
@@ -113,7 +113,7 @@ export interface paths {
         };
         /**
          * Get room state by id
-         * @description Reads the current state of a room: the players (with roles derived from join order), the associated gameId if the room is ACTIVE, and the lifecycle status. The frontend uses this either as the primary discovery mechanism for Player A (poll until gameId is non-null) or as a fallback to STOMP /topic/rooms/{roomId} for late subscribers, which cannot replay events. Path {id} is case-insensitive; the canonical uppercase form is returned in the body.
+         * @description Reads the current state of a room: the players (with roles derived from the creator's chosen side), the associated gameId if the room is ACTIVE, and the lifecycle status. The frontend uses this either as the primary discovery mechanism for Player A (poll until gameId is non-null) or as a fallback to STOMP /topic/rooms/{roomId} for late subscribers, which cannot replay events. Path {id} is case-insensitive; the canonical uppercase form is returned in the body.
          */
         get: operations["getRoom"];
         put?: never;
@@ -231,6 +231,40 @@ export interface components {
         CreateRoomRequest: {
             /** @example Alice */
             displayName?: string;
+            /**
+             * @description The creator's requested side. WHITE or BLACK pin the creator's colour; RANDOM lets the server coin-flip it (the client cannot bias the result). Optional: omitting the field defaults to WHITE.
+             * @example WHITE
+             * @enum {string}
+             */
+            preferredSide?: "WHITE" | "BLACK" | "RANDOM";
+            /** @description Optional time control. When present, both sides start at initialMs and the server tracks the clock authoritatively, auto-flagging (status TIMEOUT) when the side to move runs out. Omit the field for an untimed game. */
+            timeControl?: components["schemas"]["TimeControl"];
+            /**
+             * @description The opponent kind. FRIEND (the default when omitted) creates a room another human joins; BOT creates a complete game against the Stockfish engine immediately, so the response carries a non-null gameId and no joinToken.
+             * @example FRIEND
+             * @enum {string}
+             */
+            opponentKind?: "FRIEND" | "BOT";
+            /**
+             * Format: int32
+             * @description Requested bot target strength as an Elo, relevant only when opponentKind=BOT. The server maps it to the engine's skill level (Fairy-Stockfish) rather than exposing a raw engine parameter. Must lie within 400-3190 (the ~400 floor stays reachable for true beginners). Omit the field to use the server's configured default strength.
+             * @example 1500
+             */
+            botElo?: number;
+        };
+        TimeControl: {
+            /**
+             * Format: int64
+             * @description Starting clock per side, in milliseconds. Strictly positive.
+             * @example 300000
+             */
+            initialMs?: number;
+            /**
+             * Format: int64
+             * @description Fischer increment added back to a player's clock after they move, in milliseconds. Zero for plain sudden-death.
+             * @example 3000
+             */
+            incrementMs?: number;
         };
         RoomResponse: {
             /**
@@ -245,7 +279,7 @@ export interface components {
              */
             playerId?: string;
             /**
-             * @description Side assigned to the caller. WHITE for the room creator, BLACK for the joiner.
+             * @description Side assigned to the caller. On create it is the creator's chosen side (WHITE by default, or BLACK / a RANDOM coin-flip result if requested); on join it is the opposite of the creator's side.
              * @example WHITE
              */
             role?: string;
@@ -255,6 +289,11 @@ export interface components {
              * @example 0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000
              */
             gameId?: string;
+            /**
+             * @description Secret join token required by POST /api/rooms/{id}/join. Non-null ONLY on the create response — the creator keeps it and shares it out-of-band with the opponent. Null on the join response, and never returned by GET /api/rooms/{id}. Possession of the roomId alone (used for watching) does not authorise joining.
+             * @example 8b3c1f04-1234-5678-9abc-def012345678
+             */
+            joinToken?: string;
         };
         /** @description Standard error envelope returned by every 4xx response from the API. */
         ErrorResponse: {
@@ -263,7 +302,7 @@ export interface components {
              * @example ROOM_NOT_FOUND
              * @enum {string}
              */
-            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER" | "AUTHENTICATION_REQUIRED" | "EMAIL_ALREADY_TAKEN" | "INVALID_CREDENTIALS";
+            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER" | "AUTHENTICATION_REQUIRED" | "EMAIL_ALREADY_TAKEN" | "INVALID_CREDENTIALS" | "INVALID_JOIN_TOKEN";
             message?: string;
             /** Format: date-time */
             timestamp?: string;
@@ -271,6 +310,11 @@ export interface components {
         JoinRoomRequest: {
             /** @example Bob */
             displayName?: string;
+            /**
+             * @description Secret join token obtained by the creator from the create response and shared out-of-band with the opponent. Required for rooms created after feature 22.7 shipped; a missing or wrong token returns 403 INVALID_JOIN_TOKEN.
+             * @example 8b3c1f04-1234-5678-9abc-def012345678
+             */
+            joinToken?: string;
         };
         MoveRequest: {
             /**
@@ -301,7 +345,7 @@ export interface components {
              */
             fen?: string;
             /** @enum {string} */
-            status?: "ONGOING" | "CHECK" | "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED";
+            status?: "ONGOING" | "CHECK" | "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED" | "TIMEOUT";
             /**
              * @description Side whose turn it is. WHITE if move count is even, BLACK if odd.
              * @example WHITE
@@ -310,6 +354,24 @@ export interface components {
             turn?: "WHITE" | "BLACK";
             /** @description Full move history in playback order. */
             moves?: components["schemas"]["MoveSummary"][];
+            /**
+             * Format: int64
+             * @description White's remaining clock in milliseconds, frozen at the last move. Null for an untimed game. The live value of the side to move is remaining - (now - lastMoveAt).
+             * @example 298500
+             */
+            whiteTimeRemainingMs?: number;
+            /**
+             * Format: int64
+             * @description Black's remaining clock in milliseconds, frozen at the last move. Null for an untimed game.
+             * @example 300000
+             */
+            blackTimeRemainingMs?: number;
+            /**
+             * Format: date-time
+             * @description Instant the side-to-move's clock started counting, ISO-8601 UTC. Null for an untimed game.
+             * @example 2026-05-29T10:23:11.123Z
+             */
+            lastMoveAt?: string;
         };
         MoveSummary: {
             /**
@@ -397,7 +459,7 @@ export interface components {
              * @example K7M3X9
              */
             roomId?: string;
-            /** @description Players in the room. Index 0 is the creator (WHITE); index 1 (when present) is the joiner (BLACK). The array has 1 element while WAITING_FOR_PLAYER and 2 while ACTIVE. */
+            /** @description Players in the room. Index 0 is the creator and holds the side they chose at create time; index 1 (when present) is the joiner and holds the opposite side. The array has 1 element while WAITING_FOR_PLAYER and 2 while ACTIVE. */
             players?: components["schemas"]["PlayerInRoom"][];
             /**
              * Format: uuid
@@ -428,7 +490,7 @@ export interface components {
              * @example CHECKMATE
              * @enum {string}
              */
-            status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED";
+            status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED" | "TIMEOUT";
             /**
              * Format: date-time
              * @description Instant the game was archived.
@@ -470,7 +532,7 @@ export interface components {
              * @example CHECKMATE
              * @enum {string}
              */
-            status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED";
+            status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED" | "TIMEOUT";
             /**
              * Format: date-time
              * @description Instant the game was archived.
@@ -620,6 +682,15 @@ export interface operations {
             };
             /** @description Invalid request (validation failure or malformed JSON) */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid join token for a token-protected room */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
