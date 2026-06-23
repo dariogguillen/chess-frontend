@@ -27,6 +27,9 @@ const buildGameState = (overrides: Partial<GameState> = {}): GameState => ({
   status: GameStatus.Ongoing,
   turn: Side.White,
   moves: [],
+  whiteTimeRemainingMs: null,
+  blackTimeRemainingMs: null,
+  lastMoveAt: null,
   ...overrides,
 });
 

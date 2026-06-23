@@ -4238,3 +4238,108 @@ src/pages/Play/Play.tsx (+test),
 notes/22.7-play-move-list-and-last-move.md (new).
 
 **Feature note:** `notes/22.7-play-move-list-and-last-move.md`
+
+## 2026-06-23 — creator-side-selection (24)
+
+**Status:** done
+
+**Summary:** First of the three "activate the decorative NewGame toggles"
+features. Wired the "Play as" toggle so the room creator picks their side;
+the backend already supported it and the board already orients from the
+server-assigned role, so this was small. Added a `SidePreference`
+const-object + derived type (as-const discriminant, `satisfies` against the
+generated `CreateRoomRequest.preferredSide`), extended `createRoom(displayName,
+preferredSide?, client?)` to send the key only when provided (omitted →
+server defaults to WHITE, existing callers unchanged). Added `Position.Random`
++ a third toggle button (CasinoIcon, per-path MUI import) and an exhaustive
+`POSITION_TO_SIDE: Record<Position, SidePreference>` map; `handleStart`
+passes the chosen side. No `Play.tsx` change — `boardOrientation` already
+derives from role; two new Play tests lock WHITE→white / BLACK→black. The
+joiner side stays server-assigned (toggle disabled in join mode). reviewer
++ ui-reviewer approved; `./init.sh` green (388 tests). Confirmed with the
+user that Random is included (3 options).
+
+**Files touched:** src/api/rooms.ts (+test), src/pages/NewGame/utils.tsx,
+src/pages/NewGame/NewGame.tsx (+test), src/pages/Play/Play.test.tsx,
+notes/24-creator-side-selection.md (new).
+
+**Feature note:** `notes/24-creator-side-selection.md`
+
+## 2026-06-23 — time-control (25)
+
+**Status:** done
+
+**Summary:** Second and biggest of the "activate the NewGame toggles"
+series. Activated the Timer toggle (minutes preset + a new Fischer
+increment toggle in seconds) and added live countdown clocks on Play, on
+top of the contract the 21 snapshot already shipped. Confirmed with the
+user: minutes+Fischer increment, timeout shown as the terminal modal.
+KEY DESIGN RULE held: the local countdown (`useClockCountdown`) is
+display-only — only the side-to-move ticks (`frozen - (now - lastMoveAt)`,
+clamped at 0); the client NEVER declares timeout. The authoritative TIMEOUT
+comes solely from the server's `GAME_TIMED_OUT` STOMP event (or a MoveEvent
+already carrying status TIMEOUT). Added `GameTimedOutEvent` to wsEvents
+(shape mirrored from the backend: type/gameId/winnerId/finalFen/clock
+fields/timedOutAt), clock fields to GameState + narrowing, `createRoom`
+`timeControl` param, a `Clock` component (m:ss, role="timer", active side
+by weight+opacity not colour-only), and the timeout terminal modal keyed off
+the event `winnerId` (win / lose / draw-on-insufficient-material — resolving
+21's deferred concern). Untimed games render no clocks and are unaffected
+(regression guard tested). Also fixed the 24 carry-over: ToggleButton's
+hardcoded `aria-label="choose position"` is now a neutral default overridden
+per group (side/opponent/time/increment each get their own), and a `style`
+→ `sx`. reviewer + ui-reviewer approved; `./init.sh` green (423 tests, +35).
+One deviation: `useClockCountdown` derives the live value purely in render
+from a `now` pulse (React 19 purity) rather than setState-ing decremented
+ms — same external contract.
+
+**Files touched:** src/api/games.ts (+test), src/api/rooms.ts (+test),
+src/api/wsEvents.ts (+test), src/hooks/useClockCountdown.ts (new, +test),
+src/hooks/useGameStomp.ts, src/components/Clock/* (new, +test),
+src/components/ToggleButton/ToggleButton.tsx,
+src/components/TurnIndicator/TurnIndicator.test.tsx,
+src/pages/NewGame/{utils.tsx,NewGame.tsx} (+test),
+src/pages/Play/Play.tsx (+test), notes/25-time-control.md (new).
+
+**Feature note:** `notes/25-time-control.md`
+
+## 2026-06-23 — bot-opponent (26)
+
+**Status:** done
+
+**Summary:** Last of the three "activate the NewGame toggles" features:
+play vs the Stockfish bot. Confirmed with the user: Elo slider; simple game
+first (BOT does not combine with side/time yet). Most of the mechanics
+already worked — the bot is just an opponent over the existing REST+STOMP
+flow (applyOpponentMove/MoveEvent is human/bot-agnostic; opponentDisplayName
+shows the engine so no "Waiting for opponent"; RoomState/enterRoom already
+store a non-null gameId). What this feature added: `OpponentKind`
+const-object + `createRoom` accepting opponentKind/botElo — and, since that
+would have made FIVE optional positional params before the test-hatch
+client, REFACTORED `createRoom(displayName, options?, client?)` with
+`CreateRoomOptions = { preferredSide?, timeControl?, opponentKind?, botElo? }`
+(bounded churn: 1 prod site + ~11 tests; kills the `undefined, undefined`
+noise from 24/25; body still omits absent keys). NewGame: un-disabled the
+Bot toggle; in bot mode renders an MUI Elo Slider (400-3190, step 50,
+default 1200; accessible via aria-labelledby + getAriaValueText) and
+disables the side/time toggles + Timer checkbox (the opponent toggle stays
+enabled to revert to Friend); handleStart sends only {opponentKind:'BOT',
+botElo}. Play/useRoomDiscovery: gained a gameId param and skips discovery
+when gameId is non-null (a bot game's create response already carries it),
+going straight to the initial GET; the bot-moves-first case (creator Black)
+is recovered by the GET (an early MoveEvent dropped while gameState is null
+is harmless). reviewer + ui-reviewer approved; `./init.sh` green (435 tests,
++12). One deviation: a pre-existing useRoomDiscovery test that flaked under
+full-suite contention was HARDENED (assertion wrapped in waitFor), not
+weakened.
+
+🏁 The three "activate the decorative NewGame toggles" features (24 side,
+25 time, 26 bot) are COMPLETE — NewGame's Position, Timer, and Play-against
+controls are all live now.
+
+**Files touched:** src/api/rooms.ts (+test),
+src/pages/NewGame/{utils.tsx,NewGame.tsx} (+test),
+src/hooks/useRoomDiscovery.ts (+test), src/pages/Play/Play.tsx (+test),
+notes/26-bot-opponent.md (new).
+
+**Feature note:** `notes/26-bot-opponent.md`

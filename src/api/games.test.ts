@@ -69,6 +69,42 @@ describe('getGameState', () => {
     expect(result.moves[1].promotion).toBe(PromotionPiece.Queen);
   });
 
+  it('surfaces the clock fields when the game is timed', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(
+          sampleGameState({
+            whiteTimeRemainingMs: 300_000,
+            blackTimeRemainingMs: 285_000,
+            lastMoveAt: '2026-06-22T12:00:00.000Z',
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const result = await getGameState('game-uuid-1', testClient);
+
+    expect(result.whiteTimeRemainingMs).toBe(300_000);
+    expect(result.blackTimeRemainingMs).toBe(285_000);
+    expect(result.lastMoveAt).toBe('2026-06-22T12:00:00.000Z');
+  });
+
+  it('coalesces the clock fields to null for an untimed game', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        // sampleGameState carries no clock fields → untimed.
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    const result = await getGameState('game-uuid-1', testClient);
+
+    expect(result.whiteTimeRemainingMs).toBeNull();
+    expect(result.blackTimeRemainingMs).toBeNull();
+    expect(result.lastMoveAt).toBeNull();
+  });
+
   it('throws ApiError code=GAME_NOT_FOUND on 404', async () => {
     server.use(
       http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>

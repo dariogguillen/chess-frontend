@@ -5,6 +5,7 @@ import {
   Container,
   Divider,
   Paper,
+  Slider,
   Snackbar,
   Stack,
   TextField,
@@ -15,19 +16,38 @@ import type { ChangeEvent, MouseEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ToggleButtons from '../../components/ToggleButton';
 import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
-import { createRoom, joinRoom } from '../../api/rooms';
+import { createRoom, joinRoom, OpponentKind, SidePreference } from '../../api/rooms';
+import type { TimeControl } from '../../api/games';
 import { IdentityKind, useUserContext } from '../../context';
 import { isValidRoomIdFormat, normalizeRoomId } from '../../utils/roomId';
 import {
+  BOT_ELO_DEFAULT,
+  BOT_ELO_MAX,
+  BOT_ELO_MIN,
+  BOT_ELO_STEP,
+  Increment,
   Opponent,
   Position,
   Time,
+  getIncrementButtonsProps,
   getOpponentButtonsProps,
   getPositionButtonsProps,
   getTimeButtonsProps,
 } from './utils';
 
 const DEFAULT_DISPLAY_NAME = 'Guest';
+
+/**
+ * Maps the UI's `Position` toggle value to the wire `SidePreference` the
+ * backend expects on `POST /api/rooms`. Kept exhaustive over `Position`
+ * (a `Record`), so adding a future enum member fails to compile here until
+ * it gets a mapping.
+ */
+const POSITION_TO_SIDE: Record<Position, SidePreference> = {
+  [Position.White]: SidePreference.White,
+  [Position.Black]: SidePreference.Black,
+  [Position.Random]: SidePreference.Random,
+};
 
 /**
  * Configuration page for a new game: nickname, board side, opponent type,
@@ -51,6 +71,13 @@ const NewGame = () => {
   const { identity, opponent, setIdentity, setOpponent, enterRoom } = useUserContext();
 
   const [time, setTime] = useState<Time>(Time.None);
+  // Requested bot strength (Elo). Only sent when playing against the bot;
+  // ignored otherwise. Default lands at a club-amateur level.
+  const [botElo, setBotElo] = useState<number>(BOT_ELO_DEFAULT);
+  // Fischer increment (seconds). Only meaningful once a `time` is chosen;
+  // its toggle is disabled while `time === Time.None`, and the value is
+  // ignored when building an untimed game.
+  const [increment, setIncrement] = useState<Increment>(Increment.Zero);
   // Capture the roomId from the `?roomId` query param ONCE (lazy initialiser
   // → runs only on first mount, like a Scala `lazy val`). Normalised to the
   // canonical upper-case 6-char form. This is the sole source of the
@@ -71,11 +98,12 @@ const NewGame = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  // `position` is a UI-only preference now — the backend assigns sides
-  // (White to room-creator, Black to joiner) and surfaces the result via
-  // `room.role` on the in-room arm of `UserContext`. The toggle below
-  // remains as a decorative control while we leave headroom for a future
-  // "match me as Black" feature.
+  // The creator's requested side. In CREATE mode it is sent to the backend
+  // as `CreateRoomRequest.preferredSide` (White / Black pin the colour,
+  // Random coin-flips server-side); the server's assignment comes back as
+  // `room.role` and drives the board orientation in `Play`. In JOIN mode the
+  // toggle is disabled — the joiner always takes the side opposite the
+  // creator, so there is nothing to choose.
   const [position, setLocalPosition] = useState<Position>(Position.White);
 
   // Scrub the secret token out of the address bar once it has been
@@ -101,6 +129,10 @@ const NewGame = () => {
     if (newTime !== null) setTime(newTime);
   };
 
+  const handleIncrement = (_event: MouseEvent<HTMLElement>, newIncrement: Increment | null) => {
+    if (newIncrement !== null) setIncrement(newIncrement);
+  };
+
   const handleDisplayName = (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value || DEFAULT_DISPLAY_NAME;
     // Identity is a discriminated union; we preserve the kind on update.
@@ -124,6 +156,12 @@ const NewGame = () => {
   // server's error and the friendly Snackbar.
   const joinMode = capturedRoomId.length > 0 && isValidRoomIdFormat(capturedRoomId);
 
+  // Playing against the Stockfish bot. In create mode only — a joiner takes
+  // whatever the creator opened. Bot mode is a "simple game first": the side
+  // and time toggles are disabled (not combined with the bot yet), and the
+  // Elo slider takes their place.
+  const botMode = !joinMode && opponent === Opponent.Bot;
+
   const isDisplayNameValid = identity.displayName.trim().length > 0;
   const canSubmit = !submitting && isDisplayNameValid;
 
@@ -132,9 +170,31 @@ const NewGame = () => {
     setSubmitting(true);
     setErrorMessage(null);
     try {
-      const response = joinMode
-        ? await joinRoom(capturedRoomId, identity.displayName, joinToken)
-        : await createRoom(identity.displayName);
+      // Build the time control from the two toggles. `Time.None` → untimed
+      // (omit the whole object; the game behaves exactly as before, no
+      // clocks in Play). Otherwise minutes→ms and seconds→ms on the wire.
+      const timeControl: TimeControl | undefined =
+        time === Time.None
+          ? undefined
+          : { initialMs: time * 60_000, incrementMs: increment * 1_000 };
+      let response;
+      if (joinMode) {
+        response = await joinRoom(capturedRoomId, identity.displayName, joinToken);
+      } else if (botMode) {
+        // Simple game first: a bot room is created against Stockfish at the
+        // chosen Elo. We deliberately do NOT pass preferredSide or
+        // timeControl — combining the bot with side/time is deferred. The
+        // backend assigns the human a side and the bot plays the other.
+        response = await createRoom(identity.displayName, {
+          opponentKind: OpponentKind.Bot,
+          botElo,
+        });
+      } else {
+        response = await createRoom(identity.displayName, {
+          preferredSide: POSITION_TO_SIDE[position],
+          timeControl,
+        });
+      }
       enterRoom(response);
       navigate('/play');
     } catch (cause) {
@@ -154,6 +214,17 @@ const NewGame = () => {
   const positionButtons = getPositionButtonsProps(position, handlePosition);
   const opponentButtons = getOpponentButtonsProps(opponent, handleOpponent);
   const timeButtons = getTimeButtonsProps(time, handleTime);
+  // The increment toggle only makes sense once a time is chosen. While the
+  // game is untimed (`Time.None`) it is disabled — and also disabled in
+  // join mode (the joiner inherits the creator's settings) and bot mode
+  // (simple game first: no clocks against the bot yet).
+  const incrementDisabled = joinMode || botMode || time === Time.None;
+  const incrementButtons = getIncrementButtonsProps(increment, handleIncrement, incrementDisabled);
+  // Side and time are disabled both while joining (the joiner has no choice)
+  // and in bot mode (deferred: the bot game is a simple, sideless, untimed
+  // game). The opponent toggle itself stays enabled in bot mode so the user
+  // can switch back to Friend.
+  const sideTimeDisabled = joinMode || botMode;
 
   return (
     <Container maxWidth="md" sx={{ pt: 4 }}>
@@ -186,7 +257,7 @@ const NewGame = () => {
           <Typography variant="body1" gutterBottom>
             Play as:
           </Typography>
-          <ToggleButtons {...positionButtons} disabled={joinMode} />
+          <ToggleButtons {...positionButtons} disabled={sideTimeDisabled} />
         </Paper>
         <Paper sx={{ p: 2 }}>
           <Typography variant="body1" gutterBottom>
@@ -194,12 +265,38 @@ const NewGame = () => {
           </Typography>
           <ToggleButtons {...opponentButtons} disabled={joinMode} />
         </Paper>
+        {botMode && (
+          <Paper sx={{ p: 2 }}>
+            <Typography id="bot-elo-label" variant="body1" gutterBottom>
+              Bot strength: {botElo} Elo
+            </Typography>
+            <Slider
+              value={botElo}
+              min={BOT_ELO_MIN}
+              max={BOT_ELO_MAX}
+              step={BOT_ELO_STEP}
+              onChange={(_event, value) => setBotElo(Array.isArray(value) ? value[0] : value)}
+              valueLabelDisplay="auto"
+              aria-labelledby="bot-elo-label"
+              getAriaValueText={(value) => `${value} Elo`}
+            />
+          </Paper>
+        )}
         <Paper sx={{ p: 2 }}>
           <Typography variant="body1" gutterBottom>
-            <Checkbox disabled />
-            Timer (min). <small>Coming soon</small>
+            <Checkbox
+              checked={time !== Time.None}
+              onChange={(event) => setTime(event.target.checked ? Time.Five : Time.None)}
+              inputProps={{ 'aria-label': 'enable a clock' }}
+              disabled={sideTimeDisabled}
+            />
+            Timer (min)
           </Typography>
-          <ToggleButtons {...timeButtons} disabled={joinMode} />
+          <ToggleButtons {...timeButtons} disabled={sideTimeDisabled || time === Time.None} />
+          <Typography variant="body1" gutterBottom sx={{ mt: 2 }}>
+            Increment (sec)
+          </Typography>
+          <ToggleButtons {...incrementButtons} />
         </Paper>
         <Button variant="contained" onClick={handleStart} disabled={!canSubmit}>
           {joinMode ? 'Join game' : 'Start'}

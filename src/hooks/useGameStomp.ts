@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ConnectionState, GameTopicEventType } from '../api/wsEvents';
 import type {
   GameAbandonedEvent,
+  GameTimedOutEvent,
   GameTopicEvent,
   MoveEvent,
   OpponentConnectionStatus,
@@ -41,6 +42,8 @@ export type UseGameStompOptions = Readonly<{
   onOpponentReconnected?: () => void;
   /** Fired when the server abandons the game (GAME_ABANDONED). */
   onGameAbandoned?: (event: GameAbandonedEvent) => void;
+  /** Fired when a side runs out of clock (GAME_TIMED_OUT). */
+  onGameTimedOut?: (event: GameTimedOutEvent) => void;
 }>;
 
 /**
@@ -52,10 +55,11 @@ export type UseGameStompOptions = Readonly<{
  * - `/topic/games/{gameId}` — game topic. Carries a `playerId` STOMP
  *   header on the SUBSCRIBE frame so the backend's `ViewerCountTracker`
  *   self-excludes the subscriber from the count. The topic multiplexes
- *   four event variants (`MOVE`, `PLAYER_DISCONNECTED`,
- *   `PLAYER_RECONNECTED`, `GAME_ABANDONED`) discriminated by the `type`
- *   field; the hook narrows on it and dispatches to the right slice
- *   (move callback, opponent-status state, abandon callback).
+ *   five event variants (`MOVE`, `PLAYER_DISCONNECTED`,
+ *   `PLAYER_RECONNECTED`, `GAME_ABANDONED`, `GAME_TIMED_OUT`)
+ *   discriminated by the `type` field; the hook narrows on it and
+ *   dispatches to the right slice (move callback, opponent-status state,
+ *   abandon callback, timed-out callback).
  * - `/topic/games/{gameId}/viewers` — viewer count topic. No header
  *   (the moves topic already carries identity; this one is just a
  *   counter the server pushes whenever it changes).
@@ -132,6 +136,11 @@ export const useGameStomp = (
   useEffect(() => {
     onGameAbandonedRef.current = options.onGameAbandoned;
   }, [options.onGameAbandoned]);
+
+  const onGameTimedOutRef = useRef(options.onGameTimedOut);
+  useEffect(() => {
+    onGameTimedOutRef.current = options.onGameTimedOut;
+  }, [options.onGameTimedOut]);
 
   // Snapshot the test-injection options on first render. They are only
   // ever passed at mount in production code (test files freeze them up
@@ -224,6 +233,12 @@ export const useGameStomp = (
       onGameAbandonedRef.current?.(event);
     };
 
+    const handleGameTimedOut = (event: GameTimedOutEvent): void => {
+      // Authoritative timeout. The local countdown is display-only; the
+      // page collapses into the terminal-status modal on this callback.
+      onGameTimedOutRef.current?.(event);
+    };
+
     const handleGameTopicEvent = (event: GameTopicEvent): void => {
       switch (event.type) {
         case GameTopicEventType.Move:
@@ -237,6 +252,9 @@ export const useGameStomp = (
           return;
         case GameTopicEventType.GameAbandoned:
           handleGameAbandoned(event);
+          return;
+        case GameTopicEventType.GameTimedOut:
+          handleGameTimedOut(event);
           return;
         default: {
           // Exhaustiveness guard. A new variant in `GameTopicEvent`

@@ -25,6 +25,7 @@ import {
 } from 'react-chessboard';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CSSProperties } from 'react';
+import { Clock } from '../../components/Clock';
 import { CustomDialog } from '../../components/CustomDialog';
 import { GameOverByAbandonBanner } from '../../components/GameOverByAbandonBanner';
 import { MoveList } from '../../components/MoveList';
@@ -43,9 +44,10 @@ import {
 import type { GameState, MoveSummary } from '../../api/games';
 import { Role } from '../../api/rooms';
 import { ConnectionState, DiscoveryState } from '../../api/wsEvents';
-import type { GameAbandonedEvent, MoveEvent } from '../../api/wsEvents';
+import type { GameAbandonedEvent, GameTimedOutEvent, MoveEvent } from '../../api/wsEvents';
 import { RoomPhase, useBoardTheme, useUserContext } from '../../context';
 import { boardThemeStyles } from '../../boardThemes';
+import { useClockCountdown } from '../../hooks/useClockCountdown';
 import { useGameStomp } from '../../hooks/useGameStomp';
 import { useMoveHints } from '../../hooks/useMoveHints';
 import { useRoomDiscovery } from '../../hooks/useRoomDiscovery';
@@ -84,8 +86,11 @@ const terminalMessage = (status: GameStatus, turn: Side): string => {
     case GameStatus.Abandoned:
       return 'Game abandoned.';
     case GameStatus.Timeout: {
-      // The side to move is the one whose clock expired, so the winner
-      // is the opposite side.
+      // Fallback only — used when we land in TIMEOUT via the rehydrate
+      // path (REST GET, no event) so we have no canonical winnerId. The
+      // side to move is the one whose clock expired, so the winner is the
+      // opposite side. The live-event path uses `timeoutMessage` below,
+      // which keys off the event's `winnerId` (and handles the draw case).
       const winner = turn === Side.White ? 'Black' : 'White';
       return `Time out — ${winner} wins!`;
     }
@@ -95,6 +100,19 @@ const terminalMessage = (status: GameStatus, turn: Side): string => {
       // return a safe fallback rather than throwing inside render.
       return 'Game in progress.';
   }
+};
+
+/**
+ * Timeout copy keyed off the canonical `winnerId` from the
+ * `GAME_TIMED_OUT` event (NOT the turn). `null` winnerId is a real draw —
+ * the flagged side had insufficient mating material, so the timeout is
+ * scored as a draw. This resolves feature 21's deferred concern that the
+ * placeholder copy credited a winner unconditionally.
+ */
+const timeoutMessage = (winnerId: string | null, localPlayerId: string | null): string => {
+  if (winnerId === null) return 'Draw — timeout with insufficient material.';
+  if (localPlayerId !== null && winnerId === localPlayerId) return 'You win on time!';
+  return 'You lost on time.';
 };
 
 /**
@@ -236,6 +254,17 @@ const Play = () => {
   // rehydrate path (status=ABANDONED from REST GET) leaves it `null` and
   // the banner falls back to the neutral copy.
   const [abandonedWinnerId, setAbandonedWinnerId] = useState<string | null>(null);
+  // Captures the timeout outcome from the live `GAME_TIMED_OUT` event so
+  // the terminal modal copy keys off the canonical server-provided
+  // `winnerId` (win / lose / draw) rather than inferring a winner from the
+  // turn. `{ set: false }` means we have no event-sourced outcome (the
+  // rehydrate path: status=TIMEOUT from REST GET) and the modal falls back
+  // to the turn-derived copy. `winnerId: null` is a real value — a draw on
+  // timeout (the flagged side had insufficient mating material).
+  const [timedOutOutcome, setTimedOutOutcome] = useState<{
+    set: boolean;
+    winnerId: string | null;
+  }>({ set: false, winnerId: null });
   // The square the user has currently started dragging from. Drives the
   // legal-move hint overlay via {@link useMoveHints}. Lives in Play so
   // turn-change and Escape clear paths are colocated with the rest of
@@ -350,6 +379,37 @@ const Play = () => {
     [chess],
   );
 
+  /**
+   * Handle a `GAME_TIMED_OUT` STOMP event — a side ran out of clock. This
+   * is the AUTHORITATIVE timeout; the local countdown is display-only and
+   * never reaches here on its own. Collapses the local game state into the
+   * `TIMEOUT` arm (freezing the board at `finalFen` and the clocks at the
+   * event's final values) and opens the terminal modal. We stash the
+   * canonical `winnerId` so the modal copy reads win / lose / draw off it
+   * rather than guessing from the turn.
+   */
+  const handleGameTimedOut = useCallback(
+    (event: GameTimedOutEvent) => {
+      chess.load(event.finalFen);
+      setFen(event.finalFen);
+      setTimedOutOutcome({ set: true, winnerId: event.winnerId });
+      setSelectedSquare(null);
+      setGameState((prev) => {
+        if (prev === null) return prev;
+        if (prev.id !== event.gameId) return prev;
+        return {
+          ...prev,
+          fen: event.finalFen,
+          status: GameStatus.Timeout,
+          whiteTimeRemainingMs: event.whiteTimeRemainingMs,
+          blackTimeRemainingMs: event.blackTimeRemainingMs,
+        };
+      });
+      setTerminalDialogOpen(true);
+    },
+    [chess],
+  );
+
   const handleOpponentReconnected = useCallback(() => {
     setReconnectToastOpen(true);
   }, []);
@@ -365,19 +425,26 @@ const Play = () => {
   } = useGameStomp(gameId ?? null, playerId, applyOpponentMove, {
     onOpponentReconnected: handleOpponentReconnected,
     onGameAbandoned: handleGameAbandoned,
+    onGameTimedOut: handleGameTimedOut,
   });
 
   // Discovery flow for Player A. Active only while we are in a room
   // but the gameId has not yet resolved. Once `setGameId` updates the
-  // context, the `discoveryRoomId` argument flips to `null` and the
+  // context, the `discoveryGameId` argument becomes non-null and the
   // hook tears itself down — the existing `getGameState` + `useGameStomp`
-  // chain takes over from there.
-  const discoveryActive = room.phase === RoomPhase.InRoom && room.gameId === null;
-  const discoveryRoomId = discoveryActive ? room.roomId : null;
-  const discoveryPlayerId = discoveryActive ? room.playerId : null;
+  // chain takes over from there. A BOT room never enters discovery at all:
+  // its create response already carried a non-null `gameId`, so the hook's
+  // `gameId !== null` guard short-circuits and the page goes straight to
+  // the initial GET (which loads the bot game, including the bot's first
+  // move when the human is Black).
+  const inRoom = room.phase === RoomPhase.InRoom;
+  const discoveryRoomId = inRoom ? room.roomId : null;
+  const discoveryPlayerId = inRoom ? room.playerId : null;
+  const discoveryGameId = inRoom ? room.gameId : null;
   const { discoveryState, errorMessage: discoveryError } = useRoomDiscovery(
     discoveryRoomId,
     discoveryPlayerId,
+    discoveryGameId,
     setGameId,
   );
 
@@ -877,6 +944,35 @@ const Play = () => {
 
   const boardOrientation: 'white' | 'black' = role === Role.Black ? 'black' : 'white';
 
+  // Live countdown. The hook is display-only: the side to move ticks down
+  // from the server's frozen snapshot; the authoritative timeout still
+  // arrives as `GAME_TIMED_OUT`. Untimed games report null clocks, in
+  // which case `hasClock` is false and no clock UI renders (byte-for-byte
+  // unchanged from before this feature).
+  const hasClock =
+    gameState !== null &&
+    gameState.whiteTimeRemainingMs !== null &&
+    gameState.blackTimeRemainingMs !== null;
+  const clockTurn = gameState?.turn ?? Side.White;
+  const clockRunning = gameState !== null && !isTerminalStatus(gameState.status);
+  const { whiteMs, blackMs } = useClockCountdown({
+    whiteTimeRemainingMs: gameState?.whiteTimeRemainingMs ?? null,
+    blackTimeRemainingMs: gameState?.blackTimeRemainingMs ?? null,
+    lastMoveAt: gameState?.lastMoveAt ?? null,
+    turn: clockTurn,
+    running: clockRunning,
+  });
+
+  // Map the two sides to "local" vs "opponent" so each clock sits with the
+  // right name. Default the local side to White when role is unknown (a
+  // spectator / fresh visit) — the clocks only render for a timed game the
+  // player is in, so this default is never the rendered path.
+  const localSide: Side = role === Role.Black ? Side.Black : Side.White;
+  const localClockMs = localSide === Side.White ? whiteMs : blackMs;
+  const opponentClockMs = localSide === Side.White ? blackMs : whiteMs;
+  const localClockActive = clockRunning && clockTurn === localSide;
+  const opponentClockActive = clockRunning && clockTurn !== localSide;
+
   const isAbandoned = gameState !== null && gameState.status === GameStatus.Abandoned;
   // The terminal-status modal is suppressed for ABANDONED — the inline
   // banner takes over. The modal still covers CHECKMATE / STALEMATE /
@@ -886,6 +982,17 @@ const Play = () => {
     gameState !== null &&
     isTerminalStatus(gameState.status) &&
     gameState.status !== GameStatus.Abandoned;
+
+  // The terminal-dialog copy. For TIMEOUT with an event-sourced outcome
+  // we key off the canonical `winnerId` (win / lose / draw). Every other
+  // terminal status — and a TIMEOUT reached via the rehydrate path with
+  // no event — falls back to the turn-derived `terminalMessage`.
+  const terminalDialogText =
+    gameState === null
+      ? 'Game over'
+      : gameState.status === GameStatus.Timeout && timedOutOutcome.set
+        ? timeoutMessage(timedOutOutcome.winnerId, playerId)
+        : terminalMessage(gameState.status, gameState.turn);
 
   const displayName = identity.displayName;
 
@@ -971,6 +1078,13 @@ const Play = () => {
               )}
             </Typography>
             <OpponentStatus status={opponentStatus} />
+            {hasClock && opponentClockMs !== null && (
+              <Clock
+                remainingMs={opponentClockMs}
+                active={opponentClockActive}
+                label={opponentDisplayName ?? 'Opponent'}
+              />
+            )}
           </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
@@ -1045,6 +1159,9 @@ const Play = () => {
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="body1">{displayName}</Typography>
             <TurnIndicator gameState={gameState} role={role} />
+            {hasClock && localClockMs !== null && (
+              <Clock remainingMs={localClockMs} active={localClockActive} label={displayName} />
+            )}
           </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
@@ -1071,10 +1188,8 @@ const Play = () => {
       />
       <CustomDialog
         open={showTerminalDialog}
-        title={gameState !== null ? terminalMessage(gameState.status, gameState.turn) : 'Game over'}
-        contentText={
-          gameState !== null ? terminalMessage(gameState.status, gameState.turn) : 'Game over'
-        }
+        title={terminalDialogText}
+        contentText={terminalDialogText}
         handleContinue={() => {
           // Bug D: the previous handler dismissed the dialog and left
           // the user staring at a frozen board. The user almost always

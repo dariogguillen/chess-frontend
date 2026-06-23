@@ -1,11 +1,301 @@
 # Current session
 
-**Status:** `play-move-list-and-last-move` (22.7) CLOSED (2026-06-23).
-reviewer + ui-reviewer approved; `./init.sh` green (377 tests). See
-history.md.
+**Status:** `bot-opponent` (26) CLOSED (2026-06-23). reviewer + ui-reviewer
+approved; `./init.sh` green (435 tests). See history.md.
 
-**Counts:** 44 done · 4 pending (23 game-reviews, 24 creator-side-selection,
-25 time-control, 26 bot-opponent).
+🏁 The three "activate the NewGame toggles" features (24 side, 25 time,
+26 bot) are COMPLETE. NewGame's Position, Timer, and Play-against controls
+are all live.
+
+NEXT (and the LAST backlog item): **`game-reviews` (27)** — the user's
+priority product feature.
+
+**Counts:** 47 done · 1 pending (27 game-reviews).
+
+## ⚠️ Uncommitted — awaiting commit/deploy
+
+CLOSED but UNCOMMITTED: 20.9, 21, 22.5, 22.7, 24, 25, 26 (22 already live in
+prod). `./init.sh` green with all of it. Several visible UI changes the
+user will want live (22.7 move list, 24 side selection, 25 clocks, 26 bot).
+
+## Next — `game-reviews` (27)
+
+The LAST backlog item and the user's priority product feature. Large,
+cross-repo, requires an account (`GET /api/me/games`; auth plumbing exists
+end-to-end since 20.x; `MyGameSummary`/`MyGamesPage` are in the 21 snapshot).
+DECISION-FIRST: surface scope to the user before planning — likely a
+"My games" list gated to authenticated users + a per-game replay/review
+view. The move list from 22.7 + the SAN `toSanList` helper are the natural
+base for clickable-move replay scrubbing (explicitly deferred here from
+22.7). Probably decomposes into sub-features like user-accounts did.
+
+## Historical: Plan — `bot-opponent` (26, CLOSED)
+
+Activate the "Play against" → BOT option: play vs Stockfish. Confirmed with
+the user: **Elo slider** (~400-3190); **simple game first** — in BOT mode
+the side (24) and time (25) toggles are DISABLED (no combining yet).
+
+**What ALREADY works (Explore-confirmed, no change):** the bot is just an
+opponent over the existing REST+STOMP flow — `applyOpponentMove`/MoveEvent
+is agnostic of human-vs-bot (Play.tsx:312-354); `opponentDisplayName` will
+show the bot's name so no "Waiting for opponent" (Play.tsx:934-937 + the
+22.5 invite-hide gate); `RoomState`/`enterRoom` already store a non-null
+`gameId` (UserContext.tsx:282-303); `RoomResponse` already narrows
+`gameId`/`joinToken` to nullable.
+
+**Backend contract (snapshot 21):** `CreateRoomRequest.opponentKind?:
+"FRIEND"|"BOT"` (schema.ts:247), `botElo?: number` 400-3190 (schema.ts:253,
+omit → server default). A BOT create returns a non-null `gameId` and a null
+`joinToken` (game exists immediately; no human to invite).
+
+### Part A — API (`rooms.ts`)
+- Add an `OpponentKind` **const object** + derived type (`{ Friend:'FRIEND',
+  Bot:'BOT' }` — as-const, like `SidePreference`).
+- Extend `createRoom(displayName, preferredSide?, timeControl?,
+  opponentKind?, botElo?, client?)` — include each in the body only when
+  provided. NOTE: this is now 5 optional positional params before the
+  test-hatch `client`; that's a smell. Prefer refactoring to
+  `createRoom(displayName, options?, client?)` with
+  `options = { preferredSide?, timeControl?, opponentKind?, botElo? }` IF the
+  call-site/test churn (24/25 sites) is clean; otherwise keep positional and
+  note the debt. Implementer's judgment — minimize risk.
+
+### Part B — NewGame (create a bot game)
+- `utils.tsx`: un-disable the `Opponent.Bot` button (currently
+  `disabled: true`, ~104).
+- `NewGame.tsx`: add a `botElo` state (default ~1200; slider range
+  400-3190). When `opponent === Opponent.Bot`: render an MUI `Slider` for
+  the Elo (with the numeric value shown + accessible `aria-label`/
+  `getAriaValueText`), and DISABLE the side (position) and time/increment
+  toggles (simple game — `disabled={... || opponent === Opponent.Bot}`).
+  In `handleStart`, when Bot: pass `opponentKind: 'BOT'` + `botElo` to
+  `createRoom` (and DON'T pass preferredSide/timeControl — simple game).
+  enterRoom + navigate('/play') is unchanged (already there).
+
+### Part C — Play: skip discovery for a bot game
+- `useRoomDiscovery` (or its call site in Play.tsx ~425) currently runs
+  whenever `gameId === null` to discover the game after a human joins. For
+  BOT the `gameId` is already non-null from create, so discovery must be
+  SKIPPED — gate it on `gameId === null` (add the precondition; today it
+  only checks roomId/playerId, useRoomDiscovery.ts:114-117). Confirm the
+  initial game-state GET (syncFromServer, ~421-449) fires for a non-null
+  gameId so the board loads the bot game directly.
+- Bot-moves-first edge: if the creator is assigned Black, the bot (White)
+  moves first; its MoveEvent may arrive before the initial GET and be
+  dropped (Play.tsx:321-327 ignores events while gameState is null). That's
+  fine — the GET returns the full state INCLUDING the bot's move, so it's
+  recovered. Just ensure the GET always runs for a bot game; add a test.
+
+### Tests
+- `rooms.test.ts`: createRoom sends `opponentKind`/`botElo` when passed,
+  omits when not (+ the refactor's call sites if taken).
+- `NewGame.test.tsx`: selecting Bot enables the Elo slider, disables the
+  side+time toggles, and sends `opponentKind:'BOT'` + the slider's botElo
+  (no preferredSide/timeControl); Friend path unchanged.
+- Play/`useRoomDiscovery`: discovery is skipped when gameId is non-null
+  (bot); the bot game loads via the GET; a bot MoveEvent applies; the
+  bot-moves-first state is recovered by the GET.
+
+### Accessibility (ui-reviewer REQUIRED — NewGame slider + toggle)
+The Elo `Slider` has an accessible name and value text (announces the Elo);
+the Bot toggle has a clear name; disabling side/time in bot mode is
+conveyed (disabled state, not colour-only). Keep per-group aria-labels.
+
+### Out of scope
+Combining bot with side/time (deferred — "simple game first"); difficulty
+presets/labels (slider only); bot avatars; multiple engines. No new deps
+beyond MUI Slider (MUI already present). `./init.sh` green. Friend play +
+all prior flows unaffected.
+
+## Historical: Plan — `time-control` (25, CLOSED)
+
+Activate the "Timer" toggle: create timed games and show live countdown
+clocks on Play. Confirmed with the user: **minutes + Fischer increment**;
+**timeout shown as the terminal modal** (consistent with checkmate; the 21
+snapshot already left a `TIMEOUT` arm in `terminalMessage`). The 21 snapshot
+already shipped: `TimeControl` schema (`initialMs`/`incrementMs`),
+`GameStatus.Timeout` + `isTerminalStatus`/`narrowStatus`,
+`GameStateResponse.{whiteTimeRemainingMs,blackTimeRemainingMs,lastMoveAt}`,
+`CreateRoomRequest.timeControl`, and the terminal-modal flow already routes
+`TIMEOUT`. This feature is the wiring + clocks + the timeout STOMP event.
+
+**KEY DESIGN RULE:** the local countdown is **display-only**. The client
+NEVER declares timeout — the authoritative timeout comes from the server's
+`GAME_TIMED_OUT` event (the clock may hit 0:00 locally and just wait). This
+avoids client/server drift. Untimed games (no `timeControl`) render NO
+clocks and behave byte-for-byte as today.
+
+**Backend GAME_TIMED_OUT shape (verified in chess-backend-java):**
+`GameTimedOutEvent { type:"GAME_TIMED_OUT", gameId:UUID, winnerId:UUID|null,
+finalFen:String, whiteTimeRemainingMs:long, blackTimeRemainingMs:long,
+timedOutAt:Instant }` — models exactly like `GameAbandonedEvent`. STOMP
+events are hand-maintained in `wsEvents.ts` (not in the OpenAPI snapshot).
+
+### Part A — API
+- `games.ts`: add `whiteTimeRemainingMs/blackTimeRemainingMs: number | null`
+  and `lastMoveAt: string | null` to `GameState` (121-130); narrow them in
+  `narrowGameState` (233-256, `?? null`). Export a `TimeControl` type.
+- `rooms.ts`: extend `createRoom(displayName, preferredSide?, timeControl?,
+  client?)` — include `timeControl` in the body only when provided (omit →
+  untimed, unchanged). Mind the existing test-hatch `client` param order.
+- `wsEvents.ts`: add `GameTimedOut: 'GAME_TIMED_OUT'` to the
+  `GameTopicEventType` const object (40-46), a `GameTimedOutEvent` type
+  (mirror `GameAbandonedEvent` + the clock fields), and extend the
+  `GameTopicEvent` union (232-236).
+
+### Part B — NewGame (create a timed game)
+- `utils.tsx`: un-disable the `Time` buttons (94-100, the minute presets
+  1/3/5/10/15/30/60 already exist) and add a SECOND toggle for the Fischer
+  increment in seconds (e.g. 0/1/2/3/5/10) via a new `getIncrementButtons`
+  helper + an `Increment` enum.
+- `NewGame.tsx`: enable the "Timer" Checkbox (212-215), add an `increment`
+  state, and in `handleStart` build `timeControl = time === Time.None ?
+  undefined : { initialMs: minutes*60_000, incrementMs: increment*1_000 }`,
+  pass it to `createRoom`. Increment toggle is meaningful only when a time
+  is chosen (disable/hide it when `time === None`).
+- FIX the carry-over from 24 here: `ToggleButton.tsx:42` hardcodes
+  `aria-label="choose position"` for every group — give the time and
+  increment groups their own group aria-labels.
+
+### Part C — Play clocks + live countdown
+- New `Clock` component (`src/components/Clock/`): renders `mm:ss` (and
+  tenths under ~10s, optional) for one side; muted/active styling by whose
+  turn it is. New `useClockCountdown` hook (`src/hooks/`): given the frozen
+  `{white,black}TimeRemainingMs`, `lastMoveAt`, and `turn`, returns the live
+  remaining ms for each side — only the side-to-move ticks down
+  (`frozen - (now - lastMoveAt)`), clamped at 0. `setInterval` ~250ms; clean
+  up on unmount. Display-only (no terminal trigger).
+- Place two clocks in the existing Play layout (post-22.7): opponent clock
+  by the opponent name row (~966-973), local clock by the player+turn row
+  (~1046-1048). Render clocks ONLY when `gameState` has non-null clock
+  fields (timed game).
+
+### Part D — Play: handle the timeout event
+- In the STOMP dispatch (where MoveEvent/AbandonedEvent are handled, ~365),
+  add a `GameTimedOutEvent` arm: set `gameState` to `status: TIMEOUT` with
+  `finalFen` + the final clock values, stash `winnerId` (reuse the
+  `abandonedWinnerId` pattern). The existing terminal flow
+  (`isTerminalStatus(TIMEOUT)` → `showTerminalDialog`) opens the modal.
+- Improve the modal copy to use the event's `winnerId` (not turn-derived):
+  `winnerId === localPlayerId` → "You win on time", a non-null other →
+  "You lost on time", `winnerId === null` → "Draw — timeout with
+  insufficient material" (resolves 21's deferred concern). A MoveEvent that
+  already carries `status: TIMEOUT` (clock expired on a move) routes the
+  same way.
+
+### Tests
+- `games.test.ts`: narrowGameState surfaces the clock fields (and null when
+  absent). `rooms.test.ts`: createRoom sends `timeControl` when passed,
+  omits when not. `wsEvents`/parse: a `GAME_TIMED_OUT` payload parses to the
+  typed event. `useClockCountdown`: side-to-move ticks, other side frozen,
+  clamps at 0, no terminal side-effect. `Clock`: formats mm:ss. NewGame:
+  selecting a time+increment sends the right `timeControl`; untimed → none;
+  increment disabled when no time. Play: a timed game renders clocks; an
+  untimed game renders none (regression guard); a `GAME_TIMED_OUT` event
+  opens the terminal modal with the winnerId-derived copy (win/lose/draw).
+
+### Accessibility (ui-reviewer REQUIRED — NewGame toggles + Play clocks)
+Clocks convey time as TEXT (mm:ss), not colour; the active-side cue is not
+colour-only (also text/weight). New toggle groups get proper group
+aria-labels (the 24 carry-over). Layout stays responsive (clocks shouldn't
+break the 22.7 md:8/md:4 grid).
+
+### Out of scope
+bot-opponent (26); per-move time spent; clock pre-move/low-time sounds.
+No new deps. `./init.sh` green. Untimed play unaffected.
+
+---
+
+**Closed earlier this session:** 20.9, 21, 22 (live in prod), 22.5, 22.7,
+24. Uncommitted: 20.9/21/22.5/22.7/24 await the next push.
+
+## ⚠️ Uncommitted — awaiting commit/deploy
+
+CLOSED but UNCOMMITTED: 20.9, 21, 22.5, 22.7, 24 (22 already live in prod).
+`./init.sh` green with all of it. Visible UI changes the user will want
+live: 22.7 (move list + highlight), 24 (side selection).
+
+## Carry-over flagged by 24's ui-reviewer (a11y, not blocking)
+
+`src/components/ToggleButton/ToggleButton.tsx:42` hardcodes
+`aria-label="choose position"` on EVERY toggle group — so the "Play
+against" and "Timer" groups also announce "choose position". This will get
+more wrong as 25 (time) and 26 (bot) activate those groups. Fix it as part
+of 25/26 (pass a group-specific aria-label) or fold into an a11y-pass. Also
+noted: line 54 `style={{ display: 'block' }}` should be `sx` (pre-existing).
+
+## Next — `time-control` (25)
+
+Activate the "Timer (min). Coming soon" toggle. Backend ready (snapshot 21):
+`CreateRoomRequest.timeControl` (TimeControl schema: initialMs + Fischer
+incrementMs), `GameStateResponse.{whiteTimeRemainingMs,blackTimeRemainingMs,
+lastMoveAt}`, status `TIMEOUT`, and a `GAME_TIMED_OUT` STOMP event. The 21
+snapshot already added a placeholder `TIMEOUT` terminal arm in Play.tsx.
+DECISION-FIRST with the user before planning: which time presets to offer
+(the toggle already shows 1/3/5/10/15/30/60 min — confirm + whether to add
+an increment), and the deferred TIMEOUT-UX questions from 21 (winner-on-
+timeout with insufficient material = draw; inline banner vs modal — see the
+`inline-status-over-modals` memory). Render live countdown clocks on Play
+for both sides (derive the side-to-move's live value from lastMoveAt).
+
+## Plan — `creator-side-selection` (priority 24, IN PROGRESS)
+
+Activate the decorative "Play as" toggle so the room creator picks their
+side. The backend already supports it; the board already orients from the
+assigned role. Small. Confirmed with the user: include **Random** (3
+options: White / Black / Random).
+
+**Pre-mapped facts (file:line):**
+- Schema has `CreateRoomRequest.preferredSide?: "WHITE"|"BLACK"|"RANDOM"`
+  (generated/schema.ts:239). `createRoom(displayName, client?)` (rooms.ts
+  ~115) currently sends only `{ displayName }`.
+- NewGame: `Position` enum is `White|Black` (utils.tsx:21-23); the toggle
+  via `getPositionButtonsProps` (utils.tsx:38-) is already active in create
+  mode (only `disabled={joinMode}`). `position` state at NewGame.tsx:79.
+- Play: `boardOrientation = role === Role.Black ? 'black' : 'white'`
+  (Play.tsx:878) — ALREADY derives from the server-assigned role. No change
+  needed; creating as Black returns role=Black and the board flips.
+
+**Steps:**
+1. **API (`rooms.ts`):** add a `SidePreference` **const object** +
+   derived type (`{ White:'WHITE', Black:'BLACK', Random:'RANDOM' }` — per
+   the user's as-const discriminant preference, NOT a raw string union).
+   Extend `createRoom(displayName, preferredSide?: SidePreference, client?)`
+   to include `preferredSide` in the POST body when provided (omit the key
+   when undefined → server defaults to White, unchanged for existing
+   callers/tests).
+2. **NewGame (`utils.tsx` + `NewGame.tsx`):** add `Random` to the
+   `Position` enum and a third toggle button. It needs an icon — there is
+   no Random asset in `src/icons/`, so use a per-path `@mui/icons-material`
+   icon (e.g. `CasinoIcon` or `ShuffleIcon`; per-path import, NOT the
+   barrel — ui-reviewer rule). In `handleStart`, map `position` →
+   `SidePreference` (White→WHITE, Black→BLACK, Random→RANDOM) and pass it to
+   `createRoom`. The toggle stays `disabled={joinMode}` (a joiner takes the
+   opposite side; no choice).
+3. **Play:** nothing — `boardOrientation` already reflects `role`. Add/keep
+   a test that creating as Black orients the board from black.
+
+**Tests:**
+- `rooms.test.ts`: `createRoom` includes `preferredSide` in the body when
+  passed (White/Black/Random) and omits the key when not.
+- `NewGame.test.tsx`: selecting White/Black/Random sends the matching
+  `preferredSide` to `createRoom`; default (untouched toggle) → White (or
+  key omitted). Random renders and is selectable.
+- (Orientation from role is already covered in Play tests; confirm.)
+
+**Accessibility (ui-reviewer REQUIRED — NewGame toggle):** the Random
+button has a clear accessible name ("Random"); the icon is decorative; the
+toggle group keeps its semantics. Per-path icon import.
+
+**Out of scope:** time-control (25), bot-opponent (26). The joiner side is
+server-assigned (opposite) — no joiner-side UI. No new deps beyond the MUI
+icon (already a dep). `./init.sh` green.
+
+---
+
+**Closed this session:** 20.9, 21, 22 (live in prod), 22.5,
+22.7. See history.md. Uncommitted: 20.9/21/22.5/22.7 await the next push
+(22 already deployed).
 
 ## ⚠️ Uncommitted — features awaiting commit/deploy
 

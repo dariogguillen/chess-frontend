@@ -2,6 +2,7 @@ import type { Client } from 'openapi-fetch';
 import { apiClient } from './client';
 import { ApiError, ApiErrorCode, mapError } from './errors';
 import { wrapNetwork } from './http';
+import type { TimeControl } from './games';
 import type { components, paths } from './generated/schema';
 
 /**
@@ -16,6 +17,47 @@ export const Role = {
   Black: 'BLACK',
 } as const;
 export type Role = (typeof Role)[keyof typeof Role];
+
+/**
+ * Creator's requested side on room creation. Const-object + derived-type
+ * pattern (see {@link Role} for the rationale).
+ *
+ * `White` / `Black` pin the creator's colour; `Random` lets the server
+ * coin-flip it (the client cannot bias the result). The `satisfies` clause
+ * anchors the runtime mapping to the generated schema — a typo on the
+ * right-hand side fails to compile. The server defaults to `White` when the
+ * field is omitted, so `createRoom` omits the key entirely for the default
+ * path (keeping existing callers' wire shape unchanged).
+ */
+type RawPreferredSide = NonNullable<components['schemas']['CreateRoomRequest']['preferredSide']>;
+
+export const SidePreference = {
+  White: 'WHITE',
+  Black: 'BLACK',
+  Random: 'RANDOM',
+} as const satisfies Record<string, RawPreferredSide>;
+export type SidePreference = (typeof SidePreference)[keyof typeof SidePreference];
+
+/**
+ * Whom the room is created against. Const-object + derived-type pattern
+ * (see {@link Role} for the rationale).
+ *
+ * `Friend` (the server's default when the key is omitted) creates a room a
+ * second human joins over the existing REST+STOMP flow. `Bot` creates a
+ * complete game against the Stockfish engine immediately — the create
+ * response carries a non-null `gameId` (the game already exists) and a null
+ * `joinToken` (there is no human to invite). The `satisfies` clause anchors
+ * the runtime mapping to the generated schema: a typo on the right-hand
+ * side fails to compile. `createRoom` omits the key for the default
+ * (`Friend`) path so existing callers' wire shape is unchanged.
+ */
+type RawOpponentKind = NonNullable<components['schemas']['CreateRoomRequest']['opponentKind']>;
+
+export const OpponentKind = {
+  Friend: 'FRIEND',
+  Bot: 'BOT',
+} as const satisfies Record<string, RawOpponentKind>;
+export type OpponentKind = (typeof OpponentKind)[keyof typeof OpponentKind];
 
 /**
  * Room lifecycle status. Const-object + derived-type pattern (see
@@ -106,19 +148,74 @@ const narrowRoomResponse = (raw: GeneratedRoomResponse | undefined): RoomRespons
 type ClientFor = Client<paths>;
 
 /**
- * `POST /api/rooms` — create a new room with the caller as White.
+ * Optional knobs for {@link createRoom}. Every field is omitted from the
+ * request body when undefined, so the server applies its own default and the
+ * wire shape stays minimal (`{ displayName }`) for the no-options path.
  *
- * On success: returns the canonical `RoomResponse`.
+ * This grew to four optional fields across features 24/25/26 — an options
+ * object reads better than four positional params trailing a `client`
+ * test-hatch, and a new knob is an additive field rather than a positional
+ * shift through every call site.
+ */
+export type CreateRoomOptions = Readonly<{
+  /**
+   * The creator's requested colour. `White` / `Black` pin it; `Random` lets
+   * the server coin-flip. The resolved colour comes back as
+   * `RoomResponse.role`, which drives the board orientation in `Play`.
+   * Omitted → the server defaults to WHITE. Ignored for a BOT room (which
+   * pairs with the bot, not a chosen side — "simple game first").
+   */
+  preferredSide?: SidePreference;
+  /**
+   * Makes the game timed: both sides start at `initialMs` and the server
+   * tracks the clock authoritatively, auto-flagging (status TIMEOUT, plus a
+   * `GAME_TIMED_OUT` STOMP event) when a side runs out. Omitted → the game is
+   * untimed and behaves exactly as before (no clocks rendered in `Play`).
+   */
+  timeControl?: TimeControl;
+  /**
+   * Whom the room is against. `Bot` creates a vs-Stockfish game immediately
+   * (non-null `gameId`, null `joinToken`); omitted → the server defaults to
+   * FRIEND (a room a second human joins).
+   */
+  opponentKind?: OpponentKind;
+  /**
+   * Requested bot strength as an Elo (400-3190), relevant only when
+   * `opponentKind === Bot`. Omitted → the server's configured default
+   * strength.
+   */
+  botElo?: number;
+}>;
+
+/**
+ * `POST /api/rooms` — create a new room.
+ *
+ * Each entry of `options` is included in the request body ONLY when defined,
+ * so the server applies its own default for any omitted knob and the wire
+ * shape is byte-identical to the no-options path for existing callers. See
+ * {@link CreateRoomOptions} for what each knob does.
+ *
+ * On success: returns the canonical `RoomResponse`. A BOT room returns a
+ * non-null `gameId` (the game exists immediately) and a null `joinToken`.
  * On error: throws `ApiError` with `code` populated from the server's
  * `ErrorResponse.error` (or `NETWORK_ERROR` / `UNKNOWN_ERROR`).
  */
 export const createRoom = async (
   displayName: string,
+  options: CreateRoomOptions = {},
   client: ClientFor = apiClient,
 ): Promise<RoomResponse> =>
   wrapNetwork(async () => {
+    const { preferredSide, timeControl, opponentKind, botElo } = options;
+    const body = {
+      displayName,
+      ...(preferredSide !== undefined ? { preferredSide } : {}),
+      ...(timeControl !== undefined ? { timeControl } : {}),
+      ...(opponentKind !== undefined ? { opponentKind } : {}),
+      ...(botElo !== undefined ? { botElo } : {}),
+    };
     const { data, error, response } = await client.POST('/api/rooms', {
-      body: { displayName },
+      body,
     });
     if (error !== undefined) throw mapError(error, response);
     return narrowRoomResponse(data);

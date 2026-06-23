@@ -127,6 +127,22 @@ export type GameState = Readonly<{
   status: GameStatus;
   turn: Side;
   moves: ReadonlyArray<MoveSummary>;
+  /**
+   * White's remaining clock in milliseconds, frozen at the last move.
+   * `null` for an untimed game (the field is absent on the wire). The
+   * live value of the side to move is `remaining - (now - lastMoveAt)`,
+   * computed display-side in `useClockCountdown` — the server is the
+   * authority on actual expiry (it pushes `GAME_TIMED_OUT`).
+   */
+  whiteTimeRemainingMs: number | null;
+  /** Black's remaining clock in milliseconds, frozen at the last move. `null` when untimed. */
+  blackTimeRemainingMs: number | null;
+  /**
+   * ISO-8601 instant of the last move (the moment the side-to-move's
+   * clock started ticking). `null` when untimed, or before the first
+   * move of a timed game. Used to derive the live countdown.
+   */
+  lastMoveAt: string | null;
 }>;
 
 /**
@@ -138,6 +154,21 @@ export type MoveRequestBody = Readonly<{
   from: string;
   to: string;
   promotion?: PromotionPiece;
+}>;
+
+/**
+ * Time control for a timed game. `initialMs` is the starting clock per
+ * side; `incrementMs` is the Fischer increment added back after each move
+ * (zero for plain sudden-death). Both values are whole milliseconds. The
+ * shape mirrors the generated `TimeControl` schema (whose fields are
+ * optional `number`s) but tightens both to mandatory at this boundary —
+ * `NewGame` only ever constructs a complete pair. Sent on
+ * `CreateRoomRequest.timeControl`; omit the whole object for an untimed
+ * game.
+ */
+export type TimeControl = Readonly<{
+  initialMs: number;
+  incrementMs: number;
 }>;
 
 type GeneratedGameStateResponse = components['schemas']['GameStateResponse'];
@@ -252,6 +283,12 @@ const narrowGameState = (raw: GeneratedGameStateResponse | undefined): GameState
     status: narrowStatus(raw.status),
     turn: narrowSide(raw.turn),
     moves: (raw.moves ?? []).map(narrowMoveSummary),
+    // Clock fields are absent on an untimed game; coalesce to `null` so
+    // the rest of the app reads a uniform `number | null` and gates the
+    // clock UI on non-null.
+    whiteTimeRemainingMs: raw.whiteTimeRemainingMs ?? null,
+    blackTimeRemainingMs: raw.blackTimeRemainingMs ?? null,
+    lastMoveAt: raw.lastMoveAt ?? null,
   };
 };
 

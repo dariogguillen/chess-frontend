@@ -19,13 +19,13 @@ import { GameStatus, PromotionPiece, Side } from './games';
 /**
  * STOMP event discriminator constants for `/topic/games/{gameId}`.
  *
- * The backend's `GameStateEvent` is a sealed interface with four
+ * The backend's `GameStateEvent` is a sealed interface with five
  * variants — `MoveEvent`, `PlayerDisconnectedEvent`,
- * `PlayerReconnectedEvent`, `GameAbandonedEvent` — that all ride the
- * same game topic. Every variant carries an explicit `type` field set
- * by its convenience constructor (rather than `@JsonTypeInfo`), so the
- * frontend discriminator lives in one const object instead of scattered
- * magic strings.
+ * `PlayerReconnectedEvent`, `GameAbandonedEvent`, `GameTimedOutEvent` —
+ * that all ride the same game topic. Every variant carries an explicit
+ * `type` field set by its convenience constructor (rather than
+ * `@JsonTypeInfo`), so the frontend discriminator lives in one const
+ * object instead of scattered magic strings.
  *
  * Adding a new variant means extending both this object and the
  * `GameTopicEvent` union below, in lockstep with the backend record.
@@ -36,12 +36,14 @@ import { GameStatus, PromotionPiece, Side } from './games';
  *   chess-backend-java: `src/main/java/.../websocket/PlayerDisconnectedEvent.java`
  *   chess-backend-java: `src/main/java/.../websocket/PlayerReconnectedEvent.java`
  *   chess-backend-java: `src/main/java/.../websocket/GameAbandonedEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/GameTimedOutEvent.java`
  */
 export const GameTopicEventType = {
   Move: 'MOVE',
   PlayerDisconnected: 'PLAYER_DISCONNECTED',
   PlayerReconnected: 'PLAYER_RECONNECTED',
   GameAbandoned: 'GAME_ABANDONED',
+  GameTimedOut: 'GAME_TIMED_OUT',
 } as const;
 export type GameTopicEventType = (typeof GameTopicEventType)[keyof typeof GameTopicEventType];
 
@@ -219,6 +221,52 @@ export type GameAbandonedEvent = Readonly<{
 }>;
 
 /**
+ * Mirror of the backend's `GameTimedOutEvent.java` record (Spring
+ * messaging payload for `/topic/games/{gameId}`).
+ *
+ * Broadcast when a game transitions to `GameStatus.Timeout` because the
+ * side to move ran out of clock. This is the AUTHORITATIVE timeout: the
+ * client's local countdown (`useClockCountdown`) is display-only and may
+ * reach 0:00 before this event arrives — it must never declare a timeout
+ * itself, to avoid client/server clock drift. The receiving client routes
+ * this into the terminal-status modal (consistent with checkmate; see the
+ * `Timeout` arm in `Play.tsx`'s `terminalMessage`), keying the win/lose/
+ * draw copy off `winnerId`.
+ *
+ * Modelled exactly like `GameAbandonedEvent` (a status-only transition
+ * carrying the frozen final position), with the two final clock values
+ * added.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/GameTimedOutEvent.java`
+ *
+ * Fields:
+ * - `type`                  — discriminator constant `'GAME_TIMED_OUT'`.
+ * - `gameId`                — UUID of the game that flagged.
+ * - `winnerId`             — UUID of the player who won on time, or `null`
+ *                            when the timeout is a draw (the side that
+ *                            flagged had insufficient mating material).
+ *                            The modal copy keys off this directly rather
+ *                            than inferring a winner from the turn.
+ * - `finalFen`             — FEN at the moment of timeout (the position
+ *                            frozen on the board). Terminal; never changes.
+ * - `whiteTimeRemainingMs` — White's clock at the flag (the flagged side
+ *                            reads 0). Carried so the clocks freeze at the
+ *                            true final values.
+ * - `blackTimeRemainingMs` — Black's clock at the flag.
+ * - `timedOutAt`           — ISO-8601 instant of the flag. Logging/debug.
+ */
+export type GameTimedOutEvent = Readonly<{
+  type: typeof GameTopicEventType.GameTimedOut;
+  gameId: string;
+  winnerId: string | null;
+  finalFen: string;
+  whiteTimeRemainingMs: number;
+  blackTimeRemainingMs: number;
+  timedOutAt: string;
+}>;
+
+/**
  * Discriminated union of every variant on `/topic/games/{gameId}`.
  *
  * The receiving subscriber pattern-matches on `event.type` and lets
@@ -233,7 +281,8 @@ export type GameTopicEvent =
   | MoveEvent
   | PlayerDisconnectedEvent
   | PlayerReconnectedEvent
-  | GameAbandonedEvent;
+  | GameAbandonedEvent
+  | GameTimedOutEvent;
 
 /**
  * Local-only ADT describing how the local UI should render the

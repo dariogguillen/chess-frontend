@@ -741,26 +741,10 @@
     ]
   },
   {
-    "id": "game-reviews",
-    "title": "Game history and replay",
-    "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",
-    "status": "pending",
-    "priority": 23,
-    "acceptance": [
-      "Depends on user-accounts (priority 20) shipping first.",
-      "Backend (cross-repo): GET /api/users/{userId}/games returns the user's past games; GET /api/games/{gameId}/pgn returns PGN text; GET /api/games/{gameId} already exists.",
-      "Frontend: /history route lists games (paginated). Click navigates to /history/{gameId}.",
-      "/history/{gameId} renders a replay board with move navigation (forward, back, jump-to-start, jump-to-end, autoplay).",
-      "PGN download button on the replay view.",
-      "Tests: history list renders, replay viewer navigates moves, PGN download triggers correctly.",
-      "./init.sh passes."
-    ]
-  },
-  {
     "id": "creator-side-selection",
     "title": "Wire the NewGame side toggle to preferredSide",
     "description": "The backend supports CreateRoomRequest.preferredSide (WHITE/BLACK/RANDOM; null->WHITE) and the joiner takes the opposite. The NewGame Position toggle is currently decorative. Wire it to send preferredSide on create, and reflect the assigned side (from RoomResponse.role) in the board orientation. Additive: omitting the field keeps the historical creator-is-white behaviour. Order among 24-26 is tentative, to confirm.",
-    "status": "pending",
+    "status": "done",
     "priority": 24,
     "acceptance": [
       "NewGame side toggle (White/Black/Random) sends CreateRoomRequest.preferredSide.",
@@ -773,7 +757,7 @@
     "id": "time-control",
     "title": "Per-game clocks (time control)",
     "description": "Backend feature game-time-control: CreateRoomRequest.timeControl (initialMs + Fischer incrementMs), GameStateResponse.{whiteTimeRemainingMs,blackTimeRemainingMs,lastMoveAt}, status TIMEOUT, and a GAME_TIMED_OUT STOMP event. Add an optional time-control picker on NewGame, render both clocks on Play (live countdown for the side to move derived from lastMoveAt), and handle the TIMEOUT terminal state + GAME_TIMED_OUT event. Untimed games (no timeControl) must stay byte-for-byte identical to today. Order among 24-26 is tentative, to confirm.",
-    "status": "pending",
+    "status": "done",
     "priority": 25,
     "acceptance": [
       "NewGame offers an optional time control; omitting it creates an untimed room (unchanged behaviour).",
@@ -786,13 +770,29 @@
     "id": "bot-opponent",
     "title": "Play vs the Stockfish bot",
     "description": "Backend feature bot-opponent: CreateRoomRequest.opponentKind (FRIEND default | BOT) + botElo (clamped to the engine's supported range; null->configured default). A BOT room creates a complete vs-Stockfish game immediately, so the create response carries a non-null gameId and NO joinToken (no human to invite). Frontend: add a 'Play vs computer' path on NewGame with an Elo/strength selector, skip the share/lobby step for BOT rooms (jump straight to /play on the returned gameId), and play out the game over the existing REST+STOMP move flow against the engine. The biggest new surface; order among 24-26 is tentative, to confirm.",
-    "status": "pending",
+    "status": "done",
     "priority": 26,
     "acceptance": [
       "NewGame offers a vs-computer option with an Elo/strength selector within the supported range.",
       "Creating a BOT room jumps straight to the game (gameId from the create response) with no share/lobby step.",
       "Moves play out vs the engine over the existing REST + STOMP flow; engine replies render correctly.",
       "FRIEND path unchanged. Tests cover bot-room creation + an engine-reply move. ./init.sh green."
+    ]
+  },
+  {
+    "id": "game-reviews",
+    "title": "Game history and replay",
+    "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",
+    "status": "pending",
+    "priority": 27,
+    "acceptance": [
+      "Depends on user-accounts (priority 20) shipping first.",
+      "Backend (cross-repo): GET /api/users/{userId}/games returns the user's past games; GET /api/games/{gameId}/pgn returns PGN text; GET /api/games/{gameId} already exists.",
+      "Frontend: /history route lists games (paginated). Click navigates to /history/{gameId}.",
+      "/history/{gameId} renders a replay board with move navigation (forward, back, jump-to-start, jump-to-end, autoplay).",
+      "PGN download button on the replay view.",
+      "Tests: history list renders, replay viewer navigates moves, PGN download triggers correctly.",
+      "./init.sh passes."
     ]
   }
 ]

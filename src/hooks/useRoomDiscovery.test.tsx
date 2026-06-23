@@ -44,7 +44,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     const { result } = renderHook(() =>
-      useRoomDiscovery(null, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(null, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     expect(result.current.discoveryState).toBe(DiscoveryState.Idle);
@@ -58,11 +58,28 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     const { result } = renderHook(() =>
-      useRoomDiscovery(ROOM_ID, null, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, null, null, onDiscovered, { clientFactory: factory }),
     );
 
     expect(result.current.discoveryState).toBe(DiscoveryState.Idle);
     expect(factory).not.toHaveBeenCalled();
+    expect(onDiscovered).not.toHaveBeenCalled();
+  });
+
+  it('is idle and does nothing when gameId is already known (BOT room)', () => {
+    // A bot room's create response carries a non-null gameId, so discovery
+    // must be skipped entirely — no GET, no STOMP, no callback. The page
+    // loads the game directly via the initial GET in Play.
+    const { mock, factory } = withMockClient();
+    const onDiscovered = vi.fn();
+
+    const { result } = renderHook(() =>
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, GAME_ID, onDiscovered, { clientFactory: factory }),
+    );
+
+    expect(result.current.discoveryState).toBe(DiscoveryState.Idle);
+    expect(factory).not.toHaveBeenCalled();
+    expect(mock.connectCalls).toBe(0);
     expect(onDiscovered).not.toHaveBeenCalled();
   });
 
@@ -87,13 +104,19 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     const { result } = renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     await waitFor(() => {
       expect(onDiscovered).toHaveBeenCalledWith(GAME_ID);
     });
-    expect(result.current.discoveryState).toBe(DiscoveryState.Discovered);
+    // The callback and the state transition are set in the same synchronous
+    // `completeWith`, but React may not have flushed the state update by the
+    // time the mock-call assertion resolves under full-suite contention.
+    // Wait for the terminal state too rather than racing it.
+    await waitFor(() => {
+      expect(result.current.discoveryState).toBe(DiscoveryState.Discovered);
+    });
   });
 
   it('fires onGameDiscovered when STOMP delivers a RoomJoinedEvent (GET still pending)', async () => {
@@ -103,7 +126,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     await waitFor(() => {
@@ -141,7 +164,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     await waitFor(() => {
@@ -179,7 +202,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     const { result } = renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     await waitFor(() => {
@@ -205,7 +228,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     const { result } = renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     // STOMP subscription must register despite the GET 404.
@@ -241,7 +264,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     await waitFor(() => {
@@ -268,7 +291,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     const { unmount } = renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     await waitFor(() => {
@@ -293,7 +316,7 @@ describe('useRoomDiscovery', () => {
     const onDiscovered = vi.fn();
 
     renderHook(() =>
-      useRoomDiscovery(ROOM_ID, PLAYER_ID, onDiscovered, { clientFactory: factory }),
+      useRoomDiscovery(ROOM_ID, PLAYER_ID, null, onDiscovered, { clientFactory: factory }),
     );
 
     await waitFor(() => {

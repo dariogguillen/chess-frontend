@@ -14,6 +14,7 @@ import { TEST_API_BASE_URL, server } from '../../test/msw-server';
 import type { MockStompClient } from '../../utils/ws';
 import type {
   GameAbandonedEvent,
+  GameTimedOutEvent,
   GameTopicEvent,
   MoveEvent,
   PlayerDisconnectedEvent,
@@ -194,6 +195,27 @@ const sampleGameAbandoned = (overrides: Partial<GameAbandonedEvent> = {}): GameA
   ...overrides,
 });
 
+const sampleGameTimedOut = (overrides: Partial<GameTimedOutEvent> = {}): GameTimedOutEvent => ({
+  type: GameTopicEventType.GameTimedOut,
+  gameId: 'game-uuid-1',
+  winnerId: 'player-1',
+  finalFen: STARTING_FEN,
+  whiteTimeRemainingMs: 5_000,
+  blackTimeRemainingMs: 0,
+  timedOutAt: '2026-06-22T12:02:00.000Z',
+  ...overrides,
+});
+
+// A timed game-state body (clock fields present). `lastMoveAt` is fixed
+// so the rendered clock is deterministic in the render tests below.
+const sampleTimedGameState = (overrides: Record<string, unknown> = {}) =>
+  sampleGameState({
+    whiteTimeRemainingMs: 300_000,
+    blackTimeRemainingMs: 300_000,
+    lastMoveAt: null,
+    ...overrides,
+  });
+
 const renderWithProviders = (
   initialEntry: string = '/play',
   initialRoom?: RoomState,
@@ -358,6 +380,44 @@ describe('Play page', () => {
     const classic = boardThemeStyles[BoardTheme.Classic];
     expect(lastChessboardOptions?.lightSquareStyle).toEqual(classic.light);
     expect(lastChessboardOptions?.darkSquareStyle).toEqual(classic.dark);
+  });
+
+  // ---------------------------------------------------------------
+  // creator-side-selection (feature 24): board orientation derives from
+  // the server-assigned role, so a creator who chose Black sees the board
+  // from black's perspective. No Play.tsx change was needed for the
+  // feature; this locks the behaviour in.
+  // ---------------------------------------------------------------
+
+  it("orients the board from white when the player's role is WHITE", async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chessboard-mock')).toBeInTheDocument();
+    });
+    expect(lastChessboardOptions?.boardOrientation).toBe('white');
+  });
+
+  it("orients the board from black when the player's role is BLACK", async () => {
+    const blackPlayer: RoomState = { ...inRoomWhite, playerId: 'player-2', role: 'BLACK' };
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', blackPlayer);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chessboard-mock')).toBeInTheDocument();
+    });
+    expect(lastChessboardOptions?.boardOrientation).toBe('black');
   });
 
   it('loads the game state and shows the opponent name when in a room with a gameId', async () => {
@@ -571,6 +631,126 @@ describe('Play page', () => {
 
     // Status flipped to CHECKMATE; turn is WHITE -> "Black wins!" copy.
     expect(await screen.findByRole('heading', { name: /black wins/i })).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------
+  // bot-opponent (feature 26): a bot room enters Play with a non-null
+  // gameId, so discovery is skipped and the game loads via the initial
+  // GET. The bot is just another opponent over the existing flow.
+  // ---------------------------------------------------------------
+
+  describe('bot game', () => {
+    // Creator played White; the bot is Black. The create response already
+    // carried gameId, so we enter Play in the in-room arm with it set.
+    const inRoomBotWhite: RoomState = {
+      phase: RoomPhase.InRoom,
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: 'WHITE',
+      gameId: 'game-uuid-1',
+      joinToken: null,
+    };
+
+    // Creator played Black; the bot is White and moves first. Its move is
+    // already reflected in the initial GET (the bot-moves-first edge).
+    const inRoomBotBlack: RoomState = {
+      phase: RoomPhase.InRoom,
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: 'BLACK',
+      gameId: 'game-uuid-1',
+      joinToken: null,
+    };
+
+    it('skips discovery and loads the bot game via the initial GET (no /topic/rooms subscription)', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState({ black: { id: 'bot-1', displayName: 'Stockfish' } }), {
+            status: 200,
+          }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomBotWhite);
+
+      // The bot's display name surfaces (no "Waiting for opponent"), proving
+      // the GET loaded the full game directly.
+      await waitFor(() => {
+        expect(screen.getByText(/^Stockfish$/)).toBeInTheDocument();
+      });
+      // gameId was non-null on entry → discovery hook is a no-op → no room
+      // topic is ever subscribed.
+      expect(clientForTopicPrefix('/topic/rooms/')).toBeNull();
+    });
+
+    it('recovers the bot-moves-first state from the GET when the creator is Black', async () => {
+      // The human is Black; the bot (White) has already played e4, so the
+      // GET returns a position with Black to move and one move in history.
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(
+            sampleGameState({
+              white: { id: 'bot-1', displayName: 'Stockfish' },
+              black: { id: 'player-1', displayName: 'Alice' },
+              fen: POST_E4_FEN,
+              turn: 'BLACK',
+              moves: [{ from: 'e2', to: 'e4', promotion: null }],
+            }),
+            { status: 200 },
+          ),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomBotBlack);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Stockfish$/)).toBeInTheDocument();
+      });
+      // The board orients from the human's role (Black) and the GET's FEN
+      // (with the bot's first move) is what loaded.
+      await waitFor(() => {
+        expect(lastChessboardOptions?.boardOrientation).toBe('black');
+      });
+      expect(lastChessboardOptions?.position).toBe(POST_E4_FEN);
+    });
+
+    it("applies the bot's move arriving over STOMP just like a human opponent's", async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState({ black: { id: 'bot-1', displayName: 'Stockfish' } }), {
+            status: 200,
+          }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomBotWhite);
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Stockfish$/)).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(currentMockClient?.subscriptions).toHaveLength(2);
+      });
+      const client = currentMockClient as MockStompClient;
+
+      act(() => {
+        // The bot's move is a plain MoveEvent (movedBy = the bot's id, not
+        // the local player), so `applyOpponentMove` handles it. Use a
+        // terminal status to assert the apply path landed without relying on
+        // a board re-render under jsdom.
+        client.dispatch<GameTopicEvent>(
+          '/topic/games/game-uuid-1',
+          opponentMoveEvent({
+            movedBy: 'bot-1',
+            fen: STARTING_FEN,
+            status: GameStatus.Checkmate,
+            turn: Side.White,
+          }),
+        );
+      });
+
+      expect(await screen.findByRole('heading', { name: /black wins/i })).toBeInTheDocument();
+    });
   });
 
   // ---------------------------------------------------------------
@@ -1033,6 +1213,120 @@ describe('Play page', () => {
 
     expect(navigateMock).toHaveBeenCalledWith('/new');
     expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  // ---------------------------------------------------------------
+  // time-control (feature 25): live clocks + GAME_TIMED_OUT routing.
+  // ---------------------------------------------------------------
+
+  describe('time control', () => {
+    it('renders two clocks when the game is timed', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleTimedGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      // Both clocks render their frozen 5:00 (no lastMoveAt yet → no tick).
+      const clocks = await screen.findAllByRole('timer');
+      expect(clocks).toHaveLength(2);
+      clocks.forEach((clock) => expect(clock).toHaveAccessibleName(/5:00/));
+    });
+
+    it('renders NO clocks for an untimed game (regression guard)', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          // sampleGameState carries no clock fields → untimed.
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      // Wait for the game to load (opponent name appears), then assert the
+      // absence of any clock.
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+      expect(screen.queryAllByRole('timer')).toHaveLength(0);
+    });
+
+    it('opens the terminal modal with "You win on time" when the local player wins (GAME_TIMED_OUT)', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleTimedGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(currentMockClient?.subscriptions).toHaveLength(2);
+      });
+      const client = currentMockClient as MockStompClient;
+
+      act(() => {
+        // Local player is player-1; winnerId player-1 → "You win on time".
+        client.dispatch<GameTopicEvent>(
+          '/topic/games/game-uuid-1',
+          sampleGameTimedOut({ winnerId: 'player-1' }),
+        );
+      });
+
+      expect(await screen.findByRole('heading', { name: /you win on time/i })).toBeInTheDocument();
+    });
+
+    it('shows "You lost on time" when the opponent wins (GAME_TIMED_OUT)', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleTimedGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(currentMockClient?.subscriptions).toHaveLength(2);
+      });
+      const client = currentMockClient as MockStompClient;
+
+      act(() => {
+        client.dispatch<GameTopicEvent>(
+          '/topic/games/game-uuid-1',
+          sampleGameTimedOut({ winnerId: 'player-2' }),
+        );
+      });
+
+      expect(await screen.findByRole('heading', { name: /you lost on time/i })).toBeInTheDocument();
+    });
+
+    it('shows the draw copy when winnerId is null (insufficient material)', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleTimedGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(currentMockClient?.subscriptions).toHaveLength(2);
+      });
+      const client = currentMockClient as MockStompClient;
+
+      act(() => {
+        client.dispatch<GameTopicEvent>(
+          '/topic/games/game-uuid-1',
+          sampleGameTimedOut({ winnerId: null }),
+        );
+      });
+
+      expect(
+        await screen.findByRole('heading', { name: /draw — timeout with insufficient material/i }),
+      ).toBeInTheDocument();
+    });
   });
 
   // ---------------------------------------------------------------

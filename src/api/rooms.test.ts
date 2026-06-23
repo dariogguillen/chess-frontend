@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { createApiClient } from './client';
 import { ApiError } from './errors';
-import { createRoom, getRoomState, joinRoom, RoomStatus } from './rooms';
+import {
+  createRoom,
+  getRoomState,
+  joinRoom,
+  OpponentKind,
+  RoomStatus,
+  SidePreference,
+} from './rooms';
 import { TEST_API_BASE_URL, server } from '../test/msw-server';
 
 // `createApiClient` wraps `fetch` in a thunk that reads
@@ -27,7 +34,7 @@ describe('createRoom', () => {
       ),
     );
 
-    const result = await createRoom('Alice', testClient);
+    const result = await createRoom('Alice', {}, testClient);
 
     expect(result).toEqual({
       roomId: 'K7M3X9',
@@ -54,9 +61,194 @@ describe('createRoom', () => {
       ),
     );
 
-    const result = await createRoom('Alice', testClient);
+    const result = await createRoom('Alice', {}, testClient);
 
     expect(result.joinToken).toBe('secret-token-abc');
+  });
+
+  it('omits the preferredSide key from the body when it is not provided', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-1', role: 'WHITE', gameId: null },
+          { status: 201 },
+        );
+      }),
+    );
+
+    await createRoom('Alice', {}, testClient);
+
+    expect(observedBody).toEqual({ displayName: 'Alice' });
+    expect('preferredSide' in observedBody).toBe(false);
+  });
+
+  it.each([
+    ['White', SidePreference.White, 'WHITE'],
+    ['Black', SidePreference.Black, 'BLACK'],
+    ['Random', SidePreference.Random, 'RANDOM'],
+  ] as const)('sends preferredSide=%s in the body when provided', async (_label, side, wire) => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-1', role: 'WHITE', gameId: null },
+          { status: 201 },
+        );
+      }),
+    );
+
+    await createRoom('Alice', { preferredSide: side }, testClient);
+
+    expect(observedBody).toEqual({ displayName: 'Alice', preferredSide: wire });
+  });
+
+  it('omits the timeControl key from the body when it is not provided', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-1', role: 'WHITE', gameId: null },
+          { status: 201 },
+        );
+      }),
+    );
+
+    await createRoom('Alice', {}, testClient);
+
+    expect('timeControl' in observedBody).toBe(false);
+  });
+
+  it('sends timeControl in the body when provided (minutes→ms, increment→ms)', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-1', role: 'WHITE', gameId: null },
+          { status: 201 },
+        );
+      }),
+    );
+
+    await createRoom(
+      'Alice',
+      { timeControl: { initialMs: 300_000, incrementMs: 3_000 } },
+      testClient,
+    );
+
+    expect(observedBody).toEqual({
+      displayName: 'Alice',
+      timeControl: { initialMs: 300_000, incrementMs: 3_000 },
+    });
+  });
+
+  it('sends both preferredSide and timeControl when both are provided', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-1', role: 'WHITE', gameId: null },
+          { status: 201 },
+        );
+      }),
+    );
+
+    await createRoom(
+      'Alice',
+      {
+        preferredSide: SidePreference.Black,
+        timeControl: { initialMs: 60_000, incrementMs: 0 },
+      },
+      testClient,
+    );
+
+    expect(observedBody).toEqual({
+      displayName: 'Alice',
+      preferredSide: 'BLACK',
+      timeControl: { initialMs: 60_000, incrementMs: 0 },
+    });
+  });
+
+  it('omits opponentKind and botElo by default (FRIEND room)', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-1', role: 'WHITE', gameId: null },
+          { status: 201 },
+        );
+      }),
+    );
+
+    await createRoom('Alice', {}, testClient);
+
+    expect('opponentKind' in observedBody).toBe(false);
+    expect('botElo' in observedBody).toBe(false);
+  });
+
+  it('sends opponentKind=BOT and botElo when creating a bot game', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        // A BOT room returns a complete game immediately: non-null gameId,
+        // null joinToken (no human to invite).
+        return HttpResponse.json(
+          {
+            roomId: 'K7M3X9',
+            playerId: 'player-uuid-1',
+            role: 'WHITE',
+            gameId: 'game-uuid-bot',
+            joinToken: null,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const result = await createRoom(
+      'Alice',
+      { opponentKind: OpponentKind.Bot, botElo: 1800 },
+      testClient,
+    );
+
+    expect(observedBody).toEqual({
+      displayName: 'Alice',
+      opponentKind: 'BOT',
+      botElo: 1800,
+    });
+    expect(result.gameId).toBe('game-uuid-bot');
+    expect(result.joinToken).toBeNull();
+  });
+
+  it('omits botElo when only opponentKind is provided (server default strength)', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            roomId: 'K7M3X9',
+            playerId: 'player-uuid-1',
+            role: 'WHITE',
+            gameId: 'game-uuid-bot',
+            joinToken: null,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    await createRoom('Alice', { opponentKind: OpponentKind.Bot }, testClient);
+
+    expect(observedBody).toEqual({ displayName: 'Alice', opponentKind: 'BOT' });
+    expect('botElo' in observedBody).toBe(false);
   });
 
   it('throws ApiError with code=VALIDATION_FAILED on 400', async () => {
@@ -73,7 +265,7 @@ describe('createRoom', () => {
       ),
     );
 
-    await expect(createRoom('', testClient)).rejects.toMatchObject({
+    await expect(createRoom('', {}, testClient)).rejects.toMatchObject({
       code: 'VALIDATION_FAILED',
       httpStatus: 400,
     });
@@ -82,7 +274,7 @@ describe('createRoom', () => {
   it('throws ApiError code=NETWORK_ERROR when the request errors at the transport layer', async () => {
     server.use(http.post(`${TEST_API_BASE_URL}/api/rooms`, () => HttpResponse.error()));
 
-    const failure = await createRoom('Alice', testClient).catch((e: unknown) => e);
+    const failure = await createRoom('Alice', {}, testClient).catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(ApiError);
     expect((failure as ApiError).code).toBe('NETWORK_ERROR');
     expect((failure as ApiError).httpStatus).toBeNull();

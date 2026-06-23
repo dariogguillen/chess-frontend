@@ -39,7 +39,12 @@ const CustomToggleButton = <T,>({
       value={!disabled && value}
       exclusive
       onChange={onChange}
-      aria-label="choose position"
+      // Default group label; each caller passes a group-specific
+      // `aria-label` (e.g. "choose your side", "choose the time per
+      // side in minutes") via `...props`, which spreads AFTER this and
+      // overrides it. The literal here is the fallback for any group
+      // that does not set one.
+      aria-label="choose an option"
       size={size || 'large'}
       fullWidth
       disabled={disabled}
@@ -51,7 +56,7 @@ const CustomToggleButton = <T,>({
           value={btnValue}
           aria-label={ariaLabel || label}
           disabled={btnDisabled}
-          style={{ display: 'block' }}
+          sx={{ display: 'block' }}
         >
           {icon ? icon() : <Fragment />}
           <Typography variant="body1">{label}</Typography>

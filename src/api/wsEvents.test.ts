@@ -4,6 +4,7 @@ import { GameStatus, PromotionPiece, Side } from './games';
 import { ConnectionState, DiscoveryState, GameTopicEventType, RoomEventType } from './wsEvents';
 import type {
   GameAbandonedEvent,
+  GameTimedOutEvent,
   GameTopicEvent,
   MoveEvent,
   OpponentConnectionStatus,
@@ -201,6 +202,43 @@ describe('wsEvents', () => {
     });
   });
 
+  describe('GameTimedOutEvent', () => {
+    it('parses a GAME_TIMED_OUT payload to the typed event (win/lose case)', () => {
+      const payload = JSON.parse(
+        JSON.stringify({
+          type: 'GAME_TIMED_OUT',
+          gameId: '11111111-2222-3333-4444-555555555555',
+          winnerId: 'cccccccc-7777-8888-9999-aaaaaaaaaaaa',
+          finalFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+          whiteTimeRemainingMs: 0,
+          blackTimeRemainingMs: 42_000,
+          timedOutAt: '2026-06-22T12:02:00.000Z',
+        }),
+      ) as GameTimedOutEvent;
+
+      expect(payload.type).toBe(GameTopicEventType.GameTimedOut);
+      expect(payload.winnerId).toBe('cccccccc-7777-8888-9999-aaaaaaaaaaaa');
+      expect(payload.whiteTimeRemainingMs).toBe(0);
+      expect(payload.blackTimeRemainingMs).toBe(42_000);
+    });
+
+    it('models a draw on timeout with a null winnerId', () => {
+      const event: GameTimedOutEvent = {
+        type: GameTopicEventType.GameTimedOut,
+        gameId: '11111111-2222-3333-4444-555555555555',
+        winnerId: null,
+        finalFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+        whiteTimeRemainingMs: 0,
+        blackTimeRemainingMs: 0,
+        timedOutAt: '2026-06-22T12:02:00.000Z',
+      };
+
+      const roundTripped = JSON.parse(JSON.stringify(event)) as GameTimedOutEvent;
+      expect(roundTripped).toEqual(event);
+      expect(roundTripped.winnerId).toBeNull();
+    });
+  });
+
   describe('GameTopicEvent', () => {
     it('narrows each variant by its type discriminator in a switch', () => {
       const events: ReadonlyArray<GameTopicEvent> = [
@@ -241,6 +279,15 @@ describe('wsEvents', () => {
           finalFen: 'fen',
           abandonedAt: '2026-05-27T12:01:00.000Z',
         },
+        {
+          type: GameTopicEventType.GameTimedOut,
+          gameId: 'g',
+          winnerId: 'q',
+          finalFen: 'fen',
+          whiteTimeRemainingMs: 0,
+          blackTimeRemainingMs: 42_000,
+          timedOutAt: '2026-05-27T12:02:00.000Z',
+        },
       ];
 
       // Exhaustiveness: an extra arm here would surface a TS error
@@ -255,6 +302,8 @@ describe('wsEvents', () => {
             return 'r';
           case GameTopicEventType.GameAbandoned:
             return 'a';
+          case GameTopicEventType.GameTimedOut:
+            return 't';
           default: {
             const _exhaustive: never = event;
             void _exhaustive;
@@ -262,7 +311,7 @@ describe('wsEvents', () => {
           }
         }
       });
-      expect(tags).toEqual(['m', 'd', 'r', 'a']);
+      expect(tags).toEqual(['m', 'd', 'r', 'a', 't']);
     });
 
     it('rejects an unknown type literal at the type level', () => {

@@ -35,8 +35,12 @@ export type UseRoomDiscoveryOptions = Readonly<{
  *
  * Behaviour:
  *
- * - `roomId === null` or `playerId === null` → idle, no-op. The hook
- *   is safe to mount with empty preconditions.
+ * - `roomId === null`, `playerId === null`, OR `gameId !== null` → idle,
+ *   no-op. The hook is safe to mount with empty preconditions. The
+ *   `gameId !== null` guard is what makes a BOT game skip discovery
+ *   entirely: a bot room's create response already carries a non-null
+ *   `gameId` (the vs-Stockfish game exists immediately), so there is no
+ *   second player to wait for — the page goes straight to the initial GET.
  * - On valid args, the hook runs TWO discovery paths in parallel:
  *   1. `GET /api/rooms/{roomId}` once — handles the "second player
  *      already joined before we subscribed" race. If the response
@@ -90,6 +94,7 @@ export type UseRoomDiscoveryOptions = Readonly<{
 export const useRoomDiscovery = (
   roomId: string | null,
   playerId: string | null,
+  gameId: string | null,
   onGameDiscovered: (gameId: string) => void,
   options: UseRoomDiscoveryOptions = {},
 ): { discoveryState: DiscoveryState; errorMessage: string | null } => {
@@ -112,7 +117,11 @@ export const useRoomDiscovery = (
   const optionsRef = useRef(options);
 
   useEffect(() => {
-    if (roomId === null || playerId === null) {
+    // Skip discovery entirely when there is no room/player yet OR when the
+    // gameId is already known — the latter is the BOT case (the create
+    // response carried a game directly), where there is no second player to
+    // discover and the page loads the game via the initial GET.
+    if (roomId === null || playerId === null || gameId !== null) {
       return;
     }
 
@@ -223,7 +232,7 @@ export const useRoomDiscovery = (
         client = null;
       }
     };
-  }, [roomId, playerId]);
+  }, [roomId, playerId, gameId]);
 
   return { discoveryState, errorMessage };
 };
