@@ -4174,3 +4174,34 @@ src/components/AccountMenu/AccountMenu.test.tsx (fixture),
 notes/22-room-access-token.md (new).
 
 **Feature note:** `notes/22-room-access-token.md`
+
+## 2026-06-23 — room-join-ux (22.5)
+
+**Status:** done
+
+**Summary:** UX cleanup surfaced by live-testing 22: joining now requires
+the full invite link (token in the fragment), so the old manual Room ID
+field and the "Copy room code" button produced things that no longer join
+a game. Direction confirmed with the user. Inviter side (Play.tsx): removed
+"Copy room code" (button + `handleCopyCode` + the `ContentCopyIcon` import);
+kept "Copy invite link" (LinkIcon, the intuitive one) but now HIDE it once
+an opponent has joined — gated on `roomId !== undefined && opponentDisplayName
+== null` (the room-full signal already on screen), leaving just the
+`Room ID: {roomId}` text. Joiner side (NewGame.tsx): removed the editable
+Room ID TextField and all its plumbing; create-vs-join mode now derives from
+the URL, not a text input. Join mode (arrived via invite link) renders a
+read-only `Joining room: XXXXXX` display, disabled toggles, "Join game";
+create mode (bare /new) drops the Room ID surface entirely. A malformed
+`?roomId=` (only reachable by manual URL tampering — real invite links are
+generator-valid) falls back silently to create mode (no editable field to
+correct, so an inline error would dead-end). The feature-22 mechanics are
+untouched: token still rides in the fragment, captured lazily, scrubbed
+(query preserved), sent on join; `INVALID_JOIN_TOKEN` still surfaces the
+friendly Snackbar. reviewer + ui-reviewer approved; `./init.sh` green (361
+tests). ui-reviewer confirmed MUI `Stack` interleaves dividers only between
+truthy children, so dropping the join Paper leaves no dangling divider.
+
+**Files touched:** src/pages/Play/Play.tsx (+test),
+src/pages/NewGame/NewGame.tsx (+test), notes/22.5-room-join-ux.md (new).
+
+**Feature note:** `notes/22.5-room-join-ux.md`

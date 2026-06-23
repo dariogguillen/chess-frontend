@@ -1735,31 +1735,53 @@ describe('Play page', () => {
       );
     });
 
-    it('does not render the copy controls when there is no room', async () => {
+    // Park the room in the pre-game WAITING state: gameId null means Play
+    // never fetches game state, so `opponentDisplayName` stays undefined and
+    // the invite-link button is shown. This is the only state in which the
+    // invite control is useful — once an opponent joins, the room is full.
+    const stayWaiting = () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
+          HttpResponse.json(
+            {
+              roomId: 'K7M3X9',
+              players: [{ id: 'player-1', displayName: 'Alice', role: 'WHITE' }],
+              gameId: null,
+              status: 'WAITING_FOR_PLAYER',
+            },
+            { status: 200 },
+          ),
+        ),
+      );
+    };
+
+    it('does not render the invite control when there is no room', async () => {
       // none-arm mount redirects to /new; render in routes and confirm
       // the copy buttons are absent.
       renderWithRoutes('/play');
       await waitFor(() => {
         expect(screen.getByTestId('new-game-route')).toBeInTheDocument();
       });
+      // The "copy room code" control was removed entirely (a bare code no
+      // longer joins a game); the invite link is the only share control.
       expect(screen.queryByRole('button', { name: /copy room code/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /copy invite link/i })).not.toBeInTheDocument();
     });
 
-    it('copies the room code and confirms via a snackbar', async () => {
-      const user = setupWithClipboard();
-      renderWithProviders('/play', inRoomWhite);
+    it('no longer offers a "copy room code" control while waiting', async () => {
+      stayWaiting();
+      renderWithProviders('/play', inRoomWhitePreGame);
 
-      const copyCode = await screen.findByRole('button', { name: /copy room code/i });
-      await user.click(copyCode);
-
-      expect(writeText).toHaveBeenCalledWith('K7M3X9');
-      expect(await screen.findByText(/room code copied/i)).toBeInTheDocument();
+      // The invite link is present (still waiting), but the room-code copy
+      // button is gone for good.
+      await screen.findByRole('button', { name: /copy invite link/i });
+      expect(screen.queryByRole('button', { name: /copy room code/i })).not.toBeInTheDocument();
     });
 
     it('copies a full invite link respecting origin and BASE_URL', async () => {
+      stayWaiting();
       const user = setupWithClipboard();
-      renderWithProviders('/play', inRoomWhite);
+      renderWithProviders('/play', inRoomWhitePreGame);
 
       const copyLink = await screen.findByRole('button', { name: /copy invite link/i });
       await user.click(copyLink);
@@ -1775,19 +1797,7 @@ describe('Play page', () => {
       // The pre-game arm (gameId null) drives the discovery flow, which
       // GETs the room while still WAITING_FOR_PLAYER; keep it parked there
       // so the test exercises only the link build.
-      server.use(
-        http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
-          HttpResponse.json(
-            {
-              roomId: 'K7M3X9',
-              players: [{ id: 'player-1', displayName: 'Alice', role: 'WHITE' }],
-              gameId: null,
-              status: 'WAITING_FOR_PLAYER',
-            },
-            { status: 200 },
-          ),
-        ),
-      );
+      stayWaiting();
       const user = setupWithClipboard();
       renderWithProviders('/play', inRoomWhitePreGameWithToken);
 
@@ -1799,13 +1809,24 @@ describe('Play page', () => {
       expect(writeText).toHaveBeenCalledWith(expected);
     });
 
-    it('surfaces a failure message when the clipboard write rejects', async () => {
-      writeText.mockRejectedValueOnce(new Error('denied'));
-      const user = setupWithClipboard();
+    it('hides the invite control once an opponent has joined', async () => {
+      // inRoomWhite has a non-null gameId, so Play fetches the full game
+      // state (black = Bob) → the room is full → the invite link is hidden.
       renderWithProviders('/play', inRoomWhite);
 
-      const copyCode = await screen.findByRole('button', { name: /copy room code/i });
-      await user.click(copyCode);
+      // The opponent's name appears once the game state lands.
+      expect(await screen.findByText('Bob')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy invite link/i })).not.toBeInTheDocument();
+    });
+
+    it('surfaces a failure message when the clipboard write rejects', async () => {
+      stayWaiting();
+      writeText.mockRejectedValueOnce(new Error('denied'));
+      const user = setupWithClipboard();
+      renderWithProviders('/play', inRoomWhitePreGame);
+
+      const copyLink = await screen.findByRole('button', { name: /copy invite link/i });
+      await user.click(copyLink);
 
       expect(await screen.findByText(/could not copy/i)).toBeInTheDocument();
     });

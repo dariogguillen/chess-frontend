@@ -712,6 +712,20 @@
     ]
   },
   {
+    "id": "room-join-ux",
+    "title": "Clarify join UX now that a token is required",
+    "description": "Surfaced live-testing 22: the deployed share-link join works, but the manual path confuses. Joining to PLAY now requires the full invite link (token in the fragment); typing/pasting the bare Room ID always 403s INVALID_JOIN_TOKEN. Yet the UI still invites a manual code ('Room ID' field + helper 'enter a Room ID to join') and offers a 'Copy room code' button that produces something that no longer joins a game. The error copy is correct but doesn't explain that the code alone is insufficient. Decide product direction (with the user): (a) reword the Room ID field/helper + error to point at the invite link; (b) demote or repurpose 'Copy room code' (a bare code only supports watch/spectate, which the frontend does not build yet — so it may have no user-facing purpose right now); (c) possibly drop or gate the manual join field. Scope to confirm before planning. No backend change.",
+    "status": "done",
+    "priority": 22.5,
+    "acceptance": [
+      "The join UI no longer implies a bare Room ID can join a game; users are guided to the invite link.",
+      "The 'Copy room code' control is reworded/demoted/removed per the chosen direction (a bare code does not join a game today).",
+      "The INVALID_JOIN_TOKEN error copy (or surrounding guidance) makes clear the full invite link is needed.",
+      "Anonymous play + the working invite-link join path are unaffected.",
+      "./init.sh green; ui-reviewer approves the join-surface changes."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

@@ -1,11 +1,104 @@
 # Current session
 
-**Status:** `room-access-token` (22) CLOSED (2026-06-22). reviewer +
-ui-reviewer approved; `./init.sh` green (361 tests). Closes the live prod
-regression. See history.md.
+**Status:** `room-join-ux` (22.5) CLOSED (2026-06-23). reviewer +
+ui-reviewer approved; `./init.sh` green (361 tests). See history.md.
 
-**Counts:** 42 done · 4 pending (23 game-reviews, 24 creator-side-selection,
+**Counts:** 43 done · 4 pending (23 game-reviews, 24 creator-side-selection,
 25 time-control, 26 bot-opponent).
+
+## ⚠️ Uncommitted — FOUR features in the working tree
+
+20.9 + 21 + 22 + 22.5 all CLOSED but UNCOMMITTED (the user commits
+manually). `./init.sh` green with all of it. NOTE: 22 was already deployed
+to prod earlier this session (the user pushed it and verified the invite-
+link join works live), but 22.5 (the join-UX cleanup) is NOT yet committed
+or deployed — it should ride the next push so the manual-code confusion is
+gone in prod too. Suggested commit split (one per feature) is in the prior
+handoff note; 22.5 adds only src/pages/Play/Play.tsx(+test),
+src/pages/NewGame/NewGame.tsx(+test), notes/22.5-room-join-ux.md.
+
+## Next — `game-reviews` (priority 23)
+
+The user's priority product feature, now unblocked (auth plumbing exists
+end-to-end since 20.x; `GET /api/me/games` is in the contract). Large,
+cross-repo, requires an account. DECISION-FIRST: surface scope to the user
+before planning — likely a "My games" list gated to authenticated users +
+a per-game replay/review view (`replay-mode` folded in). Probably worth
+decomposing into sub-features like user-accounts was. Remaining backend
+features after this (24 creator-side-selection, 25 time-control,
+26 bot-opponent) are all additive and unblocked by the 21 snapshot.
+
+## Plan — `room-join-ux` (priority 22.5, IN PROGRESS)
+
+**Why:** live-testing 22 exposed a UX gap — joining now requires the full
+invite link (token in the fragment), but the UI still offered a manual
+Room ID field and a "Copy room code" button that produce something that no
+longer joins a game. Direction confirmed with the user. NO backend change.
+
+### Inviter side — `src/pages/Play/Play.tsx` (Room ID block, 944-964)
+
+- **Remove "Copy room code"** entirely: the `Tooltip`/`IconButton` with
+  `ContentCopyIcon` (949-953), its `handleCopyCode` callback (~894-897),
+  and the now-unused `ContentCopyIcon` import. Keep `Room ID: {roomId}` as
+  text.
+- **Keep "Copy invite link"** (the `LinkIcon` button, 954-962) — the user
+  finds that icon the intuitive one.
+- **Hide the invite-link button once the opponent has joined.** The signal
+  is already on screen: `opponentDisplayName` (934) is null/undefined while
+  "Waiting for opponent" and becomes the name once they join. Gate the
+  link button on `opponentDisplayName == null` (no opponent yet). When the
+  room is full, only `Room ID: {roomId}` text remains — there is no one
+  left to invite. (User picked HIDE, not disable.)
+
+### Joiner side — `src/pages/NewGame/NewGame.tsx`
+
+The create-vs-join mode must derive from the URL, not from a text input:
+
+- **Remove the editable Room ID `TextField`** (191-200) and its plumbing:
+  `handleRoomId`, `setRoomIdInput`, `showRoomIdError`,
+  `isRoomIdFormatValid`/`ROOM_ID_HELPER` usage tied to manual entry.
+- Keep capturing the roomId from `?roomId=` (lazy init, 63-65) and the
+  token from the fragment (73-76, unchanged). Derive
+  `joinMode = capturedRoomId.trim().length > 0` (URL-driven now).
+- **Join mode** (arrived via invite link): replace the Room ID `Paper`
+  with a READ-ONLY display — `Joining room: 3E4Q5N` (Typography, same
+  `Room ID: XXX` style as Play's top-right), no editable field. The toggles
+  (Play as/against/timer) stay `disabled={joinMode}` as today. Button:
+  `Join game`.
+- **Create mode** (arrived at a bare `/new`): DROP the Room ID section
+  entirely — no field, no display. The form is just nickname + the create
+  toggles. Button stays as today for create.
+- Malformed `?roomId=` (manual URL tampering — the real invite link is
+  always valid): validate the captured roomId's format; if invalid, treat
+  as create mode (or surface the existing format error). Pick the simpler;
+  document the choice. The `INVALID_JOIN_TOKEN` error path (a roomId-only
+  link with no fragment) still surfaces the friendly Snackbar — keep it.
+
+### Tests
+- `Play.test.tsx`: drop the "copy room code" assertions; keep the invite-
+  link assertion; ADD: the invite-link button is hidden once an opponent
+  is present (and shown while waiting).
+- `NewGame.test.tsx`: the manual-typing join tests no longer apply — rewrite
+  around URL-driven mode: `?roomId=` → read-only "Joining room" + Join game
+  + token sent; bare `/new` → no Room ID section, create mode; keep the
+  `INVALID_JOIN_TOKEN` error-path test; fragment still scrubbed, `?roomId=`
+  preserved.
+
+### Accessibility (ui-reviewer REQUIRED — join surface + Play controls)
+The read-only Room ID display has an accessible text; the remaining copy
+control keeps its `aria-label`/Tooltip; hiding the link button on opponent-
+join doesn't strand focus; the join error stays announced.
+
+### Out of scope
+Spectator/watch (a bare room code's only real use — not built yet);
+creator-side-selection (24); time-control (25). No new deps. `./init.sh`
+green.
+
+---
+
+**Closed this session:** 20.9 deps-audit-overrides, 21
+backend-contract-resnapshot, 22 room-access-token (verified live in prod).
+See history.md.
 
 ## ⚠️ Uncommitted — THREE features in the working tree + URGENT deploy
 

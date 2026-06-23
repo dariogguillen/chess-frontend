@@ -29,26 +29,21 @@ import {
 
 const DEFAULT_DISPLAY_NAME = 'Guest';
 
-const ROOM_ID_HELPER = 'Leave empty to create a new game, or enter a Room ID to join.';
-const ROOM_ID_ERROR = 'A Room ID is 6 characters (letters and digits, no I/L/O/0/1).';
-
 /**
- * Configuration page for a new game: nickname, optional Room ID, board
- * side, opponent type, timer (placeholder).
+ * Configuration page for a new game: nickname, board side, opponent type,
+ * timer (placeholder), and — when arrived at via an invite link — a
+ * read-only "joining room" display.
  *
- * The form has no explicit create-vs-join toggle. The Room ID input
- * *is* the mode: empty derives "create" (`POST /api/rooms`), filled
- * derives "join" (`POST /api/rooms/{id}/join`). Deriving the mode from
- * the single source of truth (the input value) removes the prior
- * boolean `join` flag that could drift out of sync with the field.
+ * The create-vs-join mode is **URL-driven**, not input-driven. There is no
+ * editable Room ID field anymore: joining to PLAY now requires the full
+ * invite link (the secret token rides in the URL fragment, captured below),
+ * so a hand-typed bare code can never join a game. Arriving at a bare `/new`
+ * means "create" (`POST /api/rooms`); arriving via an invite link
+ * (`/new?roomId=XXXXXX#joinToken=…`) means "join" (`POST /api/rooms/{id}/join`).
  *
- * On success the context's `room` slice is promoted via `enterRoom` and
- * we navigate to `/play`. The piece-color / opponent / timer toggles are
+ * On success the context's `room` slice is promoted via `enterRoom` and we
+ * navigate to `/play`. The piece-color / opponent / timer toggles are
  * decorative while joining — the server assigns the joiner's side.
- *
- * Deep-link pre-fill: `?roomId=XXXXXX` seeds the input (normalised to the
- * canonical upper-case 6-char form), so an invite link opens this page
- * already in join mode and the friend only types a nickname.
  */
 const NewGame = () => {
   const navigate = useNavigate();
@@ -56,11 +51,11 @@ const NewGame = () => {
   const { identity, opponent, setIdentity, setOpponent, enterRoom } = useUserContext();
 
   const [time, setTime] = useState<Time>(Time.None);
-  // Seed once from the `?roomId` query param (lazy initialiser → runs
-  // only on first mount, like a Scala `lazy val`). Normalised so the
-  // rendered value is already canonical and `joinMode` derives correctly
-  // on the very first render. Subsequent edits flow through `handleRoomId`.
-  const [roomIdInput, setRoomIdInput] = useState<string>(() =>
+  // Capture the roomId from the `?roomId` query param ONCE (lazy initialiser
+  // → runs only on first mount, like a Scala `lazy val`). Normalised to the
+  // canonical upper-case 6-char form. This is the sole source of the
+  // create-vs-join mode now — there is no editable field to keep in sync.
+  const [capturedRoomId] = useState<string>(() =>
     normalizeRoomId(searchParams.get('roomId') ?? ''),
   );
   // Capture the secret join token from the URL fragment (`#joinToken=…`)
@@ -86,9 +81,9 @@ const NewGame = () => {
   // Scrub the secret token out of the address bar once it has been
   // captured, so it never lingers in history or in a shared screenshot —
   // the same hygiene the OAuth callback applies to the JWT. We preserve
-  // the query string (`?roomId=…` is the public watch handle and seeds
-  // the input): unlike the auth callback, which is pathname-only, dropping
-  // it here would wipe the join pre-fill. No-op when there is no fragment.
+  // the query string (`?roomId=…` is the public watch handle and drives
+  // join mode): unlike the auth callback, which is pathname-only, dropping
+  // it here would wipe the join mode. No-op when there is no fragment.
   useEffect(() => {
     if (window.location.hash.length === 0) return;
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -106,10 +101,6 @@ const NewGame = () => {
     if (newTime !== null) setTime(newTime);
   };
 
-  const handleRoomId = (event: ChangeEvent<HTMLInputElement>) => {
-    setRoomIdInput(event.target.value);
-  };
-
   const handleDisplayName = (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value || DEFAULT_DISPLAY_NAME;
     // Identity is a discriminated union; we preserve the kind on update.
@@ -120,19 +111,21 @@ const NewGame = () => {
     }
   };
 
-  // The input value is the single source of truth for the mode. Any
-  // non-empty content means "join an existing room"; empty means
-  // "create a new one".
-  const joinMode = roomIdInput.trim().length > 0;
-  // Format gate: only meaningful in join mode. We validate the SHAPE
-  // here (no network); the server stays the source of truth for whether
-  // the (well-formed) code actually maps to a room — a valid-but-unknown
-  // code surfaces as `404 ROOM_NOT_FOUND` via the error Snackbar below.
-  const isRoomIdFormatValid = isValidRoomIdFormat(roomIdInput);
-  const showRoomIdError = joinMode && !isRoomIdFormatValid;
+  // The captured roomId is the single source of truth for the mode. A
+  // well-formed `?roomId=` (the only way to get one is an invite link)
+  // means "join an existing room"; its absence means "create a new one".
+  //
+  // A malformed `?roomId=` can only come from manual URL tampering — the
+  // real invite link always carries a generator-valid code. We treat that
+  // case as create mode (drop the bad value): the simplest safe behaviour,
+  // since there is no field for the user to correct and a join with a
+  // bad code would 404 anyway. The `INVALID_JOIN_TOKEN` path (a valid
+  // roomId with no fragment → no token) still surfaces below via the
+  // server's error and the friendly Snackbar.
+  const joinMode = capturedRoomId.length > 0 && isValidRoomIdFormat(capturedRoomId);
 
   const isDisplayNameValid = identity.displayName.trim().length > 0;
-  const canSubmit = !submitting && isDisplayNameValid && (!joinMode || isRoomIdFormatValid);
+  const canSubmit = !submitting && isDisplayNameValid;
 
   const handleStart = async () => {
     if (submitting || !canSubmit) return;
@@ -140,7 +133,7 @@ const NewGame = () => {
     setErrorMessage(null);
     try {
       const response = joinMode
-        ? await joinRoom(normalizeRoomId(roomIdInput), identity.displayName, joinToken)
+        ? await joinRoom(capturedRoomId, identity.displayName, joinToken)
         : await createRoom(identity.displayName);
       enterRoom(response);
       navigate('/play');
@@ -184,21 +177,11 @@ const NewGame = () => {
             onChange={handleDisplayName}
           />
         </Paper>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="body1" gutterBottom>
-            Room ID
-          </Typography>
-          <TextField
-            label="Room ID"
-            variant="standard"
-            fullWidth
-            value={roomIdInput}
-            onChange={handleRoomId}
-            error={showRoomIdError}
-            helperText={showRoomIdError ? ROOM_ID_ERROR : ROOM_ID_HELPER}
-            slotProps={{ htmlInput: { maxLength: 6, style: { textTransform: 'uppercase' } } }}
-          />
-        </Paper>
+        {joinMode && (
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="body1">Joining room: {capturedRoomId}</Typography>
+          </Paper>
+        )}
         <Paper sx={{ p: 2 }}>
           <Typography variant="body1" gutterBottom>
             Play as:

@@ -12,7 +12,6 @@ import {
   Typography,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import LinkIcon from '@mui/icons-material/Link';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -905,11 +904,6 @@ const Play = () => {
     }
   }, []);
 
-  const handleCopyCode = useCallback(() => {
-    if (roomId === undefined) return;
-    void copyToClipboard(roomId, 'Room code copied');
-  }, [copyToClipboard, roomId]);
-
   const handleCopyInviteLink = useCallback(() => {
     if (roomId === undefined) return;
     void copyToClipboard(buildInviteLink(roomId), 'Invite link copied');
@@ -944,23 +938,23 @@ const Play = () => {
         <Grid size={{ xs: 12, md: 4 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="body1">Room ID: {roomId || '—'}</Typography>
-            {roomId !== undefined && (
-              <Fragment>
-                <Tooltip title="Copy room code">
-                  <IconButton size="small" aria-label="Copy room code" onClick={handleCopyCode}>
-                    <ContentCopyIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Copy invite link">
-                  <IconButton
-                    size="small"
-                    aria-label="Copy invite link"
-                    onClick={handleCopyInviteLink}
-                  >
-                    <LinkIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Fragment>
+            {/* The invite-link button is only useful while a seat is open.
+                Once the opponent has joined (`opponentDisplayName` becomes
+                their name), the room is full — there is no one left to
+                invite — so we hide the control entirely rather than disable
+                it. A bare room code no longer joins a game (it needs the
+                token in the link's fragment), so there is no "copy code"
+                button anymore. */}
+            {roomId !== undefined && opponentDisplayName == null && (
+              <Tooltip title="Copy invite link">
+                <IconButton
+                  size="small"
+                  aria-label="Copy invite link"
+                  onClick={handleCopyInviteLink}
+                >
+                  <LinkIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
             )}
             {connectionState === ConnectionState.Connecting && (
               <CircularProgress size="15px" aria-label="Connecting to live updates" />

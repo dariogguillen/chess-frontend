@@ -26,7 +26,7 @@ describe('NewGame page', () => {
     expect(screen.getByRole('heading', { name: /configure your game/i })).toBeInTheDocument();
   });
 
-  it('renders the Start button by default (empty Room ID → create mode)', () => {
+  it('renders the Start button by default (bare /new → create mode)', () => {
     renderWithProviders();
     expect(screen.getByRole('button', { name: /^start$/i })).toBeInTheDocument();
   });
@@ -44,12 +44,24 @@ describe('NewGame page', () => {
     expect(checkboxes[0]).toBeDisabled();
   });
 
-  it('shows the dual-mode helper text on the Room ID field', () => {
+  it('renders NO Room ID section in create mode (bare /new)', () => {
     renderWithProviders();
-    expect(screen.getByText(/leave empty to create a new game/i)).toBeInTheDocument();
+    // The editable Room ID field was removed; create mode has no room-id
+    // surface at all (no field, no read-only display).
+    expect(screen.queryByLabelText(/room id/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/joining room/i)).not.toBeInTheDocument();
   });
 
-  it('creates a room and navigates to /play when the Room ID is empty', async () => {
+  it('shows a read-only "Joining room" display in join mode (?roomId)', () => {
+    renderWithProviders('/new?roomId=k7m3x9');
+    // Normalised to the canonical upper-case form, rendered read-only —
+    // there is no editable field anymore.
+    expect(screen.getByText(/joining room:\s*K7M3X9/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/room id/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /join game/i })).toBeInTheDocument();
+  });
+
+  it('creates a room and navigates to /play in create mode (bare /new)', async () => {
     const createHandler = vi.fn(() =>
       HttpResponse.json(
         { roomId: 'K7M3X9', playerId: 'p-1', role: 'WHITE', gameId: null },
@@ -68,16 +80,7 @@ describe('NewGame page', () => {
     expect(createHandler).toHaveBeenCalledTimes(1);
   });
 
-  it('switches the button to "Join game" once a Room ID is typed', async () => {
-    const user = userEvent.setup();
-    renderWithProviders();
-
-    await user.type(screen.getByLabelText(/room id/i), 'K7M3X9');
-
-    expect(screen.getByRole('button', { name: /join game/i })).toBeInTheDocument();
-  });
-
-  it('joins an existing room when a valid Room ID is provided', async () => {
+  it('joins an existing room when arrived via an invite link (?roomId)', async () => {
     const joinHandler = vi.fn(() =>
       HttpResponse.json(
         { roomId: 'K7M3X9', playerId: 'p-2', role: 'BLACK', gameId: 'g-1' },
@@ -86,9 +89,8 @@ describe('NewGame page', () => {
     );
     server.use(http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, joinHandler));
     const user = userEvent.setup();
-    renderWithProviders();
+    renderWithProviders('/new?roomId=k7m3x9');
 
-    await user.type(screen.getByLabelText(/room id/i), 'K7M3X9');
     await user.click(screen.getByRole('button', { name: /join game/i }));
 
     await waitFor(() => {
@@ -97,26 +99,15 @@ describe('NewGame page', () => {
     expect(joinHandler).toHaveBeenCalledTimes(1);
   });
 
-  it('disables submit and shows an error for an ill-formed Room ID, with NO API call', async () => {
-    const joinHandler = vi.fn(() =>
-      HttpResponse.json(
-        { roomId: 'X', playerId: 'p', role: 'BLACK', gameId: null },
-        { status: 200 },
-      ),
-    );
-    server.use(http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, joinHandler));
-    const user = userEvent.setup();
-    renderWithProviders();
+  it('treats a malformed ?roomId as create mode (no join surface)', () => {
+    // "I" and "0" are not in the room-code alphabet; a malformed value can
+    // only come from manual URL tampering. We drop it and fall back to
+    // create mode rather than offering an unjoinable code.
+    renderWithProviders('/new?roomId=IO00');
 
-    // "I" and "0" are not in the alphabet; this is too short anyway.
-    await user.type(screen.getByLabelText(/room id/i), 'IO');
-
-    const submit = screen.getByRole('button', { name: /join game/i });
-    // The disabled button has `pointer-events: none`, so it cannot be
-    // clicked; that disabling is itself the guard against an API call.
-    expect(submit).toBeDisabled();
-    expect(screen.getByText(/6 characters/i)).toBeInTheDocument();
-    expect(joinHandler).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /^start$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /join game/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/joining room/i)).not.toBeInTheDocument();
   });
 
   it('shows a snackbar with the mapped message when join returns ROOM_FULL', async () => {
@@ -126,22 +117,11 @@ describe('NewGame page', () => {
       ),
     );
     const user = userEvent.setup();
-    renderWithProviders();
+    renderWithProviders('/new?roomId=k7m3x9');
 
-    await user.type(screen.getByLabelText(/room id/i), 'K7M3X9');
     await user.click(screen.getByRole('button', { name: /join game/i }));
 
     expect(await screen.findByText(/already has two players/i)).toBeInTheDocument();
-  });
-
-  it('pre-fills the Room ID from ?roomId and derives join mode', () => {
-    renderWithProviders('/new?roomId=k7m3x9');
-
-    const roomIdInput = screen.getByLabelText(/room id/i) as HTMLInputElement;
-    // Normalised to the canonical upper-case form.
-    expect(roomIdInput.value).toBe('K7M3X9');
-    // Join mode derived from the pre-filled value.
-    expect(screen.getByRole('button', { name: /join game/i })).toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------
@@ -192,10 +172,10 @@ describe('NewGame page', () => {
 
       // The secret is gone from the address bar...
       expect(window.location.hash).toBe('');
-      // ...but the public watch handle (and join pre-fill) survives.
+      // ...but the public watch handle (which drives join mode) survives.
       expect(window.location.search).toBe('?roomId=K7M3X9');
-      const roomIdInput = screen.getByLabelText(/room id/i) as HTMLInputElement;
-      expect(roomIdInput.value).toBe('K7M3X9');
+      // The read-only "Joining room" display reflects the captured code.
+      expect(screen.getByText(/joining room:\s*K7M3X9/i)).toBeInTheDocument();
     });
 
     it('sends no token when the link has no fragment (legacy / manual code)', async () => {
