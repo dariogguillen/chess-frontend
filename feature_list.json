@@ -726,6 +726,21 @@
     ]
   },
   {
+    "id": "play-move-list-and-last-move",
+    "title": "Move list (SAN) + last-move highlight on the board",
+    "description": "Two in-game readability features on the Play page, requested by the user. (1) LAST-MOVE HIGHLIGHT: shade the from/to squares of the most recently played move on the board, always (whoever moved) — so on your turn you see the opponent's last move, and after you move it shifts to yours. Standard lichess/chess.com behaviour. Reuses the existing squareStyles mechanism (Play.tsx feeds moveHints into the Chessboard's squareStyles prop); the highlight is merged with the existing move-hints. Driven by gameState.moves (last element's from/to), which already updates live on every MoveEvent. (2) MOVE LIST: render the game's moves as standard SAN, numbered by full move ('1. d4 d5  2. c4 ...'), in a right-side panel beside the board (the empty space in the user's screenshot). The server sends only from/to/promotion (MoveSummary), so SAN is derived by replaying the moves through a FRESH chess.js instance from the start position (chess.js is already a project dep; MoveSummary.promotion makes promotions correct). Layout: board moves from a full-width Grid (size 12, maxWidth 600) to md:8, with a new md:4 column holding the scrollable move list; responsive (list below the board on xs). No backend change.",
+    "status": "done",
+    "priority": 22.7,
+    "acceptance": [
+      "The from/to squares of the last played move are highlighted on the board, updating live as moves arrive; the highlight merges cleanly with existing move-hints (no visual clobber).",
+      "A move list renders the game's moves as standard SAN, numbered by full move (white/black pairs), beside the board.",
+      "SAN is derived by replaying gameState.moves through a fresh chess.js instance (promotions/captures/checks render correctly); a defensive fallback handles an unreplayable move without crashing.",
+      "The list updates live on each MoveEvent and is scrollable; the board layout (md:8) + list (md:4) is responsive (list below board on xs).",
+      "Anonymous play, the existing board interactions, move-hints, and terminal flows are unaffected.",
+      "./init.sh green; ui-reviewer approves the board + layout changes."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

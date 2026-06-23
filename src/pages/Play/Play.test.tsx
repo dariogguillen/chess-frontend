@@ -1150,8 +1150,13 @@ describe('Play page', () => {
       });
     });
 
+    // The drag-time hint destinations (e3) clear. After the server ACK
+    // the position carries the e2-e4 move, so the only remaining
+    // squareStyles are the last-move highlight on e2/e4 — the e3 hint is
+    // gone.
     await waitFor(() => {
-      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles).sort()).toEqual(['e2', 'e4']);
     });
   });
 
@@ -1186,12 +1191,16 @@ describe('Play page', () => {
     act(() => {
       client.dispatch<GameTopicEvent>(
         '/topic/games/game-uuid-1',
-        opponentMoveEvent({ fen: POST_E4_FEN }),
+        opponentMoveEvent({ from: 'e7', to: 'e5', fen: POST_E4_FEN }),
       );
     });
 
+    // The drag-time hints (e2 + its destinations) clear. What remains is
+    // the last-move highlight on the opponent's e7/e5 — the move-hint
+    // layer no longer carries the e2 selection or e3/e4 destinations.
     await waitFor(() => {
-      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles).sort()).toEqual(['e5', 'e7']);
     });
   });
 
@@ -1264,13 +1273,158 @@ describe('Play page', () => {
       // `gameState.status` arm of the clearing effect fires.
       client.dispatch<GameTopicEvent>(
         '/topic/games/game-uuid-1',
-        opponentMoveEvent({ fen: STARTING_FEN, status: GameStatus.Checkmate, turn: Side.White }),
+        opponentMoveEvent({
+          from: 'e7',
+          to: 'e5',
+          fen: STARTING_FEN,
+          status: GameStatus.Checkmate,
+          turn: Side.White,
+        }),
+      );
+    });
+
+    // The move-hint layer clears; the last-move highlight on the
+    // event's e7/e5 remains, so the record is exactly those two squares.
+    await waitFor(() => {
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles).sort()).toEqual(['e5', 'e7']);
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // play-move-list-and-last-move (priority 22.7)
+  // ---------------------------------------------------------------
+  //
+  // Part 1: the from/to squares of the last played move are highlighted
+  // on the board, merged into the same `squareStyles` payload that
+  // carries the move-hints, and updated live as new MoveEvents land.
+  // Part 2: a SAN move list renders beside the board, derived from
+  // `gameState.moves`, with a muted empty state before any move.
+
+  it('highlights the last move squares once game state with moves loads', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(
+          sampleGameState({
+            fen: POST_E4_FEN,
+            turn: 'BLACK',
+            moves: [{ from: 'e2', to: 'e4', promotion: null }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    // The e2/e4 squares (the last move's from/to) carry a style entry,
+    // and nothing is selected so the move-hints layer is empty.
+    await waitFor(() => {
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles).sort()).toEqual(['e2', 'e4']);
+    });
+  });
+
+  it('renders no last-move highlight before any move is played', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+    // moves: [] in the default sample → no highlight, no hints.
+    expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+  });
+
+  it('updates the last-move highlight when a new opponent MoveEvent arrives', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(
+          sampleGameState({
+            fen: POST_E4_FEN,
+            turn: 'BLACK',
+            moves: [{ from: 'e2', to: 'e4', promotion: null }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(currentMockClient?.subscriptions).toHaveLength(2);
+    });
+    await waitFor(() => {
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles).sort()).toEqual(['e2', 'e4']);
+    });
+
+    // Black replies e7-e5 over STOMP — the highlight shifts to e7/e5.
+    const client = currentMockClient as MockStompClient;
+    act(() => {
+      client.dispatch<GameTopicEvent>(
+        '/topic/games/game-uuid-1',
+        opponentMoveEvent({ from: 'e7', to: 'e5' }),
       );
     });
 
     await waitFor(() => {
-      expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles).sort()).toEqual(['e5', 'e7']);
     });
+  });
+
+  it('renders the SAN move list from game state moves', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(
+          sampleGameState({
+            fen: POST_E4_FEN,
+            turn: 'WHITE',
+            moves: [
+              { from: 'd2', to: 'd4', promotion: null },
+              { from: 'd7', to: 'd5', promotion: null },
+              { from: 'c2', to: 'c4', promotion: null },
+            ],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    // SAN derived from the coordinate moves: 1. d4 d5  2. c4
+    expect(await screen.findByText('d4')).toBeInTheDocument();
+    expect(screen.getByText('d5')).toBeInTheDocument();
+    expect(screen.getByText('c4')).toBeInTheDocument();
+    expect(screen.queryByText('No moves yet')).not.toBeInTheDocument();
+  });
+
+  it('renders the move-list empty state before the game has moves', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    expect(await screen.findByText('No moves yet')).toBeInTheDocument();
   });
 
   it('non-ABANDONED terminal statuses still surface the modal (regression guard)', async () => {
@@ -1365,12 +1519,15 @@ describe('Play page', () => {
         expect(submitMoveSpy).toHaveBeenCalledTimes(1);
       });
       // After the server ACK, the position is POST_E4_FEN and the
-      // selection (hence the hints overlay) is cleared.
+      // selection (hence the hints overlay) is cleared. The last-move
+      // highlight now marks the e2/e4 of the just-played move, so the
+      // remaining squareStyles are exactly those two.
       await waitFor(() => {
         expect(lastChessboardOptions!.position).toBe(POST_E4_FEN);
       });
       await waitFor(() => {
-        expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+        const styles = lastChessboardOptions!.squareStyles ?? {};
+        expect(Object.keys(styles).sort()).toEqual(['e2', 'e4']);
       });
     });
 

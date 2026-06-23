@@ -1,10 +1,104 @@
 # Current session
 
-**Status:** `room-join-ux` (22.5) CLOSED (2026-06-23). reviewer +
-ui-reviewer approved; `./init.sh` green (361 tests). See history.md.
+**Status:** `play-move-list-and-last-move` (22.7) CLOSED (2026-06-23).
+reviewer + ui-reviewer approved; `./init.sh` green (377 tests). See
+history.md.
 
-**Counts:** 43 done · 4 pending (23 game-reviews, 24 creator-side-selection,
+**Counts:** 44 done · 4 pending (23 game-reviews, 24 creator-side-selection,
 25 time-control, 26 bot-opponent).
+
+## ⚠️ Uncommitted — features awaiting commit/deploy
+
+CLOSED but UNCOMMITTED (the user commits manually): 20.9, 21, 22, 22.5,
+22.7. `./init.sh` green with all of it. 22 is already live in prod; 22.5
+(join-UX) and 22.7 (move list + last-move highlight) are NOT yet committed
+or deployed — they should ride the next push. 22.7 is a visible UI change
+the user will want to see live: src/pages/Play/sanList.ts(+test),
+src/components/MoveList/*(+test), src/pages/Play/Play.tsx(+test),
+notes/22.7-….md.
+
+## Next — `game-reviews` (priority 23)
+
+The user's priority product feature, now unblocked. Large, cross-repo,
+requires an account (`GET /api/me/games`; auth plumbing exists since 20.x).
+DECISION-FIRST: surface scope to the user before planning — likely a
+"My games" list gated to authenticated users + a per-game replay/review
+view (replay-scrubbing/clickable moves were explicitly deferred here from
+22.7; `replay-mode` folded in). Probably decomposes into sub-features like
+user-accounts did. Remaining backend features after this (24
+creator-side-selection, 25 time-control, 26 bot-opponent) are additive and
+unblocked by the 21 snapshot.
+
+## Plan — `play-move-list-and-last-move` (priority 22.7, IN PROGRESS)
+
+Two in-game readability features on Play. Design confirmed with the user:
+**highlight the LAST move always** (whoever moved — standard lichess
+behaviour; on your turn that's the opponent's) and a **SAN move list**.
+NO backend change. All data is already present.
+
+**Pre-mapped facts (file:line):**
+- `gameState.moves` is `ReadonlyArray<MoveSummary>` (games.ts:110-114);
+  each move has `from`, `to`, `promotion: PromotionPiece | null`. Updated
+  live on every MoveEvent (Play.tsx:313 appends a summary).
+- The `Chessboard` already takes `squareStyles: moveHints` (Play.tsx:985) —
+  the same prop carries the highlight.
+- Layout (Play.tsx ~928-1020): a `<Grid container>` with the board in a
+  full-width `Grid size 12` (`Box maxWidth 600`, ~970-997). Right-side
+  space is currently just the Room-ID row (md:4, ~944) and the viewer Chip
+  (md:4, ~1004).
+- chess.js is already a dep (Play uses `chess.load`, `chess.moves`).
+
+**Part 1 — last-move highlight:**
+- Compute the last move: `gameState.moves.at(-1)` → its `from`/`to`.
+- Build a `squareStyles` entry for those two squares (a translucent
+  highlight that reads on BOTH light and dark board themes — e.g. a
+  low-alpha yellow/green overlay; keep it theme-agnostic, do NOT hardcode
+  a board-theme colour). Memoize on `[gameState?.moves]`.
+- MERGE with the existing `moveHints` into the single `squareStyles` prop
+  (spread order: last-move highlight first, move-hints second so an active
+  hint on a highlighted square still shows — confirm the visual and pick a
+  sensible precedence). No change to move-hint behaviour itself.
+
+**Part 2 — SAN move list:**
+- Pure helper `toSanList(moves: ReadonlyArray<MoveSummary>): string[]`
+  (new, e.g. in `src/pages/Play/` or a util): create a FRESH `new Chess()`
+  (NOT the page's live `chess` instance, which is at the current position),
+  replay each move via `chess.move({ from, to, promotion: promotion ?? undefined })`,
+  collect `result.san`. Defensive: if `chess.move` throws / returns null
+  (should never happen — server validated), stop and fall back to
+  `from+to` coordinate for the remaining move(s) rather than crash.
+  Memoize with `useMemo` on `[gameState?.moves]`.
+- Render numbered by full move: `1. d4 d5  2. c4 …` (pair white+black).
+  Put it in a NEW right-side `Grid size {{ xs: 12, md: 4 }}` panel beside
+  the board; change the board's `Grid size 12` to `size {{ xs: 12, md: 8 }}`.
+  The list lives in a `Paper`/`Box` with `maxHeight` ~ the board height and
+  `overflowY: auto`; auto-scroll to the latest move (nice-to-have). On xs
+  it stacks below the board. Empty state (no moves yet): a muted "No moves
+  yet" line.
+
+**Tests (Vitest + RTL):**
+- `toSanList`: a known game (incl. a capture, a check, and a promotion)
+  yields the expected SAN array; the defensive fallback path is covered.
+- Play: the last-move squares appear in `squareStyles` (assert via the
+  Chessboard mock/props) and update when a new MoveEvent lands; the move
+  list renders the SAN pairs from `gameState.moves`; empty state renders.
+- Existing move-hint, board-interaction, and terminal tests stay green.
+
+**Accessibility (ui-reviewer REQUIRED — board + layout change):** the move
+list is semantic (an ordered list or a table with text, not colour-only);
+the highlight is decorative (board state is already conveyed by piece
+positions, so it's an enhancement, not the sole signal); the new Grid
+column is responsive and doesn't break the AppBar/spacer or theming.
+
+**Out of scope:** clickable moves that jump to a past position (replay
+scrubbing — that's the game-reviews 23 replay view); per-move timestamps;
+PGN export. No new deps. `./init.sh` green.
+
+---
+
+**Closed this session:** 20.9 deps-audit-overrides, 21
+backend-contract-resnapshot, 22 room-access-token (live in prod),
+22.5 room-join-ux. See history.md.
 
 ## ⚠️ Uncommitted — FOUR features in the working tree
 

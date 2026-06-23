@@ -24,8 +24,10 @@ import {
   type SquareHandlerArgs,
 } from 'react-chessboard';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import type { CSSProperties } from 'react';
 import { CustomDialog } from '../../components/CustomDialog';
 import { GameOverByAbandonBanner } from '../../components/GameOverByAbandonBanner';
+import { MoveList } from '../../components/MoveList';
 import { OpponentStatus } from '../../components/OpponentStatus';
 import { PromotionDialog } from '../../components/PromotionDialog';
 import { TurnIndicator } from '../../components/TurnIndicator';
@@ -825,6 +827,42 @@ const Play = () => {
   // of a key as "no override", so an empty record is the cheap no-op.
   const moveHints = useMoveHints(chess, selectedSquare);
 
+  // Last-move highlight (always-on, whoever moved). Shade the from/to
+  // squares of the most recently played move so the opponent's last move
+  // is visible on your turn and your own move is visible after you play.
+  // Standard lichess/chess.com behaviour.
+  //
+  // The colour is a low-alpha amber overlay chosen to read on BOTH light
+  // and dark board themes without coupling to any one of them — it is NOT
+  // a board-theme colour (those are opaque square fills) and NOT the MUI
+  // primary (that is the move-hint affordance). react-chessboard renders
+  // `squareStyles` on a child layer ON TOP of the base square, so the
+  // translucent fill tints whatever themed colour is underneath.
+  //
+  // Memoized on `gameState?.moves` — Play appends a fresh array on every
+  // MoveEvent (never mutates in place), so the reference is a faithful
+  // change signal and the record is recomputed only when a move lands.
+  const lastMoveStyles = useMemo((): Record<string, CSSProperties> => {
+    const moves = gameState?.moves;
+    // Avoid `Array.prototype.at(-1)` (ES2022) — the app `tsconfig` targets
+    // ES2020, so index the last element directly.
+    const last = moves !== undefined && moves.length > 0 ? moves[moves.length - 1] : undefined;
+    if (last === undefined) return {};
+    const style: CSSProperties = { backgroundColor: 'rgba(255, 208, 0, 0.45)' };
+    return { [last.from]: style, [last.to]: style };
+  }, [gameState?.moves]);
+
+  // Single `squareStyles` payload for the board. The last-move highlight
+  // is the base layer; the active move-hints spread SECOND so a hint on a
+  // highlighted square wins (the user is mid-selection and needs to see
+  // the legal-destination dots / capture rings, which would otherwise be
+  // masked by the amber tint). With no selection `moveHints` is `{}`, so
+  // the highlight shows alone — the common case.
+  const squareStyles = useMemo(
+    (): Record<string, CSSProperties> => ({ ...lastMoveStyles, ...moveHints }),
+    [lastMoveStyles, moveHints],
+  );
+
   // Active board theme. The base square colours go to react-chessboard's
   // `light/darkSquareStyle` options; the move-hint `squareStyles` overlay
   // (above) is a separate per-square layer that composes ON TOP of these
@@ -961,7 +999,7 @@ const Play = () => {
             )}
           </Stack>
         </Grid>
-        <Grid size={12}>
+        <Grid size={{ xs: 12, md: 8 }}>
           <Box flexGrow={1} sx={{ maxWidth: 600 }}>
             <Chessboard
               options={{
@@ -976,7 +1014,7 @@ const Play = () => {
                 darkSquareStyle: activeBoardTheme.dark,
                 lightSquareNotationStyle: activeBoardTheme.lightNotation,
                 darkSquareNotationStyle: activeBoardTheme.darkNotation,
-                squareStyles: moveHints,
+                squareStyles,
               }}
             />
             {isAbandoned && playerId !== null && (
@@ -994,6 +1032,14 @@ const Play = () => {
               />
             )}
           </Box>
+        </Grid>
+        {/* SAN move list. Sits in its own column beside the board on md+
+            and stacks below on xs. Driven by `gameState.moves`, which
+            updates live on every MoveEvent; empty before the game starts
+            (and `[]` while the game is loading), where it renders the
+            muted "No moves yet" line. */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <MoveList moves={gameState?.moves ?? []} />
         </Grid>
         <Grid size={{ xs: 12, md: 8 }}>
           <Stack direction="row" alignItems="center" spacing={1}>

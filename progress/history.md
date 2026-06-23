@@ -4205,3 +4205,36 @@ truthy children, so dropping the join Paper leaves no dangling divider.
 src/pages/NewGame/NewGame.tsx (+test), notes/22.5-room-join-ux.md (new).
 
 **Feature note:** `notes/22.5-room-join-ux.md`
+
+## 2026-06-23 — play-move-list-and-last-move (22.7)
+
+**Status:** done
+
+**Summary:** Two user-requested in-game readability features on Play, no
+backend change (all data already in `gameState.moves`). (1) Last-move
+highlight: the from/to squares of the most recently played move are shaded
+on the board, always — on your turn that's the opponent's move. Reuses the
+Chessboard's `squareStyles` prop; the highlight (a theme-agnostic
+translucent amber `rgba(255,208,0,0.45)`) is merged with the existing
+move-hints as `{ ...lastMoveStyles, ...moveHints }` so an active hint's
+legal-destination dot still wins over the tint. Memoized on
+`[gameState?.moves]`, updates live on each MoveEvent. (2) SAN move list:
+a new `MoveList` component (semantic `<ol>` of numbered white/black pairs,
+scrollable with auto-scroll-to-tail and a "No moves yet" empty state) in a
+new right-side `Grid md:4` column; the board moved to `md:8` and the list
+stacks below on xs. SAN is derived by a pure `toSanList` helper that
+replays the moves through a FRESH `new Chess()` from the start position
+(the server sends only from/to/promotion), with a defensive fallback to
+from+to coordinates if a move is unreplayable. reviewer + ui-reviewer
+approved; `./init.sh` green (377 tests, +11). One deviation: `.at(-1)` was
+swapped for index access because the app tsconfig targets ES2020 (`.at` is
+ES2022 lib) — minimal, consistent across the feature. Replay-scrubbing
+(clickable moves), per-move timestamps, and PGN export were deferred to
+game-reviews (23).
+
+**Files touched:** src/pages/Play/sanList.ts (+test),
+src/components/MoveList/{MoveList.tsx,index.ts} (+test),
+src/pages/Play/Play.tsx (+test),
+notes/22.7-play-move-list-and-last-move.md (new).
+
+**Feature note:** `notes/22.7-play-move-list-and-last-move.md`
