@@ -4136,3 +4136,41 @@ errors.ts (+test), src/api/games.ts (+test), src/pages/Play/Play.tsx,
 notes/21-backend-contract-resnapshot.md (new).
 
 **Feature note:** `notes/21-backend-contract-resnapshot.md`
+
+## 2026-06-22 — room-access-token (22)
+
+**Status:** done
+
+**Summary:** Closed an ACTIVE production regression: the user deployed the
+backend's 7 commits this session, and the backend now mints a mandatory
+`joinToken` for every non-bot room (rejecting a missing/wrong token on
+join), but the deployed frontend never sent it — play-with-a-friend
+(share-link join) was broken in prod. This feature captures the token on
+room creation, carries it through the shareable invite link, and sends it
+back on join. Design decision (with the user): the token rides in the URL
+**fragment** (`#joinToken=…`), never query/path, keeping the secret out of
+server logs — mirroring the OAuth-callback discipline from 20.4. Changes:
+`rooms.ts` surfaces `joinToken: string | null` (narrowed `?? null`, non-null
+only on create) and `joinRoom` sends it in the body only when present
+(omits the key for anonymous/legacy joins); `UserContext`/`sessionStorage`
+persist + rehydrate it on the in-room arm so the creator's invite survives
+a refresh; `Play.buildInviteLink` appends `#joinToken=…` when present;
+`NewGame` captures the token from `window.location.hash` (lazy initializer),
+scrubs the fragment while PRESERVING the `?roomId=` query
+(`replaceState(null, '', pathname + search)` — not pathname-only, which
+would erase the roomId), and passes it to `joinRoom`. Backwards-compat: an
+old `?roomId=` link with no fragment joins legacy rooms (token null) and
+gets the friendly `INVALID_JOIN_TOKEN` message on new rooms; the sessionStorage
+shape-guard accepts a legacy record missing the key (normalising to null)
+so a creator mid-session across the deploy boundary keeps their room.
+Spectator/watch (GET /api/rooms/{id}, no token) untouched. reviewer +
+ui-reviewer both approved; `./init.sh` green (361 tests). One cosmetic
+artifact (a stray tool-call block) was stripped from the note at close.
+
+**Files touched:** src/api/rooms.ts (+test), src/context/UserContext.tsx
+(+test), src/utils/sessionStorage.ts (+test), src/pages/Play/Play.tsx
+(+test, +resync test fixture), src/pages/NewGame/NewGame.tsx (+test),
+src/components/AccountMenu/AccountMenu.test.tsx (fixture),
+notes/22-room-access-token.md (new).
+
+**Feature note:** `notes/22-room-access-token.md`

@@ -58,6 +58,15 @@ export type RoomResponse = Readonly<{
   playerId: string;
   role: Role;
   gameId: string | null;
+  /**
+   * Secret join token. Non-null ONLY on the create response — the creator
+   * keeps it and shares it out-of-band (we carry it in the invite link's
+   * URL fragment). Null on the join response and on legacy rooms created
+   * before the backend minted tokens; the watch path
+   * (`GET /api/rooms/{id}`) never returns it. Possession of the roomId
+   * alone (used for watching) does not authorise joining.
+   */
+  joinToken: string | null;
 }>;
 
 type GeneratedRoomResponse = components['schemas']['RoomResponse'];
@@ -90,6 +99,7 @@ const narrowRoomResponse = (raw: GeneratedRoomResponse | undefined): RoomRespons
     playerId: raw.playerId,
     role: narrowRole(raw.role),
     gameId: raw.gameId ?? null,
+    joinToken: raw.joinToken ?? null,
   };
 };
 
@@ -115,19 +125,30 @@ export const createRoom = async (
   });
 
 /**
- * `POST /api/rooms/{id}/join` — join an existing room as Black.
- * The server uppercases `id` internally; we pre-uppercase here so the
- * URL we log/render is the canonical form.
+ * `POST /api/rooms/{id}/join` — join an existing room as the opposite
+ * side. The server uppercases `id` internally; we pre-uppercase here so
+ * the URL we log/render is the canonical form.
+ *
+ * `joinToken` is the secret the creator obtained on create and shared via
+ * the invite link's URL fragment. The backend requires it for any room
+ * minted after the access-token feature shipped; a missing or wrong token
+ * returns `403 INVALID_JOIN_TOKEN`. We OMIT the key from the request body
+ * when the token is null/undefined (a legacy `?roomId=`-only link, or a
+ * manually-typed code) so anonymous/legacy joins send no token at all —
+ * legacy rooms (with no server-side token) still accept those.
  */
 export const joinRoom = async (
   roomId: string,
   displayName: string,
+  joinToken?: string | null,
   client: ClientFor = apiClient,
 ): Promise<RoomResponse> =>
   wrapNetwork(async () => {
+    const body =
+      joinToken === null || joinToken === undefined ? { displayName } : { displayName, joinToken };
     const { data, error, response } = await client.POST('/api/rooms/{id}/join', {
       params: { path: { id: roomId.toUpperCase() } },
-      body: { displayName },
+      body,
     });
     if (error !== undefined) throw mapError(error, response);
     return narrowRoomResponse(data);

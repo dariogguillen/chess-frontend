@@ -54,6 +54,13 @@ export type StoredSession = Readonly<{
   playerId: string;
   role: Role;
   gameId: string | null;
+  /**
+   * The secret join token (creator side only; `null` for the joiner and
+   * for legacy rooms). Persisted so the creator's invite link survives a
+   * refresh — without it, a reloaded creator could no longer hand out a
+   * working link.
+   */
+  joinToken: string | null;
   displayName: string;
 }>;
 
@@ -98,6 +105,14 @@ const isStoredSession = (value: unknown): value is StoredSession => {
     typeof candidate.role === 'string' &&
     VALID_ROLES.has(candidate.role) &&
     (candidate.gameId === null || typeof candidate.gameId === 'string') &&
+    // Backwards-compat: a session persisted before the join-token feature
+    // shipped has no `joinToken` key at all (`undefined`). We accept that
+    // and `readSession` normalises it to `null` — so a creator who is
+    // mid-game across the deploy boundary keeps their rehydrated room
+    // (just without a re-shareable link, which they no longer need).
+    (candidate.joinToken === null ||
+      candidate.joinToken === undefined ||
+      typeof candidate.joinToken === 'string') &&
     typeof candidate.displayName === 'string'
   );
 };
@@ -119,7 +134,10 @@ export const readSession = (): StoredSession | null => {
   if (raw === null) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    return isStoredSession(parsed) ? parsed : null;
+    if (!isStoredSession(parsed)) return null;
+    // Normalise a legacy session (no `joinToken` key) to an explicit
+    // `null`, so every consumer sees the `string | null` invariant.
+    return { ...parsed, joinToken: parsed.joinToken ?? null };
   } catch {
     return null;
   }

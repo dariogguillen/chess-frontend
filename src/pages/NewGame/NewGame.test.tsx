@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -142,5 +142,104 @@ describe('NewGame page', () => {
     expect(roomIdInput.value).toBe('K7M3X9');
     // Join mode derived from the pre-filled value.
     expect(screen.getByRole('button', { name: /join game/i })).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------
+  // room-access-token (feature 22): join token in the URL fragment
+  // ---------------------------------------------------------------
+
+  describe('join token (URL fragment)', () => {
+    // The fragment capture / scrub reads `window.location` directly (the
+    // OAuth-callback discipline), not the router's location. We drive
+    // jsdom's address bar here and restore it after each case.
+    let originalUrl: string;
+    beforeEach(() => {
+      originalUrl = window.location.href;
+    });
+    afterEach(() => {
+      window.history.replaceState(null, '', originalUrl);
+    });
+
+    it('extracts the join token from the fragment and sends it to joinRoom', async () => {
+      let observedBody: Record<string, unknown> = {};
+      server.use(
+        http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, async ({ request }) => {
+          observedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            { roomId: 'K7M3X9', playerId: 'p-2', role: 'BLACK', gameId: 'g-1' },
+            { status: 200 },
+          );
+        }),
+      );
+      // Seed the secret in the address bar's fragment.
+      window.history.replaceState(null, '', '/new?roomId=K7M3X9#joinToken=secret-token-abc');
+
+      const user = userEvent.setup();
+      renderWithProviders('/new?roomId=k7m3x9');
+
+      await user.click(screen.getByRole('button', { name: /join game/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('play-page')).toBeInTheDocument();
+      });
+      expect(observedBody).toEqual({ displayName: 'Guest', joinToken: 'secret-token-abc' });
+    });
+
+    it('scrubs the fragment on mount but preserves the ?roomId query', () => {
+      window.history.replaceState(null, '', '/new?roomId=K7M3X9#joinToken=secret-token-abc');
+
+      renderWithProviders('/new?roomId=k7m3x9');
+
+      // The secret is gone from the address bar...
+      expect(window.location.hash).toBe('');
+      // ...but the public watch handle (and join pre-fill) survives.
+      expect(window.location.search).toBe('?roomId=K7M3X9');
+      const roomIdInput = screen.getByLabelText(/room id/i) as HTMLInputElement;
+      expect(roomIdInput.value).toBe('K7M3X9');
+    });
+
+    it('sends no token when the link has no fragment (legacy / manual code)', async () => {
+      let observedBody: Record<string, unknown> = {};
+      server.use(
+        http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, async ({ request }) => {
+          observedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            { roomId: 'K7M3X9', playerId: 'p-2', role: 'BLACK', gameId: 'g-1' },
+            { status: 200 },
+          );
+        }),
+      );
+      window.history.replaceState(null, '', '/new?roomId=K7M3X9');
+
+      const user = userEvent.setup();
+      renderWithProviders('/new?roomId=k7m3x9');
+
+      await user.click(screen.getByRole('button', { name: /join game/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('play-page')).toBeInTheDocument();
+      });
+      expect(observedBody).toEqual({ displayName: 'Guest' });
+      expect('joinToken' in observedBody).toBe(false);
+    });
+
+    it('surfaces the friendly INVALID_JOIN_TOKEN message when the backend rejects', async () => {
+      server.use(
+        http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, () =>
+          HttpResponse.json(
+            { error: 'INVALID_JOIN_TOKEN', message: 'invalid join token' },
+            { status: 403 },
+          ),
+        ),
+      );
+      window.history.replaceState(null, '', '/new?roomId=K7M3X9#joinToken=stale-token');
+
+      const user = userEvent.setup();
+      renderWithProviders('/new?roomId=k7m3x9');
+
+      await user.click(screen.getByRole('button', { name: /join game/i }));
+
+      expect(await screen.findByText(/join link is invalid/i)).toBeInTheDocument();
+    });
   });
 });

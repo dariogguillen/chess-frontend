@@ -21,6 +21,7 @@ const storedSession: StoredSession = {
   playerId: 'player-1',
   role: Role.White,
   gameId: 'game-uuid-1',
+  joinToken: 'secret-token-abc',
   displayName: 'Alice',
 };
 
@@ -102,6 +103,7 @@ describe('UserContext', () => {
         playerId: 'player-1',
         role: 'WHITE',
         gameId: null,
+        joinToken: 'secret-token-abc',
       });
     });
 
@@ -111,6 +113,7 @@ describe('UserContext', () => {
       expect(result.current.room.playerId).toBe('player-1');
       expect(result.current.room.role).toBe('WHITE');
       expect(result.current.room.gameId).toBeNull();
+      expect(result.current.room.joinToken).toBe('secret-token-abc');
     } else {
       throw new Error('expected in-room state');
     }
@@ -127,6 +130,7 @@ describe('UserContext', () => {
         playerId: 'player-1',
         role: 'BLACK',
         gameId: 'game-1',
+        joinToken: null,
       });
     });
     act(() => {
@@ -147,6 +151,7 @@ describe('UserContext', () => {
         playerId: 'player-1',
         role: 'WHITE',
         gameId: null,
+        joinToken: 'secret-token-abc',
       });
     });
     act(() => {
@@ -159,6 +164,8 @@ describe('UserContext', () => {
       expect(result.current.room.roomId).toBe('K7M3X9');
       expect(result.current.room.playerId).toBe('player-1');
       expect(result.current.room.role).toBe('WHITE');
+      // The token survives the gameId resolution.
+      expect(result.current.room.joinToken).toBe('secret-token-abc');
     } else {
       throw new Error('expected in-room state');
     }
@@ -205,6 +212,9 @@ describe('UserContext', () => {
       expect(result.current.room.playerId).toBe('player-1');
       expect(result.current.room.role).toBe(Role.White);
       expect(result.current.room.gameId).toBe('game-uuid-1');
+      // The creator's token rehydrates so the invite link still works
+      // after a refresh.
+      expect(result.current.room.joinToken).toBe('secret-token-abc');
     } else {
       throw new Error('expected in-room state from rehydrated storage');
     }
@@ -258,6 +268,7 @@ describe('UserContext', () => {
         playerId: 'player-7',
         role: Role.Black,
         gameId: null,
+        joinToken: 'secret-token-abc',
       });
     });
 
@@ -267,6 +278,7 @@ describe('UserContext', () => {
       playerId: 'player-7',
       role: Role.Black,
       gameId: null,
+      joinToken: 'secret-token-abc',
       displayName: 'Carol',
     });
   });
@@ -282,6 +294,7 @@ describe('UserContext', () => {
         playerId: 'player-7',
         role: Role.White,
         gameId: null,
+        joinToken: 'secret-token-abc',
       });
     });
     act(() => {
@@ -290,6 +303,8 @@ describe('UserContext', () => {
 
     const persisted = readRawSession();
     expect(persisted?.gameId).toBe('game-uuid-9');
+    // The token persists across the gameId resolution.
+    expect(persisted?.joinToken).toBe('secret-token-abc');
   });
 
   it('leaveRoom clears the persisted session', () => {
@@ -365,6 +380,7 @@ describe('UserContext', () => {
         playerId: 'player-1',
         role: Role.White,
         gameId: 'game-1',
+        joinToken: null,
       });
     });
     act(() => {

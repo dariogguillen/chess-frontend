@@ -10,7 +10,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChangeEvent, MouseEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ToggleButtons from '../../components/ToggleButton';
@@ -63,6 +63,17 @@ const NewGame = () => {
   const [roomIdInput, setRoomIdInput] = useState<string>(() =>
     normalizeRoomId(searchParams.get('roomId') ?? ''),
   );
+  // Capture the secret join token from the URL fragment (`#joinToken=…`)
+  // ONCE, in a lazy initialiser — before the scrub effect below clears it
+  // (mirrors the OAuth callback's `window.location.hash` capture). The
+  // creator's invite link carries it; a bare `?roomId=` link (legacy /
+  // manual code) has no fragment, so this resolves to `null` and the join
+  // sends no token. Pages render in the browser only, so reading
+  // `window.location` here is safe.
+  const [joinToken] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    return params.get('joinToken');
+  });
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // `position` is a UI-only preference now — the backend assigns sides
@@ -71,6 +82,17 @@ const NewGame = () => {
   // remains as a decorative control while we leave headroom for a future
   // "match me as Black" feature.
   const [position, setLocalPosition] = useState<Position>(Position.White);
+
+  // Scrub the secret token out of the address bar once it has been
+  // captured, so it never lingers in history or in a shared screenshot —
+  // the same hygiene the OAuth callback applies to the JWT. We preserve
+  // the query string (`?roomId=…` is the public watch handle and seeds
+  // the input): unlike the auth callback, which is pathname-only, dropping
+  // it here would wipe the join pre-fill. No-op when there is no fragment.
+  useEffect(() => {
+    if (window.location.hash.length === 0) return;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, []);
 
   const handleOpponent = (_event: MouseEvent<HTMLElement>, newOpponent: Opponent | null) => {
     if (newOpponent !== null) setOpponent(newOpponent);
@@ -118,7 +140,7 @@ const NewGame = () => {
     setErrorMessage(null);
     try {
       const response = joinMode
-        ? await joinRoom(normalizeRoomId(roomIdInput), identity.displayName)
+        ? await joinRoom(normalizeRoomId(roomIdInput), identity.displayName, joinToken)
         : await createRoom(identity.displayName);
       enterRoom(response);
       navigate('/play');

@@ -32,6 +32,7 @@ const inRoom: RoomState = {
   playerId: 'p-1',
   role: Role.White,
   gameId: 'g-1',
+  joinToken: null,
 };
 
 const renderMenu = (initialIdentity?: Identity, initialRoom?: RoomState) =>

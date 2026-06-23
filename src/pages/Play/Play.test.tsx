@@ -110,6 +110,17 @@ const inRoomWhite: RoomState = {
   playerId: 'player-1',
   role: 'WHITE',
   gameId: 'game-uuid-1',
+  joinToken: null,
+};
+
+// Creator's pre-game arm WITH a token — drives the invite-link fragment.
+const inRoomWhitePreGameWithToken: RoomState = {
+  phase: RoomPhase.InRoom,
+  roomId: 'K7M3X9',
+  playerId: 'player-1',
+  role: 'WHITE',
+  gameId: null,
+  joinToken: 'secret-token-abc',
 };
 
 const inRoomWhitePreGame: RoomState = {
@@ -118,6 +129,7 @@ const inRoomWhitePreGame: RoomState = {
   playerId: 'player-1',
   role: 'WHITE',
   gameId: null,
+  joinToken: null,
 };
 
 const sampleGameState = (overrides: Record<string, unknown> = {}) => ({
@@ -574,6 +586,7 @@ describe('Play page', () => {
       playerId: 'player-2',
       role: 'WHITE', // placeholder; reassigned below to keep type clean
       gameId: 'game-uuid-1',
+      joinToken: null,
     };
     const blackPlayer: RoomState = { ...inRoomBlack, playerId: 'player-2', role: 'BLACK' };
 
@@ -712,6 +725,7 @@ describe('Play page', () => {
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -768,6 +782,7 @@ describe('Play page', () => {
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -803,6 +818,7 @@ describe('Play page', () => {
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -836,6 +852,7 @@ describe('Play page', () => {
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -870,6 +887,7 @@ describe('Play page', () => {
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -996,6 +1014,7 @@ describe('Play page', () => {
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -1500,6 +1519,7 @@ describe('Play page', () => {
         playerId: 'player-2',
         role: 'BLACK',
         gameId: 'game-uuid-1',
+        joinToken: null,
       };
       const submitMoveSpy = vi.fn();
       server.use(
@@ -1746,7 +1766,37 @@ describe('Play page', () => {
 
       const expected = `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, '')}/new?roomId=K7M3X9`;
       expect(writeText).toHaveBeenCalledWith(expected);
+      // No token on this arm → no fragment.
+      expect(writeText).not.toHaveBeenCalledWith(expect.stringContaining('#'));
       expect(await screen.findByText(/invite link copied/i)).toBeInTheDocument();
+    });
+
+    it('appends the join token in the URL fragment when the creator holds one', async () => {
+      // The pre-game arm (gameId null) drives the discovery flow, which
+      // GETs the room while still WAITING_FOR_PLAYER; keep it parked there
+      // so the test exercises only the link build.
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
+          HttpResponse.json(
+            {
+              roomId: 'K7M3X9',
+              players: [{ id: 'player-1', displayName: 'Alice', role: 'WHITE' }],
+              gameId: null,
+              status: 'WAITING_FOR_PLAYER',
+            },
+            { status: 200 },
+          ),
+        ),
+      );
+      const user = setupWithClipboard();
+      renderWithProviders('/play', inRoomWhitePreGameWithToken);
+
+      const copyLink = await screen.findByRole('button', { name: /copy invite link/i });
+      await user.click(copyLink);
+
+      const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const expected = `${window.location.origin}${base}/new?roomId=K7M3X9#joinToken=secret-token-abc`;
+      expect(writeText).toHaveBeenCalledWith(expected);
     });
 
     it('surfaces a failure message when the clipboard write rejects', async () => {

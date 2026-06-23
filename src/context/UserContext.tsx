@@ -80,6 +80,13 @@ export type RoomState =
       playerId: string;
       role: Role;
       gameId: string | null;
+      /**
+       * The secret join token, present ONLY on the creator's in-room arm
+       * (the create response carries it). The joiner's arm holds `null` —
+       * the room is full, there is nothing left to re-invite. Persisted in
+       * the session so the creator's invite link survives a refresh.
+       */
+      joinToken: string | null;
     }>;
 
 /**
@@ -200,6 +207,7 @@ const roomFromSession = (session: StoredSession): RoomState => ({
   playerId: session.playerId,
   role: session.role,
   gameId: session.gameId,
+  joinToken: session.joinToken,
 });
 
 export const UserContextProvider = ({
@@ -278,6 +286,7 @@ export const UserContextProvider = ({
       playerId: response.playerId,
       role: response.role,
       gameId: response.gameId,
+      joinToken: response.joinToken,
     };
     setRoomState(next);
     // Side-effect-at-the-seam: persist on every transition into the
@@ -288,6 +297,7 @@ export const UserContextProvider = ({
       playerId: next.playerId,
       role: next.role,
       gameId: next.gameId,
+      joinToken: next.joinToken,
       displayName: identityRef.current.displayName,
     });
   }, []);
@@ -310,6 +320,7 @@ export const UserContextProvider = ({
       playerId: next.playerId,
       role: next.role,
       gameId: next.gameId,
+      joinToken: next.joinToken,
       displayName: identityRef.current.displayName,
     });
   }, []);

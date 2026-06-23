@@ -34,7 +34,29 @@ describe('createRoom', () => {
       playerId: 'player-uuid-1',
       role: 'WHITE',
       gameId: null,
+      joinToken: null,
     });
+  });
+
+  it('surfaces the joinToken the backend mints on create', async () => {
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms`, () =>
+        HttpResponse.json(
+          {
+            roomId: 'K7M3X9',
+            playerId: 'player-uuid-1',
+            role: 'WHITE',
+            gameId: null,
+            joinToken: 'secret-token-abc',
+          },
+          { status: 201 },
+        ),
+      ),
+    );
+
+    const result = await createRoom('Alice', testClient);
+
+    expect(result.joinToken).toBe('secret-token-abc');
   });
 
   it('throws ApiError with code=VALIDATION_FAILED on 400', async () => {
@@ -83,13 +105,67 @@ describe('joinRoom', () => {
       ),
     );
 
-    const result = await joinRoom('k7m3x9', 'Bob', testClient);
+    const result = await joinRoom('k7m3x9', 'Bob', undefined, testClient);
 
     expect(result).toEqual({
       roomId: 'K7M3X9',
       playerId: 'player-uuid-2',
       role: 'BLACK',
       gameId: 'game-uuid-1',
+      // The join response never carries a token — the joiner cannot
+      // re-invite (the room is full).
+      joinToken: null,
+    });
+  });
+
+  it('sends the joinToken in the request body when provided', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-2', role: 'BLACK', gameId: 'game-uuid-1' },
+          { status: 200 },
+        );
+      }),
+    );
+
+    await joinRoom('K7M3X9', 'Bob', 'secret-token-abc', testClient);
+
+    expect(observedBody).toEqual({ displayName: 'Bob', joinToken: 'secret-token-abc' });
+  });
+
+  it('omits the joinToken key from the body when it is null (legacy/anonymous join)', async () => {
+    let observedBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { roomId: 'K7M3X9', playerId: 'player-uuid-2', role: 'BLACK', gameId: 'game-uuid-1' },
+          { status: 200 },
+        );
+      }),
+    );
+
+    await joinRoom('K7M3X9', 'Bob', null, testClient);
+
+    expect(observedBody).toEqual({ displayName: 'Bob' });
+    expect('joinToken' in observedBody).toBe(false);
+  });
+
+  it('throws ApiError code=INVALID_JOIN_TOKEN on 403 (missing/wrong token)', async () => {
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/rooms/:id/join`, () =>
+        HttpResponse.json(
+          { error: 'INVALID_JOIN_TOKEN', message: 'invalid join token' },
+          { status: 403 },
+        ),
+      ),
+    );
+
+    await expect(joinRoom('K7M3X9', 'Bob', 'wrong-token', testClient)).rejects.toMatchObject({
+      code: 'INVALID_JOIN_TOKEN',
+      httpStatus: 403,
     });
   });
 
@@ -100,7 +176,7 @@ describe('joinRoom', () => {
       ),
     );
 
-    await expect(joinRoom('AAAAAA', 'Bob', testClient)).rejects.toMatchObject({
+    await expect(joinRoom('AAAAAA', 'Bob', undefined, testClient)).rejects.toMatchObject({
       code: 'ROOM_NOT_FOUND',
       httpStatus: 404,
     });
@@ -113,7 +189,7 @@ describe('joinRoom', () => {
       ),
     );
 
-    await expect(joinRoom('K7M3X9', 'Bob', testClient)).rejects.toMatchObject({
+    await expect(joinRoom('K7M3X9', 'Bob', undefined, testClient)).rejects.toMatchObject({
       code: 'ROOM_FULL',
       httpStatus: 409,
     });
@@ -136,7 +212,7 @@ describe('joinRoom', () => {
       }),
     );
 
-    await joinRoom('k7m3x9', 'Bob', testClient);
+    await joinRoom('k7m3x9', 'Bob', undefined, testClient);
 
     expect(observedPath).toBe('/api/rooms/K7M3X9/join');
   });

@@ -16,6 +16,7 @@ const sampleSession: StoredSession = {
   playerId: 'player-1',
   role: Role.White,
   gameId: 'game-uuid-1',
+  joinToken: 'secret-token-abc',
   displayName: 'Alice',
 };
 
@@ -72,6 +73,36 @@ describe('sessionStorage wrapper', () => {
     const session: StoredSession = { ...sampleSession, gameId: null };
     writeSession(session);
     expect(readSession()).toEqual(session);
+  });
+
+  it('preserves a null joinToken across the round-trip (joiner side)', () => {
+    const session: StoredSession = { ...sampleSession, joinToken: null };
+    writeSession(session);
+    expect(readSession()).toEqual(session);
+  });
+
+  it('normalises a legacy session with no joinToken key to joinToken=null', () => {
+    // Backwards-compat: a session persisted before the join-token feature
+    // shipped has no `joinToken` key. We accept it (rather than discard the
+    // rehydrated room) and surface joinToken as an explicit null.
+    window.sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        roomId: 'K7M3X9',
+        playerId: 'player-1',
+        role: 'WHITE',
+        gameId: 'game-uuid-1',
+        displayName: 'Alice',
+      }),
+    );
+    expect(readSession()).toEqual({
+      roomId: 'K7M3X9',
+      playerId: 'player-1',
+      role: 'WHITE',
+      gameId: 'game-uuid-1',
+      joinToken: null,
+      displayName: 'Alice',
+    });
   });
 
   it('clearSession removes the storage entry', () => {

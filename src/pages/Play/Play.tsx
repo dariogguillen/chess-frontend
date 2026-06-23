@@ -136,6 +136,9 @@ const Play = () => {
   const roomId = room.phase === RoomPhase.InRoom ? room.roomId : roomIdFromUrl;
   const playerId = room.phase === RoomPhase.InRoom ? room.playerId : null;
   const gameId = room.phase === RoomPhase.InRoom ? room.gameId : null;
+  // The secret join token, present only on the creator's in-room arm.
+  // Drives whether the invite link carries a `#joinToken=…` fragment.
+  const joinToken = room.phase === RoomPhase.InRoom ? room.joinToken : null;
   const role = room.phase === RoomPhase.InRoom ? room.role : null;
 
   // Entry guard (feature 11.8). Two mount-time conditions make `/play` a
@@ -867,12 +870,23 @@ const Play = () => {
   // `BASE_URL` is `/` (no-op join), but a future sub-path deployment
   // would otherwise produce a link that 404s. The friend who opens this
   // link lands on `/new` already in join mode (NewGame reads `?roomId`).
-  const buildInviteLink = useCallback((id: string): string => {
-    // `import.meta.env.BASE_URL` always has a trailing slash ('/' or
-    // '/sub/'); strip it so the join with the leading-slash path is clean.
-    const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-    return `${window.location.origin}${base}/new?roomId=${encodeURIComponent(id)}`;
-  }, []);
+  //
+  // The roomId rides in the query (it is the public watch handle, not a
+  // secret); the join token, when present, rides in the URL *fragment*
+  // (`#joinToken=…`). Fragments never reach the server, so the secret
+  // stays out of access logs — the same discipline the OAuth callback
+  // uses for the JWT. A null token (the joiner side, or a legacy room)
+  // produces the unchanged fragment-less link.
+  const buildInviteLink = useCallback(
+    (id: string): string => {
+      // `import.meta.env.BASE_URL` always has a trailing slash ('/' or
+      // '/sub/'); strip it so the join with the leading-slash path is clean.
+      const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const link = `${window.location.origin}${base}/new?roomId=${encodeURIComponent(id)}`;
+      return joinToken === null ? link : `${link}#joinToken=${encodeURIComponent(joinToken)}`;
+    },
+    [joinToken],
+  );
 
   // Copy `text` to the clipboard and toast `successMessage`. The
   // Clipboard API is async, permission-gated, and only available in a

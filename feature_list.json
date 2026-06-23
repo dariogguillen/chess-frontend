@@ -700,7 +700,7 @@
     "id": "room-access-token",
     "title": "Honour join tokens in share-link and join flow",
     "description": "LOCKSTEP with the backend deploy. The backend now generates a secret joinToken for every non-bot room (RoomService.java:145) and RoomService.joinRoom rejects a mismatching/absent token when the room's token is non-null (line 346) with InvalidJoinTokenException. The existing room-link-share-and-join (priority 13) only shares the roomId, so once the backend deploys, a friend opening the share link would be rejected. This feature: capture RoomResponse.joinToken from the create response, carry it through to the share link (and/or room state), pass it as JoinRoomRequest.joinToken on join, and surface the INVALID_JOIN_TOKEN error path. Watch quotes/RoomDetails (GET /api/rooms/{id}) still works token-less for spectators. Anonymous watch unaffected. MUST ship before / together with the backend push so prod join is never broken.",
-    "status": "pending",
+    "status": "done",
     "priority": 22,
     "acceptance": [
       "Create-room flow captures joinToken from RoomResponse and includes it in the shareable join link.",

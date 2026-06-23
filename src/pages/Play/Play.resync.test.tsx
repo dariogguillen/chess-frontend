@@ -112,6 +112,7 @@ const inRoomWhite: RoomState = {
   playerId: 'player-1',
   role: 'WHITE',
   gameId: 'game-uuid-1',
+  joinToken: null,
 };
 
 const sampleGameState = (overrides: Record<string, unknown> = {}) => ({
@@ -344,6 +345,7 @@ describe('Play page — resync on STOMP (re)connect (priorities 11.1 + 11.6)', (
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -383,6 +385,7 @@ describe('Play page — resync on STOMP (re)connect (priorities 11.1 + 11.6)', (
       playerId: 'player-1',
       role: Role.White,
       gameId: 'game-uuid-1',
+      joinToken: null,
       displayName: 'Alice',
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));

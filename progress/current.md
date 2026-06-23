@@ -1,11 +1,138 @@
 # Current session
 
-**Status:** 20.9 `deps-audit-overrides` and 21 `backend-contract-resnapshot`
-BOTH CLOSED (2026-06-22). reviewer + ui-reviewer approved; `./init.sh` green
-end-to-end (leader-verified first-hand, "All checks passed"). See history.md.
+**Status:** `room-access-token` (22) CLOSED (2026-06-22). reviewer +
+ui-reviewer approved; `./init.sh` green (361 tests). Closes the live prod
+regression. See history.md.
 
-**Counts:** 41 done · 5 pending (22 room-access-token, 23 game-reviews,
-24 creator-side-selection, 25 time-control, 26 bot-opponent).
+**Counts:** 42 done · 4 pending (23 game-reviews, 24 creator-side-selection,
+25 time-control, 26 bot-opponent).
+
+## ⚠️ Uncommitted — THREE features in the working tree + URGENT deploy
+
+20.9 + 21 + 22 are all CLOSED but UNCOMMITTED (the user commits manually).
+`./init.sh` green with all of it. **22 is the prod-regression fix — the
+frontend should be committed AND deployed ASAP** so play-with-a-friend
+works again in prod. Suggested commit split:
+- 20.9: package.json + package-lock.json + notes/20.9-…
+- 21: openapi.json + src/api/generated/schema.ts + errors.ts(+test) +
+  games.ts(+test) + Play.tsx (TIMEOUT arm) + notes/21-…
+- 22: rooms.ts(+test) + UserContext.tsx(+test) + sessionStorage.ts(+test)
+  + Play.tsx (invite link) + NewGame.tsx(+test) + AccountMenu.test +
+  Play.resync.test + notes/22-…
+  (Play.tsx carries both 21's TIMEOUT arm and 22's invite link — it lands
+  in whichever commit you make second; fine either way.)
+Plus feature_list.json + progress/* with the closes.
+
+After deploy: smoke-test the real share-link join against prod (create a
+room in one browser, open the copied link in another, confirm the join
+succeeds now that the token rides in the fragment).
+
+## Next — `game-reviews` (priority 23)
+
+The user's priority product feature, now unblocked. Large, cross-repo,
+**requires an account** (consumes `GET /api/me/games` — Bearer JWT; auth
+plumbing exists end-to-end since 20.x). Decision-first: surface scope to
+the user before planning (likely a "My games" list gated to authenticated
+users + a per-game replay/review view; `replay-mode` folded in). Probably
+worth decomposing into sub-features like user-accounts was. The remaining
+backend features after this — creator-side-selection (24), time-control
+(25), bot-opponent (26) — are all additive and unblocked by the 21 snapshot
+(see the deferred TIMEOUT-UX notes below for 25).
+
+## Plan — `room-access-token` (priority 22, IN PROGRESS)
+
+**Goal:** make the frontend capture the `joinToken` the backend mints on
+room creation, carry it through the shareable invite link, and send it back
+on join — closing the live prod regression. Decision taken with the user:
+the token rides in the URL **fragment** (`#joinToken=…`), NOT query/path —
+keeps the secret out of server logs, mirroring the OAuth-callback token
+discipline from 20.4.
+
+**Pre-mapped surface (file:line):**
+- `src/api/rooms.ts`: `RoomResponse` type (56-61) and `narrowRoomResponse`
+  (80-94) currently DROP `joinToken`. `createRoom` (105-115) returns it on
+  create; `joinRoom` (122-134) sends only `{displayName}`.
+  `INVALID_JOIN_TOKEN` already mapped in errors.ts (55/142/184-185).
+- `src/context/UserContext.tsx`: `RoomState` in-room arm (75-83) has
+  roomId/playerId/role/gameId, NO joinToken; `enterRoom` (274-293) copies
+  those + `writeSession`. `sessionStorage.ts` `StoredSession` (50-55)
+  persists the same set (drives refresh rehydration at 196-201).
+- `src/pages/Play/Play.tsx`: `buildInviteLink` (870-875) builds
+  `…/new?roomId=XXX` (query, no token); copy IconButtons (936-945).
+- `src/pages/NewGame/NewGame.tsx`: reads `roomId` from query via
+  `useSearchParams` (55, 63-65); `joinMode` (104); calls
+  `joinRoom(roomId, displayName)` (120-122) → `enterRoom` (123).
+- `src/pages/AuthCallback/AuthCallback.tsx` (60-64): BLUEPRINT — capture
+  `window.location.hash`, scrub via `history.replaceState`, parse with
+  `new URLSearchParams(hash.replace(/^#/, ''))`, `useRef` ran-once guard.
+
+**Steps for the implementer:**
+
+1. **API (`rooms.ts`):** add `joinToken: string | null` to `RoomResponse`;
+   narrow it in `narrowRoomResponse` (`raw.joinToken ?? null` — it is
+   non-null only on the create response, null on join/legacy rooms). Change
+   `joinRoom` to `joinRoom(roomId, displayName, joinToken?: string | null)`
+   and include `joinToken` in the request body when non-null (omit the key
+   when null/undefined so anonymous/legacy joins send no token).
+
+2. **Context (`UserContext.tsx` + `sessionStorage.ts`):** add
+   `joinToken: string | null` to the `RoomState` in-room arm and to
+   `StoredSession`. `enterRoom` copies `response.joinToken`; `writeSession`
+   persists it; the rehydration path (196-201) restores it. This is what
+   lets Play read the token (and survive a creator-side refresh). The
+   joiner's RoomState carries `joinToken: null` (join response has none) —
+   correct, the room is full, no re-invite.
+
+3. **Invite link (`Play.tsx`):** `buildInviteLink` appends the token in the
+   fragment when `room.joinToken` is present:
+   `…/new?roomId=XXX#joinToken=YYY` (roomId stays in the query — it is not
+   secret, it's the watch handle; only the token goes in the fragment).
+   If `room.joinToken` is null (joiner side / legacy), build the link
+   without the fragment (unchanged behaviour).
+
+4. **Join extraction (`NewGame.tsx`):** mirror AuthCallback — capture
+   `window.location.hash` in a lazy `useState` initializer (runs once,
+   before any scrub), parse `joinToken` via
+   `new URLSearchParams(hash.replace(/^#/, ''))`, then scrub ONLY the
+   fragment in an effect, **preserving the query**:
+   `history.replaceState(null, '', window.location.pathname + window.location.search)`
+   (do NOT drop `?roomId=` — Auth's `pathname`-only scrub would erase it).
+   Pass the captured token to `joinRoom(roomId, displayName, joinToken)`.
+
+5. **Error path:** an absent/wrong token (old link, or a new room joined
+   without one) surfaces `INVALID_JOIN_TOKEN` from the backend → show the
+   already-mirrored friendly copy ("That join link is invalid or has
+   expired…") through NewGame's existing Snackbar/Alert pattern.
+   Backwards-compat: an old `?roomId=` link with no fragment → no token →
+   legacy rooms (token null) still join; new rooms reject with the friendly
+   message. Spectator/watch (GET /api/rooms/{id}, no token) is untouched.
+
+**Tests (Vitest + RTL + MSW):**
+- `rooms.test.ts`: `narrowRoomResponse` surfaces `joinToken` (create) /
+  null (join); `joinRoom` sends `joinToken` in the body when provided and
+  omits it when not; `INVALID_JOIN_TOKEN` maps to the friendly message.
+- `UserContext.test.tsx`: `enterRoom` stores `joinToken`; it persists
+  through `writeSession` and rehydrates; joiner side is null.
+- `Play.test.tsx`: update the invite-link assertion (1740-1750) — link
+  includes `#joinToken=…` when present, omits it when null.
+- `NewGame.test.tsx`: token extracted from the fragment and sent to
+  `joinRoom`; fragment scrubbed but `?roomId=` preserved; the
+  `INVALID_JOIN_TOKEN` error path shows the alert.
+
+**Accessibility (ui-reviewer REQUIRED — touches share/join UI):** the
+change is additive to the existing invite link + copy buttons; no new
+visual surface. Confirm the copy-link control still has its accessible
+name and the join error is announced via the existing alert.
+
+**Out of scope:** creator-side-selection (24), time-control (25),
+bot-opponent (26 — bot rooms get no joinToken anyway). No new deps. Anon
+play + spectator/watch unaffected. `./init.sh` green.
+
+---
+
+**Closed this session:** 20.9 `deps-audit-overrides` + 21
+`backend-contract-resnapshot` (reviewer + ui-reviewer approved; init.sh
+green, leader-verified). See history.md.
 
 ## ⚠️ Uncommitted working tree — handoff note
 
