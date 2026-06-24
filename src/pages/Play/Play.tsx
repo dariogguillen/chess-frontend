@@ -342,6 +342,15 @@ const Play = () => {
           status: event.status,
           turn: event.turn,
           moves: [...prev.moves, summary],
+          // Refresh the clocks from the event, mirroring the own-move REST
+          // path (`syncFromServer` applies the full GameState). Without
+          // this, a tab only ever refreshed clocks on ITS OWN moves and the
+          // two players' clocks diverged. `playedAt` re-anchors the live
+          // countdown to the new move; the *RemainingMs are `null` for an
+          // untimed game (no clocks rendered).
+          whiteTimeRemainingMs: event.whiteTimeRemainingMs,
+          blackTimeRemainingMs: event.blackTimeRemainingMs,
+          lastMoveAt: event.playedAt,
         };
       });
       // See the rationale in `syncFromServer`: ABANDONED has its own

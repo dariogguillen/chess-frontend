@@ -55,6 +55,9 @@ describe('wsEvents', () => {
         status: GameStatus.Ongoing,
         turn: Side.Black,
         moveNumber: 1,
+        // Timed game: the backend sends both clocks (ms) frozen at this move.
+        whiteTimeRemainingMs: 295_000,
+        blackTimeRemainingMs: 300_000,
         playedAt: '2026-05-21T12:34:56.000Z',
       };
 
@@ -62,6 +65,10 @@ describe('wsEvents', () => {
       const roundTripped = JSON.parse(JSON.stringify(event)) as MoveEvent;
       expect(roundTripped).toEqual(event);
       expect(roundTripped.type).toBe('MOVE');
+      // The clock fields survive the round-trip — they drive clock-sync on
+      // an opponent move (feature 26.6).
+      expect(roundTripped.whiteTimeRemainingMs).toBe(295_000);
+      expect(roundTripped.blackTimeRemainingMs).toBe(300_000);
     });
 
     it('constructs a promotion sample with PromotionPiece.Queen', () => {
@@ -77,11 +84,16 @@ describe('wsEvents', () => {
         status: GameStatus.Checkmate,
         turn: Side.Black,
         moveNumber: 42,
+        // Untimed game: the *RemainingMs are null on the wire.
+        whiteTimeRemainingMs: null,
+        blackTimeRemainingMs: null,
         playedAt: '2026-05-21T12:34:56.000Z',
       };
 
       expect(event.promotion).toBe('QUEEN');
       expect(event.status).toBe('CHECKMATE');
+      expect(event.whiteTimeRemainingMs).toBeNull();
+      expect(event.blackTimeRemainingMs).toBeNull();
     });
   });
 
@@ -254,6 +266,8 @@ describe('wsEvents', () => {
           status: GameStatus.Ongoing,
           turn: Side.Black,
           moveNumber: 1,
+          whiteTimeRemainingMs: null,
+          blackTimeRemainingMs: null,
           playedAt: '2026-05-27T12:00:00.000Z',
         },
         {

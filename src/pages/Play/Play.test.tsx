@@ -158,6 +158,10 @@ const opponentMoveEvent = (overrides: Partial<MoveEvent> = {}): MoveEvent => ({
   status: GameStatus.Ongoing,
   turn: Side.White,
   moveNumber: 2,
+  // Untimed by default (matches the default untimed game state); the
+  // clock-sync tests override these with concrete ms values.
+  whiteTimeRemainingMs: null,
+  blackTimeRemainingMs: null,
   playedAt: '2026-05-21T12:00:00.000Z',
   ...overrides,
 });
@@ -1326,6 +1330,90 @@ describe('Play page', () => {
       expect(
         await screen.findByRole('heading', { name: /draw — timeout with insufficient material/i }),
       ).toBeInTheDocument();
+    });
+
+    it('refreshes both clocks when an opponent MoveEvent carries clock fields (clock-sync bug)', async () => {
+      // The bug (26.6): an opponent move over STOMP never refreshed the
+      // clocks — `applyOpponentMove` ignored the event's clock fields — so
+      // each tab only updated clocks on its OWN moves and they diverged.
+      // The fix propagates whiteTimeRemainingMs/blackTimeRemainingMs +
+      // playedAt (→ lastMoveAt) from the event into gameState.
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          // Start frozen at 5:00 / 5:00, no lastMoveAt yet.
+          HttpResponse.json(sampleTimedGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      // Both clocks start at the frozen 5:00.
+      const initial = await screen.findAllByRole('timer');
+      expect(initial).toHaveLength(2);
+      initial.forEach((clock) => expect(clock).toHaveAccessibleName(/5:00/));
+
+      await waitFor(() => {
+        expect(currentMockClient?.subscriptions).toHaveLength(2);
+      });
+      const client = currentMockClient as MockStompClient;
+
+      act(() => {
+        // The opponent (player-2 = Black) moves. The event carries fresh
+        // clocks: Black spent 20s (→ 4:40) and White's clock is 4:55. Turn
+        // returns to White (the local player), so White's clock will tick
+        // and Black's is now frozen at the new value.
+        client.dispatch<GameTopicEvent>(
+          '/topic/games/game-uuid-1',
+          opponentMoveEvent({
+            from: 'e7',
+            to: 'e5',
+            fen: POST_E4_FEN,
+            turn: Side.White,
+            whiteTimeRemainingMs: 295_000,
+            blackTimeRemainingMs: 280_000,
+            playedAt: '2026-05-21T12:00:20.000Z',
+          }),
+        );
+      });
+
+      // The opponent (Black) clock is now frozen at the event's 4:40 — proof
+      // the event's clock fields propagated. Before the fix it stayed 5:00.
+      await waitFor(() => {
+        expect(screen.getByRole('timer', { name: /Bob clock: 4:40/ })).toBeInTheDocument();
+      });
+      // Neither clock is stuck on the stale 5:00 from the initial GET.
+      expect(screen.queryByRole('timer', { name: /5:00/ })).not.toBeInTheDocument();
+    });
+
+    it('does not break an untimed game when an opponent MoveEvent has null clock fields', async () => {
+      // Regression guard: untimed games send null *RemainingMs on the wire;
+      // propagating them must keep the untimed game clock-free.
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(), { status: 200 }),
+        ),
+      );
+
+      renderWithProviders('/play', inRoomWhite);
+
+      await waitFor(() => {
+        expect(currentMockClient?.subscriptions).toHaveLength(2);
+      });
+      const client = currentMockClient as MockStompClient;
+
+      act(() => {
+        client.dispatch<GameTopicEvent>(
+          '/topic/games/game-uuid-1',
+          // opponentMoveEvent defaults whiteTimeRemainingMs/blackTimeRemainingMs to null.
+          opponentMoveEvent({ from: 'e7', to: 'e5', fen: POST_E4_FEN }),
+        );
+      });
+
+      // The move applied (board updated) but no clocks appeared.
+      await waitFor(() => {
+        expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+      });
+      expect(screen.queryAllByRole('timer')).toHaveLength(0);
     });
   });
 

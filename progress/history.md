@@ -4343,3 +4343,39 @@ src/hooks/useRoomDiscovery.ts (+test), src/pages/Play/Play.tsx (+test),
 notes/26-bot-opponent.md (new).
 
 **Feature note:** `notes/26-bot-opponent.md`
+
+## 2026-06-24 — time-control-clock-sync (26.6)
+
+**Status:** done
+
+**Summary:** Prod bug fix found by the user live-testing 25: the clocks
+diverged between the two players (each tab showed different times for the
+same clock). Root cause: an OPPONENT move (STOMP MoveEvent) never refreshed
+the clock fields. The own-move path (submitMove REST → syncFromServer) gets
+the full GameState with fresh clocks, but `applyOpponentMove` only updated
+{fen,status,turn,moves} and left whiteTimeRemainingMs/blackTimeRemainingMs/
+lastMoveAt at the initial-GET value — so each tab only refreshed clocks on
+ITS OWN moves and they drifted apart. The backend MoveEvent.java already
+sends whiteTimeRemainingMs/blackTimeRemainingMs/playedAt; the frontend
+MoveEvent type just omitted the two *RemainingMs fields (playedAt was
+already there but unused), and the STOMP boundary is a bare
+`JSON.parse as T` (stompClient.ts:139) with no per-field narrowing — so
+widening the type + propagating in applyOpponentMove is the whole fix. The
+25 tests missed it because they mocked MoveEvent without clock fields (the
+type lacked them). Added the two fields to the type and propagated all three
+(playedAt → lastMoveAt) in applyOpponentMove. A new test dispatches an
+opponent MoveEvent with concrete clocks and asserts the rendered opponent
+clock moves off the stale 5:00 to the event's 4:40 (fails on the unfixed
+code). reviewer approved after one round-trip (the feature note had Prettier
+drift failing format:check — leader formatted it); ui-reviewer skipped (no
+new UI surface, pure data-flow fix). `./init.sh` green (437 tests,
+leader-verified). Documented follow-up: the countdown derives elapsed as
+now-playedAt with the client system clock, so a residual cross-machine skew
+remains; anchoring to receipt time (`clock-skew-anchoring`) would harden it
+— out of scope here, the dominant bug was the missing propagation.
+
+**Files touched:** src/api/wsEvents.ts (+test), src/pages/Play/Play.tsx
+(+test), src/hooks/useGameStomp.test.tsx,
+notes/26.6-time-control-clock-sync.md (new).
+
+**Feature note:** `notes/26.6-time-control-clock-sync.md`

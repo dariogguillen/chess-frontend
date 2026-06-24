@@ -1,16 +1,28 @@
 # Current session
 
-**Status:** `bot-opponent` (26) CLOSED (2026-06-23). reviewer + ui-reviewer
-approved; `./init.sh` green (435 tests). See history.md.
+**Status:** `time-control-clock-sync` (26.6) CLOSED (2026-06-24). reviewer
+approved (ui-reviewer skipped — pure data-flow fix); `./init.sh` green
+(437 tests, leader-verified). The opponent-move clock-divergence prod bug
+is fixed. See history.md.
 
-🏁 The three "activate the NewGame toggles" features (24 side, 25 time,
-26 bot) are COMPLETE. NewGame's Position, Timer, and Play-against controls
-are all live.
+NEXT (the LAST backlog item): **`game-reviews` (27)**.
 
-NEXT (and the LAST backlog item): **`game-reviews` (27)** — the user's
-priority product feature.
+**Counts:** 48 done · 1 pending (27 game-reviews).
 
-**Counts:** 47 done · 1 pending (27 game-reviews).
+## Carry-over follow-up (from 26.6) — `clock-skew-anchoring`
+
+The countdown derives `elapsed = now - playedAt` using the CLIENT system
+clock, so across two DIFFERENT machines a residual skew remains (fine for
+NTP-synced clocks; visible if a client's clock is off). Hardening: anchor
+the countdown to receipt time (capture `Date.now()` when the snapshot
+arrives, tick from there) instead of the server's `playedAt`. Low priority;
+the dominant bug (missing propagation) is fixed. Not a formal feature yet.
+
+## ⚠️ Uncommitted — awaiting commit/deploy
+
+CLOSED but UNCOMMITTED: 20.9, 21, 22.5, 22.7, 24, 25, 26, 26.6 (22 already
+live in prod). `./init.sh` green with all of it. The clock-sync fix (26.6)
+should ship soon — the divergence is live in prod right now.
 
 ## ⚠️ Uncommitted — awaiting commit/deploy
 

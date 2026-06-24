@@ -33,6 +33,8 @@ const sampleMove = (overrides: Partial<MoveEvent> = {}): MoveEvent => ({
   status: GameStatus.Ongoing,
   turn: Side.Black,
   moveNumber: 1,
+  whiteTimeRemainingMs: null,
+  blackTimeRemainingMs: null,
   playedAt: '2026-05-21T12:00:00.000Z',
   ...overrides,
 });

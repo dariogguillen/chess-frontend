@@ -780,6 +780,20 @@
     ]
   },
   {
+    "id": "time-control-clock-sync",
+    "title": "Fix: opponent move doesn't refresh the clocks (live divergence)",
+    "description": "Bug found live-testing 25 in prod: the clocks diverge between the two players because an OPPONENT move (STOMP MoveEvent) never refreshes the clock fields. Your own move goes through submitMove (REST) which returns the full GameState with fresh clocks (Play.tsx:620-621, syncFromServer), but applyOpponentMove (Play.tsx) only updates {fen,status,turn,moves} and leaves whiteTimeRemainingMs/blackTimeRemainingMs/lastMoveAt at the value from the initial GET — so each tab only refreshes clocks on ITS OWN moves and they drift apart. The backend MoveEvent.java DOES send whiteTimeRemainingMs/blackTimeRemainingMs/playedAt; the frontend MoveEvent type (wsEvents.ts:84-95) just omits them and applyOpponentMove ignores them. The 25 tests missed it because they mock MoveEvent without clock fields (the type lacked them). Fix: add the three clock fields to the frontend MoveEvent type (mapping playedAt -> lastMoveAt) and propagate them in applyOpponentMove. Secondary consideration (note, likely separate): the countdown derives elapsed as now-playedAt using the client system clock, so across two DIFFERENT machines a clock skew remains; anchoring the countdown to receipt time would harden it, but the dominant visible bug here is the missing propagation (same-machine tabs prove it).",
+    "status": "done",
+    "priority": 26.6,
+    "acceptance": [
+      "The frontend MoveEvent type carries whiteTimeRemainingMs/blackTimeRemainingMs (number|null) and playedAt (string), matching the backend wire shape.",
+      "applyOpponentMove propagates the event's clock fields + playedAt (as lastMoveAt) into gameState, so an opponent move refreshes both clocks.",
+      "After an opponent move, both players see consistent clocks (verified by a test dispatching a MoveEvent with clock fields and asserting gameState + the rendered clocks update).",
+      "The own-move path (submitMove -> syncFromServer) is unchanged and still correct; untimed games still render no clocks.",
+      "./init.sh green."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

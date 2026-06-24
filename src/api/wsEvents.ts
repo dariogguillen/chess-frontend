@@ -77,9 +77,19 @@ export type GameTopicEventType = (typeof GameTopicEventType)[keyof typeof GameTo
  * - `turn`       — side to move now (NOT the side that just moved; that
  *                  is in `side`).
  * - `moveNumber` — 1-based half-move count.
+ * - `whiteTimeRemainingMs` — White's clock (ms) frozen at this move, or
+ *                  `null` for an untimed game (the field is absent on the
+ *                  wire). Propagated into `GameState` by `applyOpponentMove`
+ *                  so an opponent's move refreshes the clocks — exactly as
+ *                  the REST own-move path does via `syncFromServer`. Without
+ *                  this the two players' clocks diverge (each tab only
+ *                  refreshed on its OWN moves).
+ * - `blackTimeRemainingMs` — Black's clock (ms) frozen at this move, or
+ *                  `null` when untimed.
  * - `playedAt`   — ISO-8601 instant (string) of when the backend applied
- *                  the move. Not consumed for logic today; preserved on
- *                  the type for future display / debugging.
+ *                  the move. Mapped to `GameState.lastMoveAt` so the live
+ *                  countdown re-anchors from the new move. Sent whenever the
+ *                  game is timed (null clock fields ⇒ untimed).
  */
 export type MoveEvent = Readonly<{
   type: typeof GameTopicEventType.Move;
@@ -93,6 +103,8 @@ export type MoveEvent = Readonly<{
   status: GameStatus;
   turn: Side;
   moveNumber: number;
+  whiteTimeRemainingMs: number | null;
+  blackTimeRemainingMs: number | null;
   playedAt: string;
 }>;
 
