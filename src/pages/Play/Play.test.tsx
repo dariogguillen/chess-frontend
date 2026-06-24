@@ -235,6 +235,20 @@ const renderWithProviders = (
     </MemoryRouter>,
   );
 
+// Render Play in spectator mode (`<Play spectator />`, the `/watch`
+// route). No in-room session is provided — a spectator derives everything
+// from the URL `?roomId=` (Option B). The default entry is the watch URL.
+const renderSpectator = (initialEntry: string = '/watch?roomId=K7M3X9') =>
+  render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <UserContextProvider>
+        <BoardThemeProvider>
+          <Play spectator />
+        </BoardThemeProvider>
+      </UserContextProvider>
+    </MemoryRouter>,
+  );
+
 // Render Play inside a real route tree with a `/new` sentinel. The
 // feature-11.8 entry guard redirects via React Router's <Navigate>,
 // which calls the REAL useNavigate (the suite's mock only intercepts the
@@ -2358,6 +2372,33 @@ describe('Play page', () => {
       expect(screen.queryByRole('button', { name: /copy invite link/i })).not.toBeInTheDocument();
     });
 
+    it('copies a roomId-only watch link (no token) for the player to share', async () => {
+      stayWaiting();
+      const user = setupWithClipboard();
+      renderWithProviders('/play', inRoomWhitePreGameWithToken);
+
+      const copyWatch = await screen.findByRole('button', { name: /copy watch link/i });
+      await user.click(copyWatch);
+
+      const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const expected = `${window.location.origin}${base}/watch?roomId=K7M3X9`;
+      expect(writeText).toHaveBeenCalledWith(expected);
+      // The watch link carries the public roomId only — never the join
+      // token, even when the creator holds one.
+      expect(writeText).not.toHaveBeenCalledWith(expect.stringContaining('#'));
+      expect(await screen.findByText(/watch link copied/i)).toBeInTheDocument();
+    });
+
+    it('keeps the watch control available after the opponent has joined', async () => {
+      // Unlike the invite link (hidden once the room is full), the watch
+      // link stays — spectators can be invited any time the game is live.
+      renderWithProviders('/play', inRoomWhite);
+
+      expect(await screen.findByText('Bob')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy invite link/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /copy watch link/i })).toBeInTheDocument();
+    });
+
     it('surfaces a failure message when the clipboard write rejects', async () => {
       stayWaiting();
       writeText.mockRejectedValueOnce(new Error('denied'));
@@ -2368,6 +2409,159 @@ describe('Play page', () => {
       await user.click(copyLink);
 
       expect(await screen.findByText(/could not copy/i)).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // spectator-view (feature 26.7): /watch?roomId=X read-only mode
+  // ---------------------------------------------------------------
+
+  describe('spectator mode', () => {
+    // The public room GET that backs spectator discovery (roomId → gameId).
+    const roomActive = () =>
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
+          HttpResponse.json(
+            {
+              roomId: 'K7M3X9',
+              players: [
+                { id: 'player-1', displayName: 'Alice', role: 'WHITE' },
+                { id: 'player-2', displayName: 'Bob', role: 'BLACK' },
+              ],
+              gameId: 'game-uuid-1',
+              status: 'ACTIVE',
+            },
+            { status: 200 },
+          ),
+        ),
+      );
+
+    const gameStateOk = (overrides: Record<string, unknown> = {}) =>
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+          HttpResponse.json(sampleGameState(overrides), { status: 200 }),
+        ),
+      );
+
+    it('renders the board for /watch?roomId=X with no session (no redirect)', async () => {
+      roomActive();
+      gameStateOk();
+      renderSpectator();
+
+      // The board mounts — the entry guard does NOT redirect a spectator.
+      expect(await screen.findByTestId('chessboard-mock')).toBeInTheDocument();
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
+
+    it('subscribes to the game topic WITHOUT a playerId header (counted as a viewer)', async () => {
+      roomActive();
+      gameStateOk();
+      renderSpectator();
+
+      await screen.findByTestId('chessboard-mock');
+
+      await waitFor(() => {
+        const client = clientForTopicPrefix('/topic/games/');
+        expect(client).not.toBeNull();
+      });
+      const client = clientForTopicPrefix('/topic/games/');
+      const gameSub = client?.subscriptions.find((s) => s.topic === '/topic/games/game-uuid-1');
+      expect(gameSub).toBeDefined();
+      expect(gameSub?.headers).toBeUndefined();
+    });
+
+    it('shows a "Spectating" indicator and hides player controls', async () => {
+      roomActive();
+      gameStateOk();
+      renderSpectator();
+
+      await screen.findByTestId('chessboard-mock');
+
+      // The Spectating chip is present...
+      expect(await screen.findByText(/spectating/i)).toBeInTheDocument();
+      // ...and the turn indicator / share controls are not.
+      expect(screen.queryByText(/^Your Turn$/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Opponent's Turn$/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy invite link/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy watch link/i })).not.toBeInTheDocument();
+    });
+
+    it('renders both players from the game state', async () => {
+      roomActive();
+      gameStateOk();
+      renderSpectator();
+
+      // White (Alice) in the bottom row, Black (Bob) in the top row.
+      expect(await screen.findByText('Alice')).toBeInTheDocument();
+      expect(await screen.findByText('Bob')).toBeInTheDocument();
+      // A spectator is never "Waiting for opponent".
+      expect(screen.queryByText(/waiting for opponent/i)).not.toBeInTheDocument();
+    });
+
+    it('applies live opponent moves over STOMP', async () => {
+      roomActive();
+      gameStateOk();
+      renderSpectator();
+
+      await screen.findByTestId('chessboard-mock');
+
+      await waitFor(() => {
+        expect(clientForTopicPrefix('/topic/games/')).not.toBeNull();
+      });
+      const client = clientForTopicPrefix('/topic/games/');
+
+      act(() => {
+        client?.dispatch<GameTopicEvent>('/topic/games/game-uuid-1', opponentMoveEvent());
+      });
+
+      // The board position reflects the move that arrived over STOMP.
+      await waitFor(() => {
+        expect(lastChessboardOptions?.position).toBe(POST_E4_FEN);
+      });
+    });
+
+    it('opens the terminal modal when the spectated game ends', async () => {
+      roomActive();
+      gameStateOk({ status: 'CHECKMATE', turn: 'WHITE' });
+      renderSpectator();
+
+      // The terminal dialog appears for the spectator (they see the
+      // result). The copy renders in both the title and body, so assert
+      // at least one match rather than a unique node.
+      const matches = await screen.findAllByText(/checkmate/i);
+      expect(matches.length).toBeGreaterThan(0);
+    });
+
+    it('shows a friendly message (not an empty board) when the room has no active game', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
+          HttpResponse.json(
+            {
+              roomId: 'K7M3X9',
+              players: [{ id: 'player-1', displayName: 'Alice', role: 'WHITE' }],
+              gameId: null,
+              status: 'WAITING_FOR_PLAYER',
+            },
+            { status: 200 },
+          ),
+        ),
+      );
+      renderSpectator();
+
+      expect(await screen.findByText(/hasn't started/i)).toBeInTheDocument();
+      expect(screen.queryByTestId('chessboard-mock')).not.toBeInTheDocument();
+    });
+
+    it('shows a friendly "room not found" message on a 404', async () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
+          HttpResponse.json({ error: 'ROOM_NOT_FOUND' }, { status: 404 }),
+        ),
+      );
+      renderSpectator();
+
+      expect(await screen.findByText(/room not found/i)).toBeInTheDocument();
+      expect(screen.queryByTestId('chessboard-mock')).not.toBeInTheDocument();
     });
   });
 });

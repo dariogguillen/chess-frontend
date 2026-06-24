@@ -794,6 +794,21 @@
     ]
   },
   {
+    "id": "spectator-view",
+    "title": "Watch a live game as a spectator (/watch?roomId=X)",
+    "description": "A spectator opens a /watch?roomId=X link and watches a live game read-only. The backend already supports it fully (GET /api/rooms/{id} public → gameId; /topic/games/{id} + /viewers public; a spectator = a STOMP client subscribed WITHOUT a playerId header, which the ViewerCountTracker self-excludes). Half of it already works in Play: the board is read-only without role (canDragPiece false), useGameStomp already exposes viewerCount, and the clocks/move-list/terminal-modal derive from gameState. Confirmed with the user: entry ONLY via a watch link (no manual code field); add a 'Copy watch link' button in Play (player side, roomId-only, no token). Architecture (confirmed): Option B — a spectator flow derived from roomIdFromUrl, NO new RoomState arm in the context (the roomId lives in the URL so a refresh re-discovers; no persistence needed). Reuse the Play component with a spectator flag (route /watch passes it). This closes the loop from 22.5/room-join-ux where the bare room code was left without a user-facing purpose (\"only supports watch, not built yet\").",
+    "status": "done",
+    "priority": 26.7,
+    "acceptance": [
+      "A new /watch?roomId=X route renders Play in spectator mode; the entry guard no longer redirects when a roomId is in the URL (today room.phase===None → /new).",
+      "Spectator discovers the gameId from the roomId via a public GET (no playerId), then subscribes to the game over STOMP WITHOUT a playerId header (so the backend counts them as a viewer) and receives all moves (no self-filter).",
+      "Spectator sees: read-only board, live moves, clocks (timed games), move list, viewer count, and the terminal modal when the game ends. Hidden in spectator mode: the invite link, the turn indicator / 'Your Turn', the abandon banner's close-to-home action, and any move controls.",
+      "A 'Copy watch link' button (roomId-only, /watch?roomId=X) is added in Play next to the invite link, for the player to share with spectators.",
+      "Error paths: a roomId with no active game (WAITING, gameId null) or a 404 shows a friendly message rather than an empty board; a refresh on /watch re-discovers from the URL.",
+      "Player flows (play/join/create) are completely unaffected; anonymous play unaffected. ./init.sh green; ui-reviewer approves the spectator UI."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

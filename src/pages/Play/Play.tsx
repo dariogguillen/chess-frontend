@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import LinkIcon from '@mui/icons-material/Link';
+import RssFeedIcon from '@mui/icons-material/RssFeed';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -51,6 +52,7 @@ import { useClockCountdown } from '../../hooks/useClockCountdown';
 import { useGameStomp } from '../../hooks/useGameStomp';
 import { useMoveHints } from '../../hooks/useMoveHints';
 import { useRoomDiscovery } from '../../hooks/useRoomDiscovery';
+import { useSpectatorDiscovery } from '../../hooks/useSpectatorDiscovery';
 
 /** The optimistic-state snapshot we keep so we can revert on POST failure. */
 type PendingSnapshot = Readonly<{
@@ -116,6 +118,21 @@ const timeoutMessage = (winnerId: string | null, localPlayerId: string | null): 
 };
 
 /**
+ * Props for {@link Play}. The `spectator` flag is set ONLY by the
+ * `/watch` route (`<Play spectator />` in `routes/Public.tsx`); the
+ * `/play` route renders `<Play />` with the default `false`, so every
+ * player flow is byte-for-byte unchanged.
+ *
+ * In spectator mode the page derives everything from the URL `?roomId=`:
+ * there is no in-room context arm, no playerId, no role, no join token.
+ * That is Option B from the plan — the roomId lives in the URL, so a
+ * refresh re-discovers and no context persistence is needed.
+ */
+export type PlayProps = Readonly<{
+  spectator?: boolean;
+}>;
+
+/**
  * Play page. Server-authoritative game view that wires the board to
  * `GET /api/games/{id}` (initial load) and `POST /api/games/{id}/moves`
  * (each drop) using the typed client in `src/api/games.ts`.
@@ -133,6 +150,10 @@ const timeoutMessage = (winnerId: string | null, localPlayerId: string | null): 
  * Failure mode: any POST error reverts the chess.js position to the
  * pre-move snapshot and surfaces the mapped error in a Snackbar.
  *
+ * Spectator mode (feature 26.7): when `spectator` is set, the page is a
+ * read-only watch view derived from the URL `?roomId=` — no player
+ * identity, no move controls. See {@link PlayProps}.
+ *
  * Session rehydrate (feature 10):
  *   - On mount, `UserContext` has already lazy-initialised `room` from
  *     sessionStorage (if present). We reconcile the URL `?roomId=...`
@@ -142,23 +163,45 @@ const timeoutMessage = (winnerId: string | null, localPlayerId: string | null): 
  *     `GAME_ALREADY_ENDED`, we Snackbar the message, clear the
  *     persisted session via `leaveRoom()`, and navigate back to `/new`.
  */
-const Play = () => {
+
+const Play = ({ spectator = false }: PlayProps) => {
   const { identity, room, leaveRoom, setGameId } = useUserContext();
   const { boardTheme } = useBoardTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const roomIdFromUrl = searchParams.get('roomId') || undefined;
 
-  // Effective room id: the in-room context arm wins. URL query is a
-  // dev shortcut so refreshing `/play?roomId=...` still renders the
-  // page title — it does not back game-state requests on its own.
-  const roomId = room.phase === RoomPhase.InRoom ? room.roomId : roomIdFromUrl;
-  const playerId = room.phase === RoomPhase.InRoom ? room.playerId : null;
-  const gameId = room.phase === RoomPhase.InRoom ? room.gameId : null;
+  const isSpectator = spectator === true;
+
+  // Effective room id. In spectator mode the roomId comes ONLY from the
+  // URL (no context arm); otherwise the in-room context arm wins, with
+  // the URL query as a dev shortcut so refreshing `/play?roomId=...`
+  // still renders the page title.
+  const roomId = isSpectator
+    ? roomIdFromUrl
+    : room.phase === RoomPhase.InRoom
+      ? room.roomId
+      : roomIdFromUrl;
+  // A spectator has no identity / role / token: it watches read-only and
+  // the STOMP subscribe omits the playerId header so the backend counts
+  // it as a viewer. Force all three null in spectator mode regardless of
+  // any stale context arm.
+  const playerId = isSpectator ? null : room.phase === RoomPhase.InRoom ? room.playerId : null;
+  // The gameId for a player comes from the in-room arm; for a spectator it
+  // is resolved from the roomId by `useSpectatorDiscovery` below and held
+  // in local state (`spectatorGameId`).
+  const playerGameId = room.phase === RoomPhase.InRoom ? room.gameId : null;
   // The secret join token, present only on the creator's in-room arm.
   // Drives whether the invite link carries a `#joinToken=…` fragment.
-  const joinToken = room.phase === RoomPhase.InRoom ? room.joinToken : null;
-  const role = room.phase === RoomPhase.InRoom ? room.role : null;
+  // Never present for a spectator.
+  const joinToken = isSpectator ? null : room.phase === RoomPhase.InRoom ? room.joinToken : null;
+  const role = isSpectator ? null : room.phase === RoomPhase.InRoom ? room.role : null;
+
+  // Spectator-discovered gameId. Held locally (Option B: no context arm)
+  // and combined with the player path below to form the effective gameId
+  // that backs the GET + STOMP flow.
+  const [spectatorGameId, setSpectatorGameId] = useState<string | null>(null);
+  const gameId = isSpectator ? spectatorGameId : playerGameId;
 
   // Entry guard (feature 11.8). Two mount-time conditions make `/play` a
   // dead-end and route us to `/new`:
@@ -184,6 +227,12 @@ const Play = () => {
   // captured boolean is already `false`, so this guard stays silent and
   // never competes with their imperative `navigate(...)`.
   const [redirectToNewGame] = useState<boolean>(() => {
+    // Spectator mode is never a dead-end as long as a roomId is in the
+    // URL: there is no in-room session to reconcile, and the page derives
+    // the game from the roomId. A spectator with NO roomId falls through
+    // to the friendly "Room not found" surface below (not a redirect), so
+    // it never redirects either.
+    if (isSpectator) return false;
     if (room.phase === RoomPhase.None) return true;
     return roomIdFromUrl !== undefined && room.roomId !== roomIdFromUrl;
   });
@@ -201,6 +250,10 @@ const Play = () => {
   useEffect(() => {
     if (reconciledRef.current) return;
     reconciledRef.current = true;
+    // Spectator mode never touches the in-room context (Option B), so the
+    // URL-vs-stored reconciliation does not apply — leave any unrelated
+    // session intact.
+    if (isSpectator) return;
     if (
       room.phase === RoomPhase.InRoom &&
       roomIdFromUrl !== undefined &&
@@ -446,7 +499,12 @@ const Play = () => {
   // `gameId !== null` guard short-circuits and the page goes straight to
   // the initial GET (which loads the bot game, including the bot's first
   // move when the human is Black).
-  const inRoom = room.phase === RoomPhase.InRoom;
+  //
+  // Rules of Hooks: BOTH discovery hooks are always called. In player
+  // mode the spectator hook is disabled with a null roomId; in spectator
+  // mode the player hook is disabled with a null roomId. Neither is
+  // called conditionally — only their inputs differ.
+  const inRoom = !isSpectator && room.phase === RoomPhase.InRoom;
   const discoveryRoomId = inRoom ? room.roomId : null;
   const discoveryPlayerId = inRoom ? room.playerId : null;
   const discoveryGameId = inRoom ? room.gameId : null;
@@ -456,6 +514,13 @@ const Play = () => {
     discoveryGameId,
     setGameId,
   );
+
+  // Spectator discovery: resolve the gameId from the URL roomId via a
+  // public GET. Disabled (null roomId) in player mode. The discovered
+  // gameId lands in `spectatorGameId`, which backs the GET + STOMP flow.
+  const spectatorRoomId = isSpectator ? (roomIdFromUrl ?? null) : null;
+  const { discoveryState: spectatorDiscoveryState, errorMessage: spectatorDiscoveryError } =
+    useSpectatorDiscovery(spectatorRoomId, setSpectatorGameId);
 
   /** Revert the chess.js position + rendered FEN to a pre-move snapshot. */
   const revertTo = useCallback(
@@ -946,10 +1011,23 @@ const Play = () => {
   // coloured square — see the feature note), so the two never conflict.
   const activeBoardTheme = boardThemeStyles[boardTheme];
 
+  // The name shown in the OPPONENT (top) row. For a player it is the side
+  // opposite their role. For a spectator (role null, no "opponent") it is
+  // the BLACK player — the board defaults to White's orientation, so Black
+  // sits at the top. Undefined while the game state has not loaded.
   const opponentDisplayName: string | undefined = useMemo(() => {
-    if (gameState === null || role === null) return undefined;
+    if (gameState === null) return undefined;
+    if (role === null) return gameState.black.displayName;
     return role === Role.White ? gameState.black.displayName : gameState.white.displayName;
   }, [gameState, role]);
+
+  // The name shown in the LOCAL (bottom) row. For a player it is their own
+  // identity. For a spectator it is the WHITE player (bottom of a
+  // white-oriented board). Undefined while loading in spectator mode.
+  const localDisplayName: string | undefined = useMemo(() => {
+    if (!isSpectator) return identity.displayName;
+    return gameState?.white.displayName;
+  }, [isSpectator, identity.displayName, gameState]);
 
   const boardOrientation: 'white' | 'black' = role === Role.Black ? 'black' : 'white';
 
@@ -982,6 +1060,17 @@ const Play = () => {
   const localClockActive = clockRunning && clockTurn === localSide;
   const opponentClockActive = clockRunning && clockTurn !== localSide;
 
+  // Spectator no-active-game / not-found surface. When the spectator
+  // discovery resolves to an error (room WAITING with no game, or a 404),
+  // we show the friendly message in place of the board rather than paint
+  // an empty board the visitor cannot interpret. Only relevant in
+  // spectator mode and only before any game state has loaded.
+  const showSpectatorError =
+    isSpectator &&
+    gameState === null &&
+    spectatorDiscoveryState === DiscoveryState.Error &&
+    spectatorDiscoveryError !== null;
+
   const isAbandoned = gameState !== null && gameState.status === GameStatus.Abandoned;
   // The terminal-status modal is suppressed for ABANDONED — the inline
   // banner takes over. The modal still covers CHECKMATE / STALEMATE /
@@ -1002,8 +1091,6 @@ const Play = () => {
       : gameState.status === GameStatus.Timeout && timedOutOutcome.set
         ? timeoutMessage(timedOutOutcome.winnerId, playerId)
         : terminalMessage(gameState.status, gameState.turn);
-
-  const displayName = identity.displayName;
 
   // Helper bound for the inline banner: route the user out of the
   // abandoned game cleanly. Mirrors the terminal-dialog Continue handler
@@ -1063,6 +1150,21 @@ const Play = () => {
     void copyToClipboard(buildInviteLink(roomId), 'Invite link copied');
   }, [buildInviteLink, copyToClipboard, roomId]);
 
+  // Build the spectator watch link: `…/watch?roomId=X`. Mirrors
+  // `buildInviteLink` but carries ONLY the roomId — no join token. The
+  // roomId is the public watch handle (anyone with it can `GET
+  // /api/rooms/{id}` and subscribe to the public game topics as a
+  // spectator); the join token authorises PLAYING and never rides here.
+  const buildWatchLink = useCallback((id: string): string => {
+    const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+    return `${window.location.origin}${base}/watch?roomId=${encodeURIComponent(id)}`;
+  }, []);
+
+  const handleCopyWatchLink = useCallback(() => {
+    if (roomId === undefined) return;
+    void copyToClipboard(buildWatchLink(roomId), 'Watch link copied');
+  }, [buildWatchLink, copyToClipboard, roomId]);
+
   // Render-time short-circuit for the entry guard and the reconciliation
   // mismatch. Placed AFTER all hooks so the Rules of Hooks hold (the hook
   // call order is identical on the render that returns <Navigate> and on
@@ -1079,12 +1181,25 @@ const Play = () => {
         <Grid size={{ xs: 12, md: 8 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="body1">
-              {opponentDisplayName ?? (
-                <Fragment>
-                  Waiting for opponent
-                  <CircularProgress size="15px" sx={{ ml: 1 }} />
-                </Fragment>
-              )}
+              {opponentDisplayName ??
+                // A spectator is not waiting for an opponent of their own —
+                // the game is already live. Show a neutral loading label
+                // until the game state (and both players' names) arrives,
+                // unless the friendly not-found / not-started surface has
+                // taken over below.
+                (isSpectator ? (
+                  !showSpectatorError && (
+                    <Fragment>
+                      Loading game
+                      <CircularProgress size="15px" sx={{ ml: 1 }} />
+                    </Fragment>
+                  )
+                ) : (
+                  <Fragment>
+                    Waiting for opponent
+                    <CircularProgress size="15px" sx={{ ml: 1 }} />
+                  </Fragment>
+                ))}
             </Typography>
             <OpponentStatus status={opponentStatus} />
             {hasClock && opponentClockMs !== null && (
@@ -1106,7 +1221,7 @@ const Play = () => {
                 it. A bare room code no longer joins a game (it needs the
                 token in the link's fragment), so there is no "copy code"
                 button anymore. */}
-            {roomId !== undefined && opponentDisplayName == null && (
+            {!isSpectator && roomId !== undefined && opponentDisplayName == null && (
               <Tooltip title="Copy invite link">
                 <IconButton
                   size="small"
@@ -1117,6 +1232,18 @@ const Play = () => {
                 </IconButton>
               </Tooltip>
             )}
+            {/* Copy a spectator watch link (roomId-only, /watch?roomId=X)
+                so the player can share the game with viewers. Shown to the
+                PLAYER only; a spectator never sees share controls. Unlike
+                the invite link it stays available after the opponent has
+                joined — spectators can be invited any time the game is on. */}
+            {!isSpectator && roomId !== undefined && (
+              <Tooltip title="Copy watch link">
+                <IconButton size="small" aria-label="Copy watch link" onClick={handleCopyWatchLink}>
+                  <RssFeedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             {connectionState === ConnectionState.Connecting && (
               <CircularProgress size="15px" aria-label="Connecting to live updates" />
             )}
@@ -1124,22 +1251,28 @@ const Play = () => {
         </Grid>
         <Grid size={{ xs: 12, md: 8 }}>
           <Box flexGrow={1} sx={{ maxWidth: 600 }}>
-            <Chessboard
-              options={{
-                position: fen,
-                onPieceDrop: onDrop,
-                onPieceDrag: handlePieceDrag,
-                onSquareClick,
-                canDragPiece,
-                boardOrientation,
-                allowDrawingArrows: true,
-                lightSquareStyle: activeBoardTheme.light,
-                darkSquareStyle: activeBoardTheme.dark,
-                lightSquareNotationStyle: activeBoardTheme.lightNotation,
-                darkSquareNotationStyle: activeBoardTheme.darkNotation,
-                squareStyles,
-              }}
-            />
+            {showSpectatorError ? (
+              <Alert severity="info" variant="outlined">
+                {spectatorDiscoveryError}
+              </Alert>
+            ) : (
+              <Chessboard
+                options={{
+                  position: fen,
+                  onPieceDrop: onDrop,
+                  onPieceDrag: handlePieceDrag,
+                  onSquareClick,
+                  canDragPiece,
+                  boardOrientation,
+                  allowDrawingArrows: true,
+                  lightSquareStyle: activeBoardTheme.light,
+                  darkSquareStyle: activeBoardTheme.dark,
+                  lightSquareNotationStyle: activeBoardTheme.lightNotation,
+                  darkSquareNotationStyle: activeBoardTheme.darkNotation,
+                  squareStyles,
+                }}
+              />
+            )}
             {isAbandoned && playerId !== null && (
               <GameOverByAbandonBanner
                 // The live `GAME_ABANDONED` event carries the canonical
@@ -1166,10 +1299,28 @@ const Play = () => {
         </Grid>
         <Grid size={{ xs: 12, md: 8 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Typography variant="body1">{displayName}</Typography>
-            <TurnIndicator gameState={gameState} role={role} />
+            <Typography variant="body1">{localDisplayName}</Typography>
+            {/* A spectator has no turn of their own; the TurnIndicator
+                (which already returns null when role is null) is replaced
+                by a static "Spectating" chip so the read-only nature of the
+                view is conveyed in text, not just by the absent controls. */}
+            {isSpectator ? (
+              <Chip
+                icon={<VisibilityIcon />}
+                label="Spectating"
+                size="small"
+                variant="outlined"
+                aria-label="You are watching this game as a spectator"
+              />
+            ) : (
+              <TurnIndicator gameState={gameState} role={role} />
+            )}
             {hasClock && localClockMs !== null && (
-              <Clock remainingMs={localClockMs} active={localClockActive} label={displayName} />
+              <Clock
+                remainingMs={localClockMs}
+                active={localClockActive}
+                label={localDisplayName ?? 'White'}
+              />
             )}
           </Stack>
         </Grid>

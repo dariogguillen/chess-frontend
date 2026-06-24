@@ -1,13 +1,131 @@
 # Current session
 
-**Status:** `time-control-clock-sync` (26.6) CLOSED (2026-06-24). reviewer
-approved (ui-reviewer skipped — pure data-flow fix); `./init.sh` green
-(437 tests, leader-verified). The opponent-move clock-divergence prod bug
-is fixed. See history.md.
+**Status:** `spectator-view` (26.7) CLOSED (2026-06-24). reviewer +
+ui-reviewer approved; `./init.sh` green (454 tests). See history.md.
+Watch-a-game via /watch?roomId=X is live.
 
-NEXT (the LAST backlog item): **`game-reviews` (27)**.
+**Counts:** 49 done · 1 pending (27 game-reviews, PAUSED on backend).
 
-**Counts:** 48 done · 1 pending (27 game-reviews).
+## ⚠️ game-reviews (27) is BLOCKED on the backend — user's call
+
+`/api/me/games` (MyGameSummary) lacks a `winnerSide`/`result` field, so W/L
+per game can't be shown — decided with the user to WAIT and add it to the
+backend first (a small additive field; the backend knows the winner). Until
+then, game-reviews stays paused. The frontend has now consumed ~everything
+else the deployed backend offers (see the backend-gap audit done 2026-06-24:
+only /api/me/games and the low-value /api/players/{id}/games anonymous
+history remain unused).
+
+## Deferred follow-ups (non-blocking, tracked)
+
+- `spectator-ended-game-ux` (26.7 reviewer): a spectator opening a link to a
+  JUST-ENDED game hits the player error path (leaveRoom + /new). Friendlier
+  surface needed. Edge case.
+- `clock-skew-anchoring` (26.6): countdown uses client `now - playedAt`;
+  cross-machine skew residual. Anchor to receipt time. Low priority.
+- Per-route `document.title` (incl. the new /watch) — standing tech-polish.
+
+## ⚠️ Uncommitted — many features await the next push
+
+CLOSED but UNCOMMITTED: 20.9, 21, 22.5, 22.7, 24, 25, 26, 26.6, 26.7
+(22 already live in prod). `./init.sh` green with all of it.
+
+## Next options (with the user)
+
+1. Commit/deploy the backlog (recommended — lots of visible features + the
+   clock-sync fix are only local).
+2. game-reviews backend field (`winnerSide` on MyGameSummary) in the
+   companion repo, then resume 27.
+3. Pick up a deferred follow-up above.
+
+## Plan — `spectator-view` (26.7, IN PROGRESS)
+
+A spectator opens `/watch?roomId=X` and watches a live game read-only.
+Confirmed with the user: entry ONLY via a watch link (no manual code
+field); add a "Copy watch link" button in Play. Architecture: **Option B**
+— spectator flow derived from `roomIdFromUrl`, NO new RoomState arm (the
+roomId is in the URL, so a refresh re-discovers; no context persistence).
+Reuse the Play component with a `spectator` prop.
+
+**What ALREADY works (Explore-confirmed):** board read-only without role
+(canDragPiece false, Play.tsx:864-868); viewerCount in useGameStomp; clocks/
+move-list/terminal-modal derive from gameState; `getRoomState` (GET /api/
+rooms/{id}) + the game/viewers STOMP topics are public.
+
+**What BLOCKS the spectator today (file:line):**
+- Entry guard redirects when `room.phase === None` (Play.tsx:163-189, the
+  `<Navigate to="/new">` at ~1072). Fix: don't redirect when a spectator
+  roomId is in the URL.
+- `useRoomDiscovery` requires playerId (useRoomDiscovery.ts:124).
+- `useGameStomp` requires playerId (useGameStomp.ts:151-159) and sends the
+  `{ playerId }` self-exclusion header (~283) — a spectator must subscribe
+  WITHOUT it so the ViewerCountTracker counts them; the self-filter
+  (`movedBy === playerId`, ~209) is already a no-op when playerId is null.
+
+### Steps
+1. **Routing (`routes/Public.tsx`):** add `{ path: 'watch', element:
+   <Play spectator /> }` (lazy Play already imported). Play gains an
+   optional `spectator?: boolean` prop (default false).
+2. **Play — spectator derivation:** when `spectator`, derive `roomId` from
+   `roomIdFromUrl` (NOT the context), and force `playerId=null`,
+   `role=null`, `joinToken=null`. `isSpectator = spectator === true`.
+3. **Entry guard:** don't redirect a spectator that has a `roomIdFromUrl`
+   (today `room.phase===None` → /new). Keep the player guard intact.
+4. **Discovery:** the spectator needs the gameId from the roomId via a
+   public GET (getRoomState → gameId; no STOMP RoomJoinedEvent wait — the
+   game is already ACTIVE). Either a small new `useSpectatorDiscovery(roomId)`
+   (GET only) OR extend useRoomDiscovery. RESPECT the rules of hooks: call
+   both player- and spectator-paths unconditionally, gating each with null
+   params (don't call hooks conditionally). Implementer's judgment;
+   minimize duplication and risk.
+5. **STOMP:** the spectator subscribes to `/topic/games/{gameId}` (+/viewers)
+   WITHOUT the playerId header. PREFER extending `useGameStomp` to accept a
+   null playerId as spectator mode (omit the header, self-filter already
+   no-ops) over duplicating its reconnect/resync/viewerCount/opponentStatus
+   logic — but keep the player path's tests green. Implementer's judgment.
+6. **UI in spectator mode — HIDE:** the invite-link button, the
+   TurnIndicator / "Your Turn", the abandon banner's close-to-home action,
+   any move affordance (board already read-only). **KEEP:** board, move
+   list (22.7), clocks (25), viewer count, terminal modal (the spectator
+   sees the result). Show a small "Spectating" indicator where the turn
+   indicator was. Board orientation defaults to white (role null) — a flip
+   button is out of scope.
+7. **"Copy watch link" (player side):** add a `buildWatchLink(roomId)` →
+   `…/watch?roomId=X` (roomId-only, no token; mirror buildInviteLink at
+   ~1030 minus the fragment) and a copy IconButton next to the invite-link
+   one (~1109). Visible to the PLAYER (hidden for the spectator).
+8. **Error paths:** roomId with no active game (WAITING → gameId null) or a
+   404 from getRoomState → a friendly message ("This game hasn't started"
+   / "Room not found"), not an empty board. A refresh on /watch re-derives
+   from the URL (works because roomId is in the URL).
+
+### Tests
+- New `useSpectatorDiscovery` (or the extended discovery): GET resolves
+  gameId, no playerId needed; WAITING/404 surfaces the error.
+- `useGameStomp` (extended): with null playerId it subscribes WITHOUT the
+  header and applies no self-filter; viewerCount still works; player-path
+  tests unchanged.
+- Play spectator suite: mounting `/watch?roomId=X` with no session renders
+  the board (no redirect); moves/clocks update; invite link + turn
+  indicator hidden; terminal modal shows; the no-active-game error renders.
+  Update the existing entry-guard tests (Play.test.tsx ~292-316) for the
+  new spectator-allowed condition.
+- Player Play tests stay green (spectator defaults false).
+
+### Accessibility (ui-reviewer REQUIRED — new view + Play branch)
+The "Spectating" indicator is text; the watch-link button has an accessible
+name; hiding controls doesn't strand focus; the read-only board is still
+navigable/announced as today.
+
+### Out of scope
+A live-games lobby/list (backend offers none); board-flip for the
+spectator; spectator chat; game-reviews (27). No new deps. `./init.sh`
+green. All player flows unaffected.
+
+---
+
+**Closed earlier this session:** 20.9, 21, 22(prod), 22.5, 22.7, 24, 25,
+26, 26.6. Uncommitted: everything except 22 awaits the next push.
 
 ## Carry-over follow-up (from 26.6) — `clock-skew-anchoring`
 

@@ -4379,3 +4379,44 @@ remains; anchoring to receipt time (`clock-skew-anchoring`) would harden it
 notes/26.6-time-control-clock-sync.md (new).
 
 **Feature note:** `notes/26.6-time-control-clock-sync.md`
+
+## 2026-06-24 — spectator-view (26.7)
+
+**Status:** done
+
+**Summary:** Watch a live game read-only via a /watch?roomId=X link. The
+backend already supported it (public GET /api/rooms/{id} → gameId; public
+game/viewers STOMP topics; a spectator = a STOMP client with no playerId
+header, self-excluded by the ViewerCountTracker), and half of Play already
+worked for it (read-only board without role, viewerCount, clocks/move-list/
+terminal-modal from gameState). Confirmed with the user: entry ONLY via a
+watch link (no manual code field) + a "Copy watch link" button on the player
+side. Architecture: Option B — the spectator flow derives from
+roomIdFromUrl with NO new RoomState arm (the roomId is in the URL, so a
+refresh re-discovers; no context persistence). Reused Play with a
+`spectator` prop (route /watch passes it). Extended useGameStomp to accept
+a null playerId (subscribe WITHOUT the {playerId} header so the viewer is
+counted; the movedBy===playerId self-filter is a structural no-op) rather
+than forking ~120 lines of reconnect/resync logic; the player path stays
+byte-equivalent. Added a small GET-only useSpectatorDiscovery (roomId →
+gameId; WAITING/gameId-null and 404 surface as terminal friendly errors).
+Play in spectator mode bypasses the entry guard + reconciliation, hides the
+invite/watch-link buttons + TurnIndicator + abandon banner + all move
+affordances, and shows a text "Spectating" chip, the read-only board, move
+list, clocks, viewer count, and the terminal modal. A no-active-game /
+not-found error renders an inline Alert instead of an empty board. This
+closes the loop from 22.5 where the bare room code was left without a
+user-facing purpose. reviewer + ui-reviewer approved; `./init.sh` green
+(454 tests, +33). No new deps (RssFeedIcon per-path).
+
+DEFERRED follow-up (reviewer-flagged, non-blocking): a spectator opening a
+link to a JUST-ENDED game hits the player-oriented game-state error path
+(Play.tsx:574-580 / 660-663) which calls leaveRoom() + navigate('/new') —
+odd for a spectator (no session to leave). A friendlier spectator surface
+("this game has ended") would be the fix. Edge case; tracked, not urgent.
+
+**Files touched:** src/hooks/useSpectatorDiscovery.ts (new, +test),
+src/hooks/useGameStomp.ts (+test), src/pages/Play/Play.tsx (+test),
+src/routes/Public.tsx, notes/26.7-spectator-view.md (new).
+
+**Feature note:** `notes/26.7-spectator-view.md`

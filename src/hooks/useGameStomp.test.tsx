@@ -102,13 +102,67 @@ describe('useGameStomp', () => {
     expect(result.current.opponentStatus).toEqual({ kind: 'connected' });
   });
 
-  it('does nothing when playerId is null', () => {
+  it('subscribes in spectator mode (playerId null) WITHOUT the playerId header', async () => {
     const { mock, factory } = withMockClient();
 
-    renderHook(() => useGameStomp(GAME_ID, null, vi.fn(), { clientFactory: factory }));
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, null, vi.fn(), { clientFactory: factory }),
+    );
 
-    expect(factory).not.toHaveBeenCalled();
-    expect(mock.connectCalls).toBe(0);
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    // A spectator subscribes to both topics but the game topic carries NO
+    // playerId header — that omission is exactly what makes the backend's
+    // ViewerCountTracker COUNT them as a viewer.
+    expect(mock.connectCalls).toBe(1);
+    expect(mock.subscriptions).toEqual([
+      { topic: `/topic/games/${GAME_ID}`, headers: undefined },
+      { topic: `/topic/games/${GAME_ID}/viewers`, headers: undefined },
+    ]);
+  });
+
+  it('applies no self-filter in spectator mode — every move reaches the callback', async () => {
+    const { mock, factory } = withMockClient();
+    const onMove = vi.fn();
+
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, null, onMove, { clientFactory: factory }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    // With playerId null the `movedBy === playerId` self-filter never
+    // matches, so BOTH sides' moves flow through — a spectator watches
+    // the whole game.
+    const whiteMove = sampleMove({ movedBy: PLAYER_ID });
+    const blackMove = sampleMove({ movedBy: OPPONENT_ID });
+    act(() => {
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, whiteMove);
+      mock.dispatch<GameTopicEvent>(`/topic/games/${GAME_ID}`, blackMove);
+    });
+
+    expect(onMove).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates viewerCount in spectator mode (playerId null)', async () => {
+    const { mock, factory } = withMockClient();
+
+    const { result } = renderHook(() =>
+      useGameStomp(GAME_ID, null, vi.fn(), { clientFactory: factory }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe(ConnectionState.Connected);
+    });
+
+    act(() => {
+      mock.dispatch<ViewerCountEvent>(`/topic/games/${GAME_ID}/viewers`, sampleViewerCount(4));
+    });
+    expect(result.current.viewerCount).toBe(4);
   });
 
   it('connects and subscribes to both topics on mount, with playerId only on the game topic', async () => {

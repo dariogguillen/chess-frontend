@@ -38,6 +38,7 @@ const router = createBrowserRouter(
         { path: 'home', element: <Home /> },
         { path: 'new', element: <NewGame /> },
         { path: 'play', element: <Play /> },
+        { path: 'watch', element: <Play spectator /> },
         { path: 'login', element: <Login /> },
         { path: 'register', element: <Register /> },
         { path: 'auth/callback', element: <AuthCallback /> },

@@ -60,6 +60,19 @@ export type UseGameStompOptions = Readonly<{
  *   discriminated by the `type` field; the hook narrows on it and
  *   dispatches to the right slice (move callback, opponent-status state,
  *   abandon callback, timed-out callback).
+ *
+ *   **Spectator mode (`playerId === null`).** A `/watch` visitor has no
+ *   player identity. The hook still subscribes — but WITHOUT the
+ *   `playerId` SUBSCRIBE header, which is exactly what makes the
+ *   backend's `ViewerCountTracker` COUNT the subscriber as a spectator
+ *   (a player declares itself via the header and is excluded; a
+ *   spectator omits it and is tallied). The move self-filter
+ *   (`movedBy === playerId`) is then a no-op — `movedBy` is a real
+ *   UUID and `playerId` is null, so every move flows through to
+ *   `onOpponentMove`, which is what a spectator wants (they see BOTH
+ *   sides' moves). The opponent-status arms key off `event.playerId ===
+ *   playerId`, also a no-op with null, so a spectator never flips its
+ *   own chip (there is none to flip).
  * - `/topic/games/{gameId}/viewers` — viewer count topic. No header
  *   (the moves topic already carries identity; this one is just a
  *   counter the server pushes whenever it changes).
@@ -68,7 +81,8 @@ export type UseGameStompOptions = Readonly<{
  *
  * - `gameId === null` → no-op. No connection, no subscriptions. The
  *   hook is safe to mount on a Play page that has not yet resolved
- *   its game state.
+ *   its game state. (A null `playerId` is NOT a no-op — that is the
+ *   spectator path described above; only a null `gameId` short-circuits.)
  * - On `gameId` non-null: build the WS URL, construct a client, call
  *   `connect()`, subscribe to both topics, transition the
  *   `connectionState` discriminant accordingly.
@@ -149,12 +163,17 @@ export const useGameStomp = (
   const optionsRef = useRef(options);
 
   useEffect(() => {
-    if (gameId === null || playerId === null) {
+    if (gameId === null) {
       // Nothing to subscribe to. The state cells already hold their
       // initial quiescent values on first mount; transitions FROM a
       // non-null gameId go through the previous effect's cleanup
       // (which resets `connectionState` to `Disconnected` and
       // `viewerCount` to 0), so no setState is needed here.
+      //
+      // A null `playerId` does NOT short-circuit here: that is the
+      // spectator path (subscribe without the playerId header so the
+      // backend counts the visitor as a viewer). Only a null `gameId`
+      // means there is nothing to subscribe to yet.
       return;
     }
 
@@ -283,7 +302,12 @@ export const useGameStomp = (
         unsubGame = client.subscribe<GameTopicEvent>(
           `/topic/games/${gameId}`,
           handleGameTopicEvent,
-          { playerId },
+          // A player declares its identity via the `playerId` header so
+          // the backend's `ViewerCountTracker` self-excludes it from the
+          // spectator count. A spectator (`playerId === null`) omits the
+          // header entirely, which is precisely what makes the backend
+          // COUNT them — pass `undefined` so no SUBSCRIBE header is sent.
+          playerId !== null ? { playerId } : undefined,
         );
 
         unsubViewers = client.subscribe<ViewerCountEvent>(
