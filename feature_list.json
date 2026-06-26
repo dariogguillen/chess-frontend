@@ -837,6 +837,20 @@
     ]
   },
   {
+    "id": "friends",
+    "title": "Friends section: friend-code, requests (in/out), friend list",
+    "description": "The full friends cycle in the profile's Friends section (replacing its placeholder). User chose: complete cycle in one feature, incoming AND outgoing requests. Endpoints all live (social-resnapshot 26.8): GET /api/me/friend-code (FriendCodeResponse {friendCode}); POST /api/me/friends/requests {friendCode} (SendFriendRequestRequest); GET /api/me/friends/requests/incoming|outgoing (FriendRequestsPage of FriendRequestResponse {requestId, userId, displayName, friendCode, createdAt}); POST /api/me/friends/requests/{id}/accept; DELETE /api/me/friends/requests/{id} (reject incoming / cancel outgoing); GET /api/me/friends (FriendsPage of FriendResponse {userId, displayName, friendCode, friendsSince}); DELETE /api/me/friends/{userId} (remove). New error codes already mirrored in errors.ts (SELF_FRIENDSHIP, DUPLICATE_FRIEND_REQUEST, ALREADY_FRIENDS, FRIEND_CODE_NOT_FOUND, FRIEND_NOT_FOUND, FRIEND_REQUEST_NOT_FOUND). Part A: a new src/api/friends.ts (typed wrappers + narrowing, same ApiError/mapError discipline as rooms.ts/auth.ts). Part B: a FriendsSection component mounted in the profile, with: your friend-code (show + copy), add-by-code (field + submit), incoming requests (list + accept/reject), outgoing requests (list + cancel), friend list (+ remove with a confirm). Load first page of each list; re-fetch the affected list after each action; surface error codes via a Snackbar. Authenticated-only (lives in the gated profile).",
+    "status": "done",
+    "priority": 26.95,
+    "acceptance": [
+      "src/api/friends.ts exposes typed, narrowed wrappers for: getFriendCode, sendFriendRequest, listIncomingRequests, listOutgoingRequests, acceptFriendRequest, deleteFriendRequest (reject/cancel), listFriends, removeFriend — each mapping errors via the shared ApiError/mapError discipline; tests cover happy + key error paths (SELF_FRIENDSHIP, FRIEND_CODE_NOT_FOUND, DUPLICATE_FRIEND_REQUEST).",
+      "The profile's Friends section shows the user's friend-code (with copy), an add-by-code field, the incoming requests list (accept/reject), the outgoing requests list (cancel), and the friend list (remove with a confirm dialog).",
+      "Each action re-fetches the affected list and reflects the result; errors surface via a Snackbar with the friendly mapped copy; loading/empty states are handled per list.",
+      "First page of each paginated list loads; if more pages exist it is at least not silently truncated (a load-more or page control, or a clear count) — implementer's call, documented.",
+      "Authenticated-only; anonymous play + all existing flows unaffected. ./init.sh green; ui-reviewer approves the new UI."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

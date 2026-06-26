@@ -4478,3 +4478,40 @@ src/routes/Public.tsx, src/components/AccountMenu/AccountMenu.tsx (+test),
 notes/26.9-profile-shell.md (new).
 
 **Feature note:** `notes/26.9-profile-shell.md`
+
+## 2026-06-26 — friends (26.95)
+
+**Status:** done
+
+**Summary:** The full friends cycle in the profile's Friends section. User
+chose the complete cycle in one feature with incoming + outgoing requests.
+Part A — src/api/friends.ts: 8 typed, narrowed wrappers (getFriendCode,
+sendFriendRequest, listIncoming/OutgoingRequests, acceptFriendRequest,
+deleteFriendRequest, listFriends, removeFriend) with the shared
+ApiError/mapError + narrowPage (content[] extraction, totalPages??1/last??true
+defaults so an incomplete envelope never offers a phantom Load more); 19
+tests (happy + SELF_FRIENDSHIP/FRIEND_CODE_NOT_FOUND/DUPLICATE_FRIEND_REQUEST/
+FRIEND_REQUEST_NOT_FOUND/FRIEND_NOT_FOUND/narrowing). Part B — a
+FriendsSection component mounted in Profile (replacing the Friends
+placeholder; My games/Stats stay placeholder) with five sub-areas: your
+friend-code (show + copy), add-by-code, incoming requests (accept/reject),
+sent requests (cancel), friends list (remove behind a confirm Dialog). Each
+mutating action re-fetches the affected list(s) (accept refreshes incoming +
+friends); errors funnel through one announced Snackbar via messageFor;
+per-list loading + empty states. Pagination: an explicit "Load more" that
+APPENDS the next page (no silent truncation), shown only while last===false.
+Per-item action buttons carry person-specific aria-labels ("Accept request
+from {name}", "Remove {name} from friends"); lists are semantic; headings
+h1(profile)→h2(Friends)→h3(sub-areas). reviewer + ui-reviewer approved;
+./init.sh green (490 tests, +28). No new deps.
+
+DEFERRED follow-up (reviewer-flagged, non-blocking): "Load more" isn't
+disabled during an in-flight append (the loaders avoid a synchronous
+set-state-in-effect), so a fast double-click could append the same page
+twice. Minor edge.
+
+**Files touched:** src/api/friends.ts (+test),
+src/components/FriendsSection/{FriendsSection.tsx,index.ts} (+test),
+src/pages/Profile/Profile.tsx (+test), notes/26.95-friends.md (new).
+
+**Feature note:** `notes/26.95-friends.md`

@@ -1,11 +1,98 @@
 # Current session
 
-**Status:** `profile-shell` (26.9) CLOSED (2026-06-26). reviewer +
-ui-reviewer approved; `./init.sh` green (462 tests). /profile home is live
-(authed-only, AccountMenu entry, placeholder Friends/My games/Stats
-sections). NEXT in the social epic: **friends**.
+**Status:** `friends` (26.95) CLOSED (2026-06-26). reviewer + ui-reviewer
+approved; `./init.sh` green (490 tests). The profile's Friends section is
+fully live (code/add/requests-in-out/list/remove). NEXT: **direct-invitations**.
 
-**Counts:** 51 done · 1 pending (27 game-reviews paused).
+**Counts:** 52 done · 1 pending (27 game-reviews paused).
+
+## Social epic progress
+- ✅ 26.8 resnapshot · ✅ 26.9 profile-shell · ✅ 26.95 friends
+- ▶ NEXT: **direct-invitations** — invite a friend (by friendUserId) to a
+  FRIEND room you created, instead of/alongside the share link; the friend
+  gets a LIVE invitation and accepts → joins. Endpoints live (26.8):
+  POST /api/me/invitations {roomId, friendUserId}; GET /api/me/invitations;
+  POST .../{roomId}/accept → RoomResponse (joins); DELETE .../{roomId}
+  (decline); DELETE .../{roomId}/to/{inviteeUserId} (cancel). KEY UNKNOWN to
+  verify FIRST: the live delivery — InvitationReceivedEvent/InvitationEvent/
+  InvitationDeclinedEvent/InvitationCancelledEvent exist in the backend
+  websocket package but are NOT in the OpenAPI (STOMP). Need to find the
+  destination (a personal /user queue or /topic/users/{id}?) and the STOMP
+  auth/subscribe model for a logged-in user OUTSIDE a game. This is the
+  feature's main design risk — scope it with an Explore + the user before
+  planning. Where to invite from: the Play page (creator) picking a friend.
+- backend-gated: **stats** (profile Stats section) + **game-reviews**
+  (My games section; needs winnerSide on MyGameSummary).
+
+## Deferred follow-ups (non-blocking, tracked)
+- friends "Load more" double-click could double-append (26.95).
+- spectator-ended-game-ux (26.7); clock-skew-anchoring (26.6); per-route
+  document.title (incl. /watch, /profile).
+
+## Plan — `friends` (26.95, IN PROGRESS)
+
+The full friends cycle in the profile's Friends section. All endpoints live
+(26.8). Contract: FriendCodeResponse {friendCode}; FriendResponse {userId,
+displayName, friendCode, friendsSince}; FriendRequestResponse {requestId,
+userId, displayName, friendCode, createdAt}; Friends/FriendRequestsPage
+(paginated); SendFriendRequestRequest {friendCode}. New error codes already
+in errors.ts (SELF_FRIENDSHIP, DUPLICATE_FRIEND_REQUEST, ALREADY_FRIENDS,
+FRIEND_CODE_NOT_FOUND, FRIEND_NOT_FOUND, FRIEND_REQUEST_NOT_FOUND).
+
+### Part A — API (`src/api/friends.ts` + test)
+Typed, narrowed wrappers, same ApiError/mapError discipline as rooms.ts/
+auth.ts (extract content[] + narrow each item; throw ApiError(UnknownError)
+on missing required fields like narrowRoomResponse):
+- `getFriendCode(): Promise<string>` → GET /api/me/friend-code
+- `sendFriendRequest(friendCode): Promise<void>` → POST /api/me/friends/requests
+- `listIncomingRequests(page?)` / `listOutgoingRequests(page?)` →
+  GET .../requests/incoming|outgoing → narrowed FriendRequest[] (+ page meta)
+- `acceptFriendRequest(requestId): Promise<void>` → POST .../requests/{id}/accept
+- `deleteFriendRequest(requestId): Promise<void>` → DELETE .../requests/{id}
+- `listFriends(page?)` → GET /api/me/friends → narrowed Friend[] (+ page meta)
+- `removeFriend(userId): Promise<void>` → DELETE /api/me/friends/{userId}
+Tests: happy paths + SELF_FRIENDSHIP / FRIEND_CODE_NOT_FOUND /
+DUPLICATE_FRIEND_REQUEST mapping.
+
+### Part B — UI (`FriendsSection` component in the profile)
+Profile.tsx today maps a `COMING_SOON` array of placeholder Papers (the
+Friends/My games/Stats sections, ~129-144). Split out "Friends": render a
+new `FriendsSection` in its place (full-width, its own block); keep "My
+games" + "Stats" as placeholders. Suggest `src/components/FriendsSection/`.
+The section contains:
+- **Your friend-code** — load via getFriendCode; show + a copy button.
+- **Add a friend** — a TextField for a friend-code + submit → sendFriendRequest;
+  on success clear + refresh outgoing; errors (SELF_FRIENDSHIP, etc.) → Snackbar.
+- **Incoming requests** — list (displayName + friendCode + createdAt) with
+  Accept (→ accept, refresh friends + incoming) and Reject (→ deleteFriendRequest,
+  refresh incoming).
+- **Outgoing requests** — list with Cancel (→ deleteFriendRequest, refresh outgoing).
+- **Friends** — list (displayName + friendsSince) with Remove (confirm Dialog,
+  like the logout confirm → removeFriend, refresh friends).
+Each action re-fetches the affected list (simple + robust over optimistic).
+Per-list loading + empty states ("No friends yet", "No pending requests").
+Pagination: load the first page; if totalPages > 1, a "Load more" or page
+control — do NOT silently truncate; implementer's call, documented.
+Errors via a shared Snackbar (messageFor on the mapped code).
+
+### Tests
+- friends.ts (Part A, above).
+- FriendsSection: renders code; add-by-code success refreshes + error shows;
+  accept moves a request to the friends list; reject/cancel removes it;
+  remove opens the confirm then drops the friend; empty states render.
+Mirror the MSW + RTL patterns from rooms/auth + AccountMenu tests.
+
+### Accessibility (ui-reviewer REQUIRED — substantial new UI)
+Lists are semantic; each action button has a clear accessible name (incl.
+the friend it acts on — e.g. "Accept request from {name}"); the copy button
++ confirm dialog are labelled; loading/empty announced; error Snackbar
+announced. Single-h1 page unchanged (sections are h2/h3).
+
+### Out of scope
+direct-invitations (next), stats, game-reviews, presence/online status,
+editing the profile. No new deps. `./init.sh` green. If this is too big for
+one clean pass, STOP and report so the leader can split it (e.g. code+add+
+list, then requests).
 
 ## Social epic progress
 - ✅ 26.8 social-contract-resnapshot · ✅ 26.9 profile-shell

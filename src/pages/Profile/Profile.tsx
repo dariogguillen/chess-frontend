@@ -2,19 +2,17 @@ import { Box, CircularProgress, Container, Divider, Paper, Stack, Typography } f
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { me } from '../../api/auth';
+import { FriendsSection } from '../../components/FriendsSection';
 import { IdentityKind, useUserContext } from '../../context';
 
 /**
- * The placeholder sections that mark where the social epic slots in next.
- * They are real headings + copy (not colour-only chips) so the page is
- * navigable today and the future features (friends CRUD, my games, stats)
- * have a stable, accessible home to grow into.
+ * The placeholder sections that still mark where the social epic slots in.
+ * "Friends" graduated to its own live `FriendsSection` (below); "My games"
+ * and "Stats" remain real headings + copy (not colour-only chips) so the
+ * page is navigable today and those future features have a stable,
+ * accessible home to grow into.
  */
 const COMING_SOON: ReadonlyArray<Readonly<{ title: string; body: string }>> = [
-  {
-    title: 'Friends',
-    body: 'Add friends by their friend code, manage requests, and invite them to a game. Coming soon.',
-  },
   {
     title: 'My games',
     body: 'Review the games you have played, replay them move by move. Coming soon.',
@@ -125,6 +123,8 @@ const Profile = () => {
         )}
 
         <Divider flexItem />
+
+        <FriendsSection />
 
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
