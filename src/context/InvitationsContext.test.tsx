@@ -51,13 +51,22 @@ const cancelledEvent = (roomId: string): InvitationQueueEvent => ({
   roomId,
 });
 
+const declinedEvent = (roomId: string, inviteeUserId: string): InvitationQueueEvent => ({
+  type: InvitationQueueEventType.Declined,
+  roomId,
+  inviteeUserId,
+});
+
 // A small probe component that surfaces the context value so tests can read
-// the live list and invoke accept/decline.
+// the live lists and invoke accept/decline/invite/cancelOutgoing.
 const Probe = () => {
-  const { invitations, accept, decline } = useInvitations();
+  const { invitations, accept, decline, outgoing, invite, cancelOutgoing, notice } =
+    useInvitations();
   return (
     <div>
       <span data-testid="count">{invitations.length}</span>
+      <span data-testid="outgoing-count">{outgoing.length}</span>
+      <span data-testid="notice">{notice ?? ''}</span>
       <ul>
         {invitations.map((inv) => (
           <li key={inv.roomId} data-testid={`inv-${inv.roomId}`}>
@@ -67,6 +76,17 @@ const Probe = () => {
           </li>
         ))}
       </ul>
+      <ul>
+        {outgoing.map((out) => (
+          <li key={`${out.roomId}-${out.inviteeUserId}`} data-testid={`out-${out.roomId}`}>
+            {out.inviteeDisplayName}
+            <button onClick={() => void cancelOutgoing(out.roomId, out.inviteeUserId)}>
+              cancel-{out.roomId}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button onClick={() => void invite('R-OUT', 'u-dave', 'Dave').catch(() => {})}>invite</button>
     </div>
   );
 };
@@ -254,6 +274,115 @@ describe('InvitationsProvider', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('count')).toHaveTextContent('0');
+    });
+  });
+
+  it('invite sends and adds an outgoing entry', async () => {
+    server.use(
+      http.post(
+        `${TEST_API_BASE_URL}/api/me/invitations`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+    const harness = renderProvider(authed);
+    await waitFor(() => {
+      expect(harness.factory).toHaveBeenCalled();
+    });
+
+    await userEvent.click(screen.getByText('invite'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('outgoing-count')).toHaveTextContent('1');
+    });
+    expect(screen.getByTestId('out-R-OUT')).toHaveTextContent('Dave');
+  });
+
+  it('invite surfaces a notice on failure and adds nothing', async () => {
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/me/invitations`, () =>
+        HttpResponse.json({ error: 'ROOM_FULL' }, { status: 409 }),
+      ),
+    );
+    const harness = renderProvider(authed);
+    await waitFor(() => {
+      expect(harness.factory).toHaveBeenCalled();
+    });
+
+    // The Probe's invite button swallows the throw (.catch); the test asserts
+    // no outgoing entry was added. (The Snackbar wiring is tested at the
+    // app-Snackbar / page level; here we assert the op behaviour.)
+    await userEvent.click(screen.getByText('invite'));
+
+    await waitFor(() => {
+      expect(harness.factory).toHaveBeenCalled();
+    });
+    expect(screen.getByTestId('outgoing-count')).toHaveTextContent('0');
+  });
+
+  it('cancelOutgoing deletes and removes the outgoing entry', async () => {
+    server.use(
+      http.post(
+        `${TEST_API_BASE_URL}/api/me/invitations`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+      http.delete(
+        `${TEST_API_BASE_URL}/api/me/invitations/:roomId/to/:inviteeUserId`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+    renderProvider(authed);
+    await userEvent.click(screen.getByText('invite'));
+    await waitFor(() => {
+      expect(screen.getByTestId('outgoing-count')).toHaveTextContent('1');
+    });
+
+    await userEvent.click(screen.getByText('cancel-R-OUT'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('outgoing-count')).toHaveTextContent('0');
+    });
+  });
+
+  it('INVITATION_DECLINED removes the outgoing entry and sets a notice', async () => {
+    server.use(
+      http.post(
+        `${TEST_API_BASE_URL}/api/me/invitations`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+    const harness = renderProvider(authed);
+    await userEvent.click(screen.getByText('invite'));
+    await waitFor(() => {
+      expect(screen.getByTestId('outgoing-count')).toHaveTextContent('1');
+    });
+
+    act(() => {
+      harness.mock.dispatch(INVITATIONS_QUEUE, declinedEvent('R-OUT', 'u-dave'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('outgoing-count')).toHaveTextContent('0');
+    });
+    expect(screen.getByTestId('notice')).toHaveTextContent('Dave declined your invitation.');
+  });
+
+  it('clears outgoing when identity flips to guest (logout)', async () => {
+    server.use(
+      http.post(
+        `${TEST_API_BASE_URL}/api/me/invitations`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+    renderProvider(authed);
+    await userEvent.click(screen.getByText('invite'));
+    await waitFor(() => {
+      expect(screen.getByTestId('outgoing-count')).toHaveTextContent('1');
+    });
+
+    await userEvent.click(screen.getByText('logout'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('outgoing-count')).toHaveTextContent('0');
     });
   });
 

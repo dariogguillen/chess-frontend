@@ -4563,3 +4563,45 @@ src/components/Header/Header.tsx (+test), src/App.tsx,
 notes/26.97-direct-invitations-receive.md (new).
 
 **Feature note:** `notes/26.97-direct-invitations-receive.md`
+
+## 2026-06-26 — direct-invitations-send (26.98)
+
+**Status:** done
+
+**Summary:** Second half of direct invitations — sending them. Closes the
+invitation cycle. User chose: full cycle (invite + cancel) and invite from
+BOTH Play and the Friends list. API: sendInvitation(roomId, friendUserId) +
+cancelInvitation(roomId, inviteeUserId). The InvitationsProvider (26.97)
+gained local outgoing state (NO backend list-sent endpoint exists — session
+only), an invite/cancelOutgoing op, the INVITATION_DECLINED arm (drops the
+matching outgoing entry + stages a notice), and a notice channel (also
+folding in the 26.97 polish: accept/decline failures surface a notice).
+Invite from Play: a waiting FRIEND-room creator (detected via joinToken
+non-null + opponentDisplayName null + !isSpectator — the 22.5 signal) gets an
+"Invite a friend" button → an InviteFriendDialog (loads listFriends, picks
+one) → sendInvitation → success Snackbar + an "Invited {name} — pending
+[Cancel]" row. Invite from the Friends list: "Invite to play" per friend →
+createRoom(displayName, {opponentKind: FRIEND}) → enterRoom → invite →
+navigate('/play'). A single app-level InvitationsNotice Snackbar (role=alert)
+announces declines + failures. reviewer + ui-reviewer approved; ./init.sh
+green (549 tests, +26). No new deps. The ref-sync for the outgoing mirror
+runs in a useEffect (ESLint 10 react-hooks/refs).
+
+🏁 The direct-invitations cycle (26.97 receive + 26.98 send) is COMPLETE.
+The social epic is now done up to what the deployed backend supports —
+remaining: stats (backend building it) + game-reviews (needs winnerSide).
+
+DEFERRED follow-ups (non-blocking): InvitationsNotice uses severity=info for
+both declines and failures (ROOM_FULL could read as warning/error);
+one misleadingly-named provider test. Plus the carry-overs already tracked.
+
+**Files touched:** src/api/invitations.ts (+test),
+src/context/InvitationsContext.tsx (+test), src/context/index.tsx,
+src/components/InviteFriendDialog/* (new, +test),
+src/components/InvitationsNotice/* (new, +test),
+src/pages/Play/Play.tsx (+test, +resync test),
+src/components/FriendsSection/FriendsSection.tsx (+test), src/App.tsx,
+src/components/InvitationsMenu/InvitationsMenu.test.tsx,
+src/pages/Profile/Profile.test.tsx, notes/26.98-direct-invitations-send.md (new).
+
+**Feature note:** `notes/26.98-direct-invitations-send.md`

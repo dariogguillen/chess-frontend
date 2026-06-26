@@ -1,4 +1,5 @@
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SportsEsportsIcon from '@mui/icons-material/SportsEsports';
 import {
   Alert,
   Box,
@@ -23,6 +24,7 @@ import {
 } from '@mui/material';
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ApiError, ApiErrorCode, messageFor } from '../../api/errors';
 import {
   acceptFriendRequest,
@@ -35,6 +37,8 @@ import {
   sendFriendRequest,
 } from '../../api/friends';
 import type { Friend, FriendRequest, Page } from '../../api/friends';
+import { OpponentKind, createRoom } from '../../api/rooms';
+import { useInvitations, useUserContext } from '../../context';
 
 /**
  * Format an ISO-8601 instant as a human-readable date (no time). Falls
@@ -96,8 +100,15 @@ const initialListState = <T,>(): ListState<T> => ({
  * We append rather than replace, so the user never silently loses rows.
  */
 export const FriendsSection = () => {
+  const { identity, enterRoom } = useUserContext();
+  const { invite } = useInvitations();
+  const navigate = useNavigate();
+
   const [friendCode, setFriendCode] = useState<string | null>(null);
   const [codeError, setCodeError] = useState(false);
+  // The userId of the friend currently being invited-to-play (its button
+  // shows a spinner while the create-room + invite round-trips run).
+  const [invitingUserId, setInvitingUserId] = useState<string | null>(null);
 
   const [friends, setFriends] = useState<ListState<Friend>>(initialListState);
   const [incoming, setIncoming] = useState<ListState<FriendRequest>>(initialListState);
@@ -273,6 +284,32 @@ export const FriendsSection = () => {
     }
   };
 
+  /**
+   * Invite a friend to play in one step: create a FRIEND room with the
+   * defaults (white side, untimed — choosing side/time from here is out of
+   * scope), enter it, send the direct invitation, then land on `/play` where
+   * the creator waits with the outgoing invitation already tracked. If the
+   * invite itself fails we still enter the room (the creator can re-invite
+   * via the in-room picker), but we surface the error.
+   */
+  const handleInviteToPlay = async (friend: Friend) => {
+    setInvitingUserId(friend.userId);
+    try {
+      const room = await createRoom(identity.displayName, { opponentKind: OpponentKind.Friend });
+      enterRoom(room);
+      try {
+        await invite(room.roomId, friend.userId, friend.displayName);
+      } catch (error) {
+        setSnackbar(messageForError(error));
+      }
+      navigate('/play');
+    } catch (error) {
+      setSnackbar(messageForError(error));
+    } finally {
+      setInvitingUserId(null);
+    }
+  };
+
   return (
     <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, width: '100%' }}>
       <Typography variant="h5" component="h2" gutterBottom>
@@ -432,14 +469,30 @@ export const FriendsSection = () => {
                     key={friend.userId}
                     disableGutters
                     secondaryAction={
-                      <Button
-                        size="small"
-                        color="error"
-                        onClick={() => setRemoveTarget(friend)}
-                        aria-label={`Remove ${friend.displayName} from friends`}
-                      >
-                        Remove
-                      </Button>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<SportsEsportsIcon />}
+                          disabled={invitingUserId !== null}
+                          onClick={() => void handleInviteToPlay(friend)}
+                          aria-label={`Invite ${friend.displayName} to play`}
+                        >
+                          {invitingUserId === friend.userId ? (
+                            <CircularProgress size={16} aria-hidden />
+                          ) : (
+                            'Invite to play'
+                          )}
+                        </Button>
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() => setRemoveTarget(friend)}
+                          aria-label={`Remove ${friend.displayName} from friends`}
+                        >
+                          Remove
+                        </Button>
+                      </Stack>
                     }
                   >
                     <ListItemText

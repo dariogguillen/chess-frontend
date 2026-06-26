@@ -4,9 +4,11 @@ import { HttpResponse, http } from 'msw';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Profile from './Profile';
-import { IdentityKind, UserContextProvider } from '../../context';
+import { IdentityKind, InvitationsProvider, UserContextProvider } from '../../context';
 import type { Identity } from '../../context';
 import { TEST_API_BASE_URL, server } from '../../test/msw-server';
+import { createMockStompClient } from '../../utils/ws';
+import type { StompClientConfig } from '../../utils/ws';
 
 const authedIdentity: Identity = {
   kind: IdentityKind.Authenticated,
@@ -18,10 +20,18 @@ const renderProfile = (initialIdentity?: Identity) =>
   render(
     <MemoryRouter initialEntries={['/profile']}>
       <UserContextProvider initialIdentity={initialIdentity}>
-        <Routes>
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/home" element={<div data-testid="home-page">home</div>} />
-        </Routes>
+        {/* Profile mounts FriendsSection, which now reads the invitations
+            context (for invite-to-play). Wrap in the real provider with a
+            mock STOMP factory + empty seed so no real connection is made. */}
+        <InvitationsProvider
+          clientFactory={(config: StompClientConfig) => createMockStompClient(config)}
+          listInvitations={() => Promise.resolve([])}
+        >
+          <Routes>
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/home" element={<div data-testid="home-page">home</div>} />
+          </Routes>
+        </InvitationsProvider>
       </UserContextProvider>
     </MemoryRouter>,
   );

@@ -1,11 +1,118 @@
 # Current session
 
-**Status:** `direct-invitations-receive` (26.97) CLOSED (2026-06-26).
-reviewer + ui-reviewer approved; `./init.sh` green (523 tests). The
-app-level authenticated STOMP + Header invitations badge/panel are live.
-NEXT: **direct-invitations-send** (26.98) — the second half.
+**Status:** `direct-invitations-send` (26.98) CLOSED (2026-06-26). reviewer
++ ui-reviewer approved; `./init.sh` green (549 tests). 🏁 The direct-
+invitations cycle (receive + send) is COMPLETE.
 
-**Counts:** 53 done · 2 pending (26.98 send, 27 game-reviews paused).
+**Counts:** 54 done · 1 pending (27 game-reviews — backend-gated).
+
+## 🏁 Social epic status — done up to the deployed backend
+- ✅ 26.8 resnapshot · ✅ 26.9 profile-shell · ✅ 26.95 friends
+- ✅ 26.97 invitations-receive · ✅ 26.98 invitations-send
+- ⛔ REMAINING, both BACKEND-GATED:
+  - **stats** — the backend is building profile stats; no endpoint deployed
+    yet. When it ships: re-snapshot + a Stats section in the profile.
+  - **game-reviews (27)** — needs a `winnerSide`/result field on
+    MyGameSummary (GET /api/me/games has no result, so W/L can't be shown).
+    Decided with the user to wait for the backend field, then build the
+    "My games" profile section + a per-game replay (reusing the 22.7 SAN
+    move list for clickable-move scrubbing).
+
+## ⚠️ Uncommitted — keep commits split per feature
+26.95, 26.97, 26.98 are separate features (the user committed 26.8/26.9
+earlier). All `./init.sh` green together.
+
+## Deferred follow-ups (tracked, non-blocking)
+- InvitationsNotice severity=info for failures (ROOM_FULL → warning/error);
+  one misnamed provider test (26.98).
+- Backend: GET /api/me/invitations typed single but returns a list (26.97).
+- friends Load-more double-click (26.95); spectator-ended-game-ux (26.7);
+  clock-skew-anchoring (26.6); per-route document.title.
+
+## Next options (with the user)
+1. Commit/deploy the social features (recommended — lots is local-only).
+2. Backend: add the stats endpoint + MyGameSummary.winnerSide, then resume
+   stats + game-reviews here.
+3. Knock out deferred follow-ups / polish.
+
+## Plan — `direct-invitations-send` (26.98, IN PROGRESS)
+
+Send invitations + cancel + handle declines. Reuses the 26.97 infra (the
+invitations API module, the app-level InvitationsProvider, the personal
+/user/queue channel). KEY BACKEND LIMITATION (verified): there is NO
+list-sent endpoint — GET /api/me/invitations is incoming-only. So "see sent
++ cancel" is tracked LOCALLY in the provider (session-only); functionally
+fine (you invite while waiting in the room). The inviter learns of an
+accept via the normal RoomJoinedEvent in Play.
+
+### Part A — API (`src/api/invitations.ts`)
+Add `sendInvitation(roomId, friendUserId): Promise<void>` (POST
+/api/me/invitations {roomId, friendUserId}) and `cancelInvitation(roomId,
+inviteeUserId): Promise<void>` (DELETE .../{roomId}/to/{inviteeUserId}).
+ApiError/mapError. Tests: happy + INVITATION_NOT_FOUND / ROOM_FULL /
+NOT_ROOM_MEMBER as the endpoints surface them.
+
+### Part B — Provider: track outgoing + declines (`InvitationsContext.tsx`)
+Extend the provider (it already holds the authed STOMP + incoming list):
+- Local `outgoing` list of `{ roomId, inviteeUserId, inviteeDisplayName }`
+  (NO backend backing — session state).
+- `invite(roomId, friendUserId, friendDisplayName)` → sendInvitation → add
+  to outgoing (throws propagate so the caller can Snackbar).
+- `cancelOutgoing(roomId, inviteeUserId)` → cancelInvitation → remove.
+- On the already-parsed `INVITATION_DECLINED` {roomId, inviteeUserId}:
+  remove the matching outgoing entry AND surface a notice (e.g. a
+  `notice: {message}|null` + `clearNotice`, or reuse a shared mechanism) so
+  an app-level Snackbar shows "{name} declined your invitation".
+- Expose `outgoing`, `invite`, `cancelOutgoing`, and the notice channel.
+- Also fold in the 26.97 polish: accept/decline failures should surface a
+  notice (not be swallowed).
+
+### Part C — Play: invite from the room
+- A button "Invite a friend" near the copy-invite/watch controls
+  (Play.tsx ~1224), shown only for the creator of a waiting FRIEND room
+  (`!isSpectator && role` is the creator && `opponentDisplayName == null`).
+- Opens a Dialog friend-picker: load `listFriends()` (first page; reuse the
+  friends API), pick one → `invite(roomId, friend.userId, friend.displayName)`
+  → Snackbar "Invitation sent to {name}"; errors (ROOM_FULL, already
+  invited) → Snackbar.
+- Show the outgoing entries for THIS room (from the provider) as
+  "Invited {name} — pending [Cancel]" → `cancelOutgoing`.
+
+### Part D — Friends list: invite to play in one step
+- In FriendsSection, an "Invite to play" action per friend → `createRoom(
+  identity.displayName, { opponentKind: FRIEND })` (defaults: white, untimed)
+  → `enterRoom(response)` → `invite(response.roomId, friend.userId,
+  friend.displayName)` → `navigate('/play')`. The creator lands in Play
+  waiting, with the outgoing entry already tracked.
+
+### Part E — App-level notice Snackbar
+A single Snackbar (in App, or a small component reading the provider's
+notice channel) that announces declines and accept/send failures. Push UX
+(not a modal).
+
+### Tests
+- invitations.ts: send/cancel happy + error codes.
+- Provider: invite adds outgoing; cancelOutgoing removes; INVITATION_DECLINED
+  removes the entry + sets the notice; failures set the notice.
+- Play: the invite button shows for a waiting creator only; the picker sends;
+  outgoing pending + cancel render; error Snackbar.
+- FriendsSection: "Invite to play" creates a room + invites + navigates.
+- Receive-side (26.97) stays green.
+
+### Accessibility (ui-reviewer REQUIRED)
+The friend-picker Dialog has an accessible name + focus management (it's a
+user-initiated modal — fine per inline-status-over-modals); per-item invite/
+cancel buttons name the friend; the notice Snackbar is announced.
+
+### Out of scope
+A persistent sent-invitations list (no backend endpoint — would need one);
+choosing color/time when inviting from Friends (defaults only); stats;
+game-reviews. No new deps. `./init.sh` green. If too big for one pass, STOP
+and report (e.g. API+provider+Play first, then the Friends-list entry).
+
+---
+
+## (social epic context + prior plans retained below)
 
 ## Social epic progress
 - ✅ 26.8 resnapshot · ✅ 26.9 profile-shell · ✅ 26.95 friends

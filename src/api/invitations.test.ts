@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { createApiClient } from './client';
 import { ApiError } from './errors';
-import { acceptInvitation, declineInvitation, listInvitations } from './invitations';
+import {
+  acceptInvitation,
+  cancelInvitation,
+  declineInvitation,
+  listInvitations,
+  sendInvitation,
+} from './invitations';
 import { Side } from './games';
 import { TEST_API_BASE_URL, server } from '../test/msw-server';
 
@@ -140,6 +146,82 @@ describe('declineInvitation', () => {
     );
 
     await expect(declineInvitation('K7M3X9', testClient)).rejects.toMatchObject({
+      code: 'INVITATION_NOT_FOUND',
+    });
+  });
+});
+
+describe('sendInvitation', () => {
+  it('uppercases the roomId and posts roomId + friendUserId', async () => {
+    let observedBody: unknown = null;
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/me/invitations`, async ({ request }) => {
+        observedBody = await request.json();
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    await sendInvitation('k7m3x9', '8b3c1f04-1234-5678-9abc-def012345678', testClient);
+    expect(observedBody).toEqual({
+      roomId: 'K7M3X9',
+      friendUserId: '8b3c1f04-1234-5678-9abc-def012345678',
+    });
+  });
+
+  it('throws ApiError code=NOT_ROOM_MEMBER on a 403', async () => {
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/me/invitations`, () =>
+        HttpResponse.json({ error: 'NOT_ROOM_MEMBER' }, { status: 403 }),
+      ),
+    );
+
+    await expect(sendInvitation('K7M3X9', 'u-1', testClient)).rejects.toBeInstanceOf(ApiError);
+    await expect(sendInvitation('K7M3X9', 'u-1', testClient)).rejects.toMatchObject({
+      code: 'NOT_ROOM_MEMBER',
+    });
+  });
+
+  it('throws ApiError code=ROOM_FULL on a 409', async () => {
+    server.use(
+      http.post(`${TEST_API_BASE_URL}/api/me/invitations`, () =>
+        HttpResponse.json({ error: 'ROOM_FULL' }, { status: 409 }),
+      ),
+    );
+
+    await expect(sendInvitation('K7M3X9', 'u-1', testClient)).rejects.toMatchObject({
+      code: 'ROOM_FULL',
+    });
+  });
+});
+
+describe('cancelInvitation', () => {
+  it('uppercases the roomId and passes the invitee id in the path', async () => {
+    let observedRoomId = '';
+    let observedInvitee = '';
+    server.use(
+      http.delete(
+        `${TEST_API_BASE_URL}/api/me/invitations/:roomId/to/:inviteeUserId`,
+        ({ params }) => {
+          observedRoomId = String(params.roomId);
+          observedInvitee = String(params.inviteeUserId);
+          return new HttpResponse(null, { status: 204 });
+        },
+      ),
+    );
+
+    await cancelInvitation('k7m3x9', 'u-invitee', testClient);
+    expect(observedRoomId).toBe('K7M3X9');
+    expect(observedInvitee).toBe('u-invitee');
+  });
+
+  it('throws ApiError code=INVITATION_NOT_FOUND on a 404', async () => {
+    server.use(
+      http.delete(`${TEST_API_BASE_URL}/api/me/invitations/:roomId/to/:inviteeUserId`, () =>
+        HttpResponse.json({ error: 'INVITATION_NOT_FOUND' }, { status: 404 }),
+      ),
+    );
+
+    await expect(cancelInvitation('K7M3X9', 'u-invitee', testClient)).rejects.toMatchObject({
       code: 'INVITATION_NOT_FOUND',
     });
   });

@@ -8,14 +8,16 @@ import { narrowRoomResponse, type RoomResponse } from './rooms';
 import type { components, paths } from './generated/schema';
 
 /**
- * Typed wrappers over the INVITEE-side direct-invitations surface of the
- * OpenAPI schema:
+ * Typed wrappers over the direct-invitations surface of the OpenAPI schema.
+ *
+ * INVITEE side (`direct-invitations-receive`, 26.97):
  *   - GET    /api/me/invitations                  → InvitationResponse[]
  *   - POST   /api/me/invitations/{roomId}/accept  → RoomResponse (joins)
  *   - DELETE /api/me/invitations/{roomId}         → 204 (decline)
  *
- * The inviter-side ops (`sendInvitation`, `cancelInvitation`) belong to
- * `direct-invitations-send` (26.98) and are intentionally NOT here.
+ * INVITER side (`direct-invitations-send`, 26.98):
+ *   - POST   /api/me/invitations                  → 204 (invite a friend)
+ *   - DELETE /api/me/invitations/{roomId}/to/{inviteeUserId} → 204 (cancel)
  *
  * Same discipline as `rooms.ts` / `friends.ts`: every wrapper runs inside
  * `wrapNetwork` (transport failures → `NETWORK_ERROR`), promotes a
@@ -178,5 +180,61 @@ export const declineInvitation = async (
     const { error, response } = await client.DELETE('/api/me/invitations/{roomId}', {
       params: { path: { roomId: roomId.toUpperCase() } },
     });
+    if (error !== undefined) throw mapError(error, response);
+  });
+
+/**
+ * `POST /api/me/invitations` — invite an ACCEPTED friend (by their user id)
+ * into a FRIEND room the caller created and is a player of. The invitee
+ * receives an `InvitationReceivedEvent` on their personal queue if connected
+ * (and can also seed it via `GET /api/me/invitations`). Re-sending the same
+ * `(room, invitee)` pair is idempotent server-side (a refresh, not an error),
+ * so the caller can fire it without first checking for an existing invite.
+ *
+ * The `roomId` is uppercased to the canonical short-code form before sending,
+ * mirroring `joinRoom` / `acceptInvitation`; `friendUserId` is a UUID and
+ * passed verbatim.
+ *
+ * On success: resolves void (204).
+ * On error: throws `ApiError` — `NOT_ROOM_MEMBER` (the caller is not a player
+ * of the room), `ROOM_FULL` (the room already has two players),
+ * `FRIEND_NOT_FOUND` (the target is not an accepted friend),
+ * `AUTHENTICATION_REQUIRED` (401), or a transport code.
+ */
+export const sendInvitation = async (
+  roomId: string,
+  friendUserId: string,
+  client: ClientFor = apiClient,
+): Promise<void> =>
+  wrapNetwork(async () => {
+    const { error, response } = await client.POST('/api/me/invitations', {
+      body: { roomId: roomId.toUpperCase(), friendUserId },
+    });
+    if (error !== undefined) throw mapError(error, response);
+  });
+
+/**
+ * `DELETE /api/me/invitations/{roomId}/to/{inviteeUserId}` — the inviter
+ * cancels an invitation they sent. The row is deleted and the invitee
+ * receives an `InvitationCancelledEvent` on their user queue (which the
+ * receive-side provider consumes to drop the entry).
+ *
+ * On success: resolves void (204).
+ * On error: throws `ApiError` — `INVITATION_NOT_FOUND` (404, no live
+ * invitation to that invitee for that room), `AUTHENTICATION_REQUIRED` (401),
+ * or a transport code.
+ */
+export const cancelInvitation = async (
+  roomId: string,
+  inviteeUserId: string,
+  client: ClientFor = apiClient,
+): Promise<void> =>
+  wrapNetwork(async () => {
+    const { error, response } = await client.DELETE(
+      '/api/me/invitations/{roomId}/to/{inviteeUserId}',
+      {
+        params: { path: { roomId: roomId.toUpperCase(), inviteeUserId } },
+      },
+    );
     if (error !== undefined) throw mapError(error, response);
   });

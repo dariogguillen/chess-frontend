@@ -4,6 +4,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Drawer from './components/Drawer';
 import Header from './components/Header';
+import { InvitationsNotice } from './components/InvitationsNotice';
 import { BoardThemeProvider, InvitationsProvider, UserContextProvider } from './context';
 import { createAppTheme, useColorMode } from './theme';
 
@@ -47,6 +48,7 @@ const App = () => {
                   <Outlet />
                 </Suspense>
               </Box>
+              <InvitationsNotice />
             </Box>
           </ThemeProvider>
         </BoardThemeProvider>

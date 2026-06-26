@@ -31,4 +31,5 @@ export type {
   InvitationsContextValue,
   InvitationsProviderProps,
   InvitationsStompFactory,
+  OutgoingInvitation,
 } from './InvitationsContext';

@@ -38,6 +38,11 @@ const renderMenu = (
     invitations: [],
     accept: vi.fn(() => Promise.resolve()),
     decline: vi.fn(() => Promise.resolve()),
+    outgoing: [],
+    invite: vi.fn(() => Promise.resolve()),
+    cancelOutgoing: vi.fn(() => Promise.resolve()),
+    notice: null,
+    clearNotice: vi.fn(),
     ...ctx,
   };
   render(

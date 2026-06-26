@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Container,
@@ -13,6 +14,7 @@ import {
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import LinkIcon from '@mui/icons-material/Link';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import RssFeedIcon from '@mui/icons-material/RssFeed';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -29,6 +31,7 @@ import type { CSSProperties } from 'react';
 import { Clock } from '../../components/Clock';
 import { CustomDialog } from '../../components/CustomDialog';
 import { GameOverByAbandonBanner } from '../../components/GameOverByAbandonBanner';
+import { InviteFriendDialog } from '../../components/InviteFriendDialog';
 import { MoveList } from '../../components/MoveList';
 import { OpponentStatus } from '../../components/OpponentStatus';
 import { PromotionDialog } from '../../components/PromotionDialog';
@@ -46,7 +49,8 @@ import type { GameState, MoveSummary } from '../../api/games';
 import { Role } from '../../api/rooms';
 import { ConnectionState, DiscoveryState } from '../../api/wsEvents';
 import type { GameAbandonedEvent, GameTimedOutEvent, MoveEvent } from '../../api/wsEvents';
-import { RoomPhase, useBoardTheme, useUserContext } from '../../context';
+import { RoomPhase, useBoardTheme, useInvitations, useUserContext } from '../../context';
+import type { Friend } from '../../api/friends';
 import { boardThemeStyles } from '../../boardThemes';
 import { useClockCountdown } from '../../hooks/useClockCountdown';
 import { useGameStomp } from '../../hooks/useGameStomp';
@@ -166,6 +170,7 @@ export type PlayProps = Readonly<{
 
 const Play = ({ spectator = false }: PlayProps) => {
   const { identity, room, leaveRoom, setGameId } = useUserContext();
+  const { outgoing, invite, cancelOutgoing } = useInvitations();
   const { boardTheme } = useBoardTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -329,6 +334,9 @@ const Play = ({ spectator = false }: PlayProps) => {
   // to show (code copied vs invite-link copied / a clipboard failure)
   // and `null` when nothing is pending.
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  // Whether the "Invite a friend" picker dialog is open. Only reachable for a
+  // waiting FRIEND-room creator (see `isWaitingCreator` below).
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
 
   /** Replace local chess.js + FEN with the authoritative server state. */
   const syncFromServer = useCallback(
@@ -1165,6 +1173,47 @@ const Play = ({ spectator = false }: PlayProps) => {
     void copyToClipboard(buildWatchLink(roomId), 'Watch link copied');
   }, [buildWatchLink, copyToClipboard, roomId]);
 
+  // The local user is the CREATOR of a FRIEND room still waiting for an
+  // opponent when: they hold the secret `joinToken` (only the creator's
+  // in-room arm carries it — a joiner / spectator never does), a seat is
+  // still open (`opponentDisplayName == null` — a bot room fills it
+  // immediately, so this also excludes bot games), and there is a roomId.
+  // Only then is inviting a friend meaningful, so the button + picker are
+  // gated on this.
+  const isWaitingCreator =
+    !isSpectator && roomId !== undefined && joinToken !== null && opponentDisplayName == null;
+
+  // The outgoing invitations the provider is tracking for THIS room. Rendered
+  // as "Invited {name} — pending [Cancel]" rows under the invite button.
+  const roomOutgoing = useMemo(
+    () => (roomId === undefined ? [] : outgoing.filter((out) => out.roomId === roomId)),
+    [outgoing, roomId],
+  );
+  const invitedUserIds = useMemo(
+    () => roomOutgoing.map((out) => out.inviteeUserId),
+    [roomOutgoing],
+  );
+
+  // Bind `invite` to this room for the picker. The throw propagates so the
+  // dialog can route the specific error (ROOM_FULL, etc.) to the Snackbar.
+  const handleInviteFriend = useCallback(
+    async (friend: Friend) => {
+      if (roomId === undefined) return;
+      await invite(roomId, friend.userId, friend.displayName);
+    },
+    [invite, roomId],
+  );
+
+  const handleCancelOutgoing = useCallback(
+    (inviteeUserId: string, inviteeDisplayName: string) => {
+      if (roomId === undefined) return;
+      void cancelOutgoing(roomId, inviteeUserId).catch(() => {
+        setErrorMessage(`Could not cancel the invitation to ${inviteeDisplayName}.`);
+      });
+    },
+    [cancelOutgoing, roomId],
+  );
+
   // Render-time short-circuit for the entry guard and the reconciliation
   // mismatch. Placed AFTER all hooks so the Rules of Hooks hold (the hook
   // call order is identical on the render that returns <Navigate> and on
@@ -1212,40 +1261,88 @@ const Play = ({ spectator = false }: PlayProps) => {
           </Stack>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Typography variant="body1">Room ID: {roomId || '—'}</Typography>
-            {/* The invite-link button is only useful while a seat is open.
-                Once the opponent has joined (`opponentDisplayName` becomes
-                their name), the room is full — there is no one left to
-                invite — so we hide the control entirely rather than disable
-                it. A bare room code no longer joins a game (it needs the
-                token in the link's fragment), so there is no "copy code"
-                button anymore. */}
-            {!isSpectator && roomId !== undefined && opponentDisplayName == null && (
-              <Tooltip title="Copy invite link">
-                <IconButton
+          <Stack spacing={1}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Typography variant="body1">Room ID: {roomId || '—'}</Typography>
+              {/* The invite-link button is only useful while a seat is open.
+                  Once the opponent has joined (`opponentDisplayName` becomes
+                  their name), the room is full — there is no one left to
+                  invite — so we hide the control entirely rather than disable
+                  it. A bare room code no longer joins a game (it needs the
+                  token in the link's fragment), so there is no "copy code"
+                  button anymore. */}
+              {!isSpectator && roomId !== undefined && opponentDisplayName == null && (
+                <Tooltip title="Copy invite link">
+                  <IconButton
+                    size="small"
+                    aria-label="Copy invite link"
+                    onClick={handleCopyInviteLink}
+                  >
+                    <LinkIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {/* Copy a spectator watch link (roomId-only, /watch?roomId=X)
+                  so the player can share the game with viewers. Shown to the
+                  PLAYER only; a spectator never sees share controls. Unlike
+                  the invite link it stays available after the opponent has
+                  joined — spectators can be invited any time the game is on. */}
+              {!isSpectator && roomId !== undefined && (
+                <Tooltip title="Copy watch link">
+                  <IconButton
+                    size="small"
+                    aria-label="Copy watch link"
+                    onClick={handleCopyWatchLink}
+                  >
+                    <RssFeedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {connectionState === ConnectionState.Connecting && (
+                <CircularProgress size="15px" aria-label="Connecting to live updates" />
+              )}
+            </Stack>
+            {/* Invite a specific friend straight into this room (the live
+                push counterpart to the share link). Only the creator of a
+                still-open FRIEND room sees it. */}
+            {isWaitingCreator && (
+              <Box>
+                <Button
                   size="small"
-                  aria-label="Copy invite link"
-                  onClick={handleCopyInviteLink}
+                  variant="outlined"
+                  startIcon={<PersonAddIcon />}
+                  onClick={() => setInviteDialogOpen(true)}
+                  sx={{ alignSelf: 'flex-start' }}
                 >
-                  <LinkIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-            {/* Copy a spectator watch link (roomId-only, /watch?roomId=X)
-                so the player can share the game with viewers. Shown to the
-                PLAYER only; a spectator never sees share controls. Unlike
-                the invite link it stays available after the opponent has
-                joined — spectators can be invited any time the game is on. */}
-            {!isSpectator && roomId !== undefined && (
-              <Tooltip title="Copy watch link">
-                <IconButton size="small" aria-label="Copy watch link" onClick={handleCopyWatchLink}>
-                  <RssFeedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-            {connectionState === ConnectionState.Connecting && (
-              <CircularProgress size="15px" aria-label="Connecting to live updates" />
+                  Invite a friend
+                </Button>
+                {roomOutgoing.length > 0 && (
+                  <Stack spacing={0.5} sx={{ mt: 1 }}>
+                    {roomOutgoing.map((out) => (
+                      <Stack
+                        key={out.inviteeUserId}
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          Invited {out.inviteeDisplayName} — pending
+                        </Typography>
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() =>
+                            handleCancelOutgoing(out.inviteeUserId, out.inviteeDisplayName)
+                          }
+                          aria-label={`Cancel invitation to ${out.inviteeDisplayName}`}
+                        >
+                          Cancel
+                        </Button>
+                      </Stack>
+                    ))}
+                  </Stack>
+                )}
+              </Box>
             )}
           </Stack>
         </Grid>
@@ -1345,6 +1442,19 @@ const Play = ({ spectator = false }: PlayProps) => {
         open={pendingPromotion !== null}
         onSelect={handlePromotionSelect}
         onCancel={handlePromotionCancel}
+      />
+      <InviteFriendDialog
+        open={inviteDialogOpen}
+        onClose={() => setInviteDialogOpen(false)}
+        onInvite={handleInviteFriend}
+        onResult={(message, severity) => {
+          if (severity === 'success') {
+            setCopyMessage(message);
+          } else {
+            setErrorMessage(message);
+          }
+        }}
+        invitedUserIds={invitedUserIds}
       />
       <CustomDialog
         open={showTerminalDialog}

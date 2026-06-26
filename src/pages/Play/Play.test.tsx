@@ -1,12 +1,14 @@
 import '@testing-library/jest-dom/vitest';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Play from './Play';
-import { BoardThemeProvider, UserContextProvider } from '../../context';
+import { BoardThemeProvider, InvitationsProvider, UserContextProvider } from '../../context';
+import { createMockStompClient } from '../../utils/ws';
+import type { StompClientConfig } from '../../utils/ws';
 import type { RoomState } from '../../context/UserContext';
 import { RoomPhase } from '../../context';
 import { BoardTheme, boardThemeStyles } from '../../boardThemes';
@@ -220,6 +222,20 @@ const sampleTimedGameState = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   });
 
+// Wrap children in the app-level InvitationsProvider so Play's
+// `useInvitations()` resolves. The default identity is a guest, so the
+// provider never opens a connection; the mock factory + empty seed are
+// defensive (and used by the invite-from-Play tests, which set an
+// authenticated identity).
+const withInvitations = (children: ReactNode) => (
+  <InvitationsProvider
+    clientFactory={(config: StompClientConfig) => createMockStompClient(config)}
+    listInvitations={() => Promise.resolve([])}
+  >
+    {children}
+  </InvitationsProvider>
+);
+
 const renderWithProviders = (
   initialEntry: string = '/play',
   initialRoom?: RoomState,
@@ -228,9 +244,11 @@ const renderWithProviders = (
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <UserContextProvider initialRoom={initialRoom}>
-        <BoardThemeProvider initialTheme={initialTheme}>
-          <Play />
-        </BoardThemeProvider>
+        {withInvitations(
+          <BoardThemeProvider initialTheme={initialTheme}>
+            <Play />
+          </BoardThemeProvider>,
+        )}
       </UserContextProvider>
     </MemoryRouter>,
   );
@@ -242,9 +260,11 @@ const renderSpectator = (initialEntry: string = '/watch?roomId=K7M3X9') =>
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <UserContextProvider>
-        <BoardThemeProvider>
-          <Play spectator />
-        </BoardThemeProvider>
+        {withInvitations(
+          <BoardThemeProvider>
+            <Play spectator />
+          </BoardThemeProvider>,
+        )}
       </UserContextProvider>
     </MemoryRouter>,
   );
@@ -260,12 +280,14 @@ const renderWithRoutes = (initialEntry: string = '/play', initialRoom?: RoomStat
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <UserContextProvider initialRoom={initialRoom}>
-        <BoardThemeProvider>
-          <Routes>
-            <Route path="/play" element={<Play />} />
-            <Route path="/new" element={<NewGameSentinel />} />
-          </Routes>
-        </BoardThemeProvider>
+        {withInvitations(
+          <BoardThemeProvider>
+            <Routes>
+              <Route path="/play" element={<Play />} />
+              <Route path="/new" element={<NewGameSentinel />} />
+            </Routes>
+          </BoardThemeProvider>,
+        )}
       </UserContextProvider>
     </MemoryRouter>,
   );
@@ -954,9 +976,11 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
         <UserContextProvider>
-          <BoardThemeProvider>
-            <Play />
-          </BoardThemeProvider>
+          {withInvitations(
+            <BoardThemeProvider>
+              <Play />
+            </BoardThemeProvider>,
+          )}
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -988,12 +1012,14 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=OTHER1']}>
         <UserContextProvider>
-          <BoardThemeProvider>
-            <Routes>
-              <Route path="/play" element={<Play />} />
-              <Route path="/new" element={<NewGameSentinel />} />
-            </Routes>
-          </BoardThemeProvider>
+          {withInvitations(
+            <BoardThemeProvider>
+              <Routes>
+                <Route path="/play" element={<Play />} />
+                <Route path="/new" element={<NewGameSentinel />} />
+              </Routes>
+            </BoardThemeProvider>,
+          )}
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -1030,9 +1056,11 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
         <UserContextProvider>
-          <BoardThemeProvider>
-            <Play />
-          </BoardThemeProvider>
+          {withInvitations(
+            <BoardThemeProvider>
+              <Play />
+            </BoardThemeProvider>,
+          )}
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -1064,9 +1092,11 @@ describe('Play page', () => {
     render(
       <MemoryRouter initialEntries={['/play?roomId=K7M3X9']}>
         <UserContextProvider>
-          <BoardThemeProvider>
-            <Play />
-          </BoardThemeProvider>
+          {withInvitations(
+            <BoardThemeProvider>
+              <Play />
+            </BoardThemeProvider>,
+          )}
         </UserContextProvider>
       </MemoryRouter>,
     );
@@ -2409,6 +2439,141 @@ describe('Play page', () => {
       await user.click(copyLink);
 
       expect(await screen.findByText(/could not copy/i)).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // direct-invitations-send (feature 26.98): invite a friend from Play
+  // ---------------------------------------------------------------
+
+  describe('invite a friend (26.98)', () => {
+    // Park the discovery GET in WAITING so the pre-game arm never resolves a
+    // gameId — keeps `opponentDisplayName` undefined and the creator's invite
+    // control on screen.
+    const stayWaiting = () => {
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/rooms/:id`, () =>
+          HttpResponse.json(
+            {
+              roomId: 'K7M3X9',
+              players: [{ id: 'player-1', displayName: 'Alice', role: 'WHITE' }],
+              gameId: null,
+              status: 'WAITING_FOR_PLAYER',
+            },
+            { status: 200 },
+          ),
+        ),
+      );
+    };
+
+    const friendsPage = (content: unknown[]) =>
+      server.use(
+        http.get(`${TEST_API_BASE_URL}/api/me/friends`, () =>
+          HttpResponse.json({ content, number: 0, totalPages: 1, last: true }, { status: 200 }),
+        ),
+      );
+
+    const dave = {
+      userId: 'u-dave',
+      displayName: 'Dave',
+      friendCode: 'DAVE1234',
+      friendsSince: '2026-06-20T10:00:00.000Z',
+    };
+
+    it('shows the "Invite a friend" button only for a waiting creator (holds a join token)', async () => {
+      stayWaiting();
+      // inRoomWhitePreGameWithToken: gameId null + a join token → creator.
+      renderWithProviders('/play', inRoomWhitePreGameWithToken);
+
+      expect(await screen.findByRole('button', { name: /invite a friend/i })).toBeInTheDocument();
+    });
+
+    it('does NOT show the invite button for a joiner (no join token)', async () => {
+      stayWaiting();
+      // inRoomWhitePreGame: gameId null but NO join token → a joiner, not the
+      // creator. The invite control is creator-only.
+      renderWithProviders('/play', inRoomWhitePreGame);
+
+      await screen.findByRole('button', { name: /copy invite link/i });
+      expect(screen.queryByRole('button', { name: /invite a friend/i })).not.toBeInTheDocument();
+    });
+
+    it('opens the friend picker, sends an invitation, and shows a pending row', async () => {
+      stayWaiting();
+      friendsPage([dave]);
+      let sentBody: unknown = null;
+      server.use(
+        http.post(`${TEST_API_BASE_URL}/api/me/invitations`, async ({ request }) => {
+          sentBody = await request.json();
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders('/play', inRoomWhitePreGameWithToken);
+
+      await user.click(await screen.findByRole('button', { name: /invite a friend/i }));
+      // The picker dialog opened and listed the friend.
+      await user.click(await screen.findByRole('button', { name: /invite dave to play/i }));
+
+      // The POST carried the room id (uppercased) + friend userId.
+      await waitFor(() => {
+        expect(sentBody).toEqual({ roomId: 'K7M3X9', friendUserId: 'u-dave' });
+      });
+      // The success Snackbar + the pending outgoing row both render.
+      expect(await screen.findByText(/invitation sent to dave/i)).toBeInTheDocument();
+      expect(await screen.findByText(/invited dave — pending/i)).toBeInTheDocument();
+    });
+
+    it('cancels a pending invitation and removes the row', async () => {
+      stayWaiting();
+      friendsPage([dave]);
+      server.use(
+        http.post(
+          `${TEST_API_BASE_URL}/api/me/invitations`,
+          () => new HttpResponse(null, { status: 204 }),
+        ),
+        http.delete(
+          `${TEST_API_BASE_URL}/api/me/invitations/:roomId/to/:inviteeUserId`,
+          () => new HttpResponse(null, { status: 204 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders('/play', inRoomWhitePreGameWithToken);
+
+      await user.click(await screen.findByRole('button', { name: /invite a friend/i }));
+      await user.click(await screen.findByRole('button', { name: /invite dave to play/i }));
+      await screen.findByText(/invited dave — pending/i);
+      // The picker closes on a successful send; wait for its dialog to leave
+      // the tree so the page (and its Cancel button) is no longer aria-hidden
+      // behind the modal.
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /cancel invitation to dave/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByText(/invited dave — pending/i)).not.toBeInTheDocument();
+      });
+    });
+
+    it('surfaces an error Snackbar when the invitation send fails (ROOM_FULL)', async () => {
+      stayWaiting();
+      friendsPage([dave]);
+      server.use(
+        http.post(`${TEST_API_BASE_URL}/api/me/invitations`, () =>
+          HttpResponse.json({ error: 'ROOM_FULL' }, { status: 409 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders('/play', inRoomWhitePreGameWithToken);
+
+      await user.click(await screen.findByRole('button', { name: /invite a friend/i }));
+      await user.click(await screen.findByRole('button', { name: /invite dave to play/i }));
+
+      expect(await screen.findByText(/that room already has two players/i)).toBeInTheDocument();
+      // No pending row was added on failure.
+      expect(screen.queryByText(/invited dave — pending/i)).not.toBeInTheDocument();
     });
   });
 
