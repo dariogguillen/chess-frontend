@@ -1,10 +1,74 @@
 # Current session
 
-**Status:** `direct-invitations-send` (26.98) CLOSED (2026-06-26). reviewer
-+ ui-reviewer approved; `./init.sh` green (549 tests). 🏁 The direct-
-invitations cycle (receive + send) is COMPLETE.
+**Status:** `check-indicator` (26.99) CLOSED (2026-06-26). reviewer +
+ui-reviewer approved; `./init.sh` green (562 tests). King-in-check board
+highlight + a "Check" TurnIndicator chip are live.
 
-**Counts:** 54 done · 1 pending (27 game-reviews — backend-gated).
+**Counts:** 55 done · 1 pending (27 game-reviews — backend-gated).
+
+## Where things stand
+The frontend has consumed everything the DEPLOYED backend offers. The user
+is "about to finish" the backend side (profile stats + friendship/invitations
+already shipped; stats endpoint + MyGameSummary.winnerSide are what's left).
+When those deploy:
+1. **re-snapshot** (mirror any new error codes, like 21/26.8 did).
+2. **stats** — a Stats section in the profile.
+3. **game-reviews (27)** — a "My games" profile section + per-game replay
+   (reuse the 22.7 SAN move list for clickable-move scrubbing).
+
+## ⚠️ Uncommitted — split per feature
+26.95, 26.97, 26.98, 26.99 are separate features (26.8/26.9 committed earlier).
+
+## Deferred follow-ups (tracked, non-blocking)
+- InvitationsNotice severity=info for failures (26.98); misnamed provider
+  test (26.98); backend GET /api/me/invitations typed single vs list (26.97);
+  friends Load-more double-click (26.95); spectator-ended-game-ux (26.7);
+  clock-skew-anchoring (26.6); per-route document.title.
+
+## Plan — `check-indicator` (26.99, IN PROGRESS)
+
+User feedback: no on-board cue when a king is in check (checkmate already
+pops the winner modal, but a board indicator helps there too). Backend
+reports GameStatus.Check / Checkmate. The side in check is `turn` (the side
+to move must respond). Small, Play-only.
+
+### Part A — king-in-check highlight (Play.tsx)
+- Derive the in-check king's square when `gameState.status` is `Check` OR
+  `Checkmate`: find the king of the side `gameState.turn` from the current
+  position. Prefer parsing the FEN purely (deterministic, no read of the
+  mutable chess.js instance during render) → memoize on `[fen, status, turn]`
+  (or whatever keeps it pure). Returns `{}` otherwise.
+- Build a red `squareStyles` entry for that square (a lichess-style radial
+  red, or a translucent red fill — visible without hiding the king; keep it
+  theme-agnostic like the 22.7 amber last-move highlight, not a board-theme
+  colour).
+- MERGE into the single `squareStyles` prop alongside the existing
+  `lastMoveStyles` + `moveHints` (the 22.7 merge, ~861-864). Pick a sensible
+  precedence (the check square is rarely also a hint/last-move square; the
+  check cue should remain visible). Don't change last-move/hint behaviour.
+
+### Part B — "Check" text cue (TurnIndicator)
+- TurnIndicator already renders a Chip ("your turn"/"opponent's turn") and
+  returns null on terminal statuses. When `gameState.status === Check`
+  (non-terminal, so the chip shows), add a "Check" cue (e.g. append to the
+  label or a small adjacent chip) so the signal is NOT colour-only.
+  Checkmate stays terminal → its modal covers it (no turn chip there).
+
+### Tests
+- Play: status Check → the side-to-move king's square is in `squareStyles`
+  with the check style; Checkmate → same; Ongoing/other → no king highlight;
+  the merge still carries last-move + hints (no clobber).
+- TurnIndicator: status Check → shows the "Check" cue; your-turn/opponent-
+  turn/terminal arms unchanged.
+
+### Accessibility (ui-reviewer REQUIRED — board + status cue)
+The textual "Check" cue makes the state non-colour-only; the red king
+highlight is a decorative enhancement atop it. No focus/layout changes.
+
+### Out of scope
+Sound on check; arrows; animating the king; stats/game-reviews. No new deps.
+`./init.sh` green. Spectator view inherits the highlight (it reads the same
+gameState) — fine.
 
 ## 🏁 Social epic status — done up to the deployed backend
 - ✅ 26.8 resnapshot · ✅ 26.9 profile-shell · ✅ 26.95 friends

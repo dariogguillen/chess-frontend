@@ -106,6 +106,36 @@ describe('TurnIndicator', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it('shows a "Check" cue alongside the turn chip when the status is CHECK (side to move)', () => {
+    // CHECK is non-terminal, so the turn chip still renders; the side in
+    // check is `gameState.turn`. The local White player is to move and in
+    // check → "Your Turn" + a textual "Check" cue (not colour-only).
+    const gameState = buildGameState({ status: GameStatus.Check, turn: Side.White });
+    renderWithTheme(<TurnIndicator gameState={gameState} role={Role.White} />);
+
+    expect(screen.getByText(/^Your Turn$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Check$/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/your king is in check/i)).toBeInTheDocument();
+  });
+
+  it('shows the "Check" cue on the opponent arm too when it is the opponent in check', () => {
+    // Black (the opponent of the local White player) is to move and in
+    // check → "Opponent's Turn" + the "Check" cue.
+    const gameState = buildGameState({ status: GameStatus.Check, turn: Side.Black });
+    renderWithTheme(<TurnIndicator gameState={gameState} role={Role.White} />);
+
+    expect(screen.getByText(/^Opponent's Turn$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Check$/)).toBeInTheDocument();
+  });
+
+  it('does not show the "Check" cue during an ordinary ONGOING turn', () => {
+    const gameState = buildGameState({ status: GameStatus.Ongoing, turn: Side.White });
+    renderWithTheme(<TurnIndicator gameState={gameState} role={Role.White} />);
+
+    expect(screen.getByText(/^Your Turn$/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Check$/)).not.toBeInTheDocument();
+  });
+
   it('wraps the chip in a polite live region so turn flips are announced to assistive tech', () => {
     // The Box wrapper carries `role="status"` + `aria-live="polite"`
     // so screen readers announce transitions between "Your Turn" and

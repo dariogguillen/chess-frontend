@@ -881,6 +881,20 @@
     ]
   },
   {
+    "id": "check-indicator",
+    "title": "Highlight the king in check + a Check label",
+    "description": "User feedback while play-testing: there's no on-board signal when a king is in check (checkmate already pops the winner modal, but a board indicator would help there too). Backend already reports GameStatus.Check / Checkmate (games.ts). The side in check is the one to move (turn) — its king's square comes from chess.board(). Reuse the squareStyles mechanism (already merging the 22.7 last-move highlight + move-hints in Play): when status is Check or Checkmate, add a red highlight on the in-check king's square, merged with the existing styles. To avoid a colour-only signal, also surface 'Check' as text in the TurnIndicator when status === Check. Small, Play-only.",
+    "status": "done",
+    "priority": 26.99,
+    "acceptance": [
+      "When gameState.status is Check (or Checkmate), the in-check king's square (the king of the side to move) gets a red highlight on the board, merged cleanly with the existing last-move highlight + move-hints (no clobber).",
+      "The king square is derived from the live chess.js board (not hardcoded); memoized so it recomputes only on status/position change.",
+      "The TurnIndicator shows a 'Check' text cue when status === Check (so the signal is not colour-only); checkmate keeps its modal.",
+      "Ongoing/terminal-non-check positions render no king highlight; the change is Play-only and doesn't affect move-hints, last-move, clocks, or the spectator/terminal flows.",
+      "./init.sh green; ui-reviewer approves (colour-not-only, the highlight is decorative atop the textual cue)."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

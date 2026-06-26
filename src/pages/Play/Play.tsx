@@ -54,6 +54,7 @@ import type { Friend } from '../../api/friends';
 import { boardThemeStyles } from '../../boardThemes';
 import { useClockCountdown } from '../../hooks/useClockCountdown';
 import { useGameStomp } from '../../hooks/useGameStomp';
+import { findKingSquare } from './kingSquare';
 import { useMoveHints } from '../../hooks/useMoveHints';
 import { useRoomDiscovery } from '../../hooks/useRoomDiscovery';
 import { useSpectatorDiscovery } from '../../hooks/useSpectatorDiscovery';
@@ -1001,15 +1002,47 @@ const Play = ({ spectator = false }: PlayProps) => {
     return { [last.from]: style, [last.to]: style };
   }, [gameState?.moves]);
 
+  // King-in-check highlight. When the server reports CHECK or CHECKMATE,
+  // the side that must respond is `gameState.turn` (its king is the one
+  // under attack), so shade that king's square red. The square is derived
+  // PURELY from the rendered `fen` via `findKingSquare` — no read of the
+  // mutable chess.js instance during render — so the memo is deterministic
+  // on `[fen, status, turn]`.
+  //
+  // The colour is a translucent red overlay (theme-agnostic, like the amber
+  // last-move highlight above): it reads on both light and dark board
+  // themes and tints the king's square without hiding the piece. The
+  // textual "Check" cue in the TurnIndicator carries the non-colour signal;
+  // this red fill is a decorative enhancement on top of it.
+  const checkStatus = gameState?.status;
+  const checkTurn = gameState?.turn;
+  const checkSquareStyles = useMemo((): Record<string, CSSProperties> => {
+    if (
+      checkTurn === undefined ||
+      (checkStatus !== GameStatus.Check && checkStatus !== GameStatus.Checkmate)
+    ) {
+      return {};
+    }
+    const square = findKingSquare(fen, checkTurn);
+    if (square === null) return {};
+    return { [square]: { backgroundColor: 'rgba(220, 38, 38, 0.5)' } };
+  }, [fen, checkStatus, checkTurn]);
+
   // Single `squareStyles` payload for the board. The last-move highlight
-  // is the base layer; the active move-hints spread SECOND so a hint on a
-  // highlighted square wins (the user is mid-selection and needs to see
-  // the legal-destination dots / capture rings, which would otherwise be
-  // masked by the amber tint). With no selection `moveHints` is `{}`, so
-  // the highlight shows alone — the common case.
+  // is the base layer; the check highlight spreads next (a king in check is
+  // the more urgent cue and must stay visible — it is rarely also a
+  // last-move square); the active move-hints spread LAST so a hint on a
+  // highlighted square still wins (the user is mid-selection and needs to
+  // see the legal-destination dots / capture rings). With no selection
+  // `moveHints` is `{}`, so the highlight layers show alone — the common
+  // case.
   const squareStyles = useMemo(
-    (): Record<string, CSSProperties> => ({ ...lastMoveStyles, ...moveHints }),
-    [lastMoveStyles, moveHints],
+    (): Record<string, CSSProperties> => ({
+      ...lastMoveStyles,
+      ...checkSquareStyles,
+      ...moveHints,
+    }),
+    [lastMoveStyles, checkSquareStyles, moveHints],
   );
 
   // Active board theme. The base square colours go to react-chessboard's

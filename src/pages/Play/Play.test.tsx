@@ -1709,11 +1709,13 @@ describe('Play page', () => {
       );
     });
 
-    // The move-hint layer clears; the last-move highlight on the
-    // event's e7/e5 remains, so the record is exactly those two squares.
+    // The move-hint layer clears; the last-move highlight on the event's
+    // e7/e5 remains. CHECKMATE with turn White over STARTING_FEN also marks
+    // the white king (e1) with the check highlight, so the merged record is
+    // exactly those three squares.
     await waitFor(() => {
       const styles = lastChessboardOptions!.squareStyles ?? {};
-      expect(Object.keys(styles).sort()).toEqual(['e5', 'e7']);
+      expect(Object.keys(styles).sort()).toEqual(['e1', 'e5', 'e7']);
     });
   });
 
@@ -1851,6 +1853,108 @@ describe('Play page', () => {
     renderWithProviders('/play', inRoomWhite);
 
     expect(await screen.findByText('No moves yet')).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------
+  // check-indicator (priority 26.99)
+  // ---------------------------------------------------------------
+  //
+  // When the server reports CHECK or CHECKMATE, the king of the side to
+  // move (`gameState.turn`) is highlighted red on the board, merged into
+  // the same `squareStyles` payload as the last-move highlight and the
+  // move-hints. The highlight is derived purely from the FEN.
+
+  // Black queen on e4 checks the white king on e1 down the e-file; White
+  // (in check) is to move. The king square e1 should be highlighted.
+  const CHECK_FEN = '4k3/8/8/8/4q3/8/8/4K3 w - - 0 1';
+
+  it('highlights the side-to-move king square when the status is CHECK', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ fen: CHECK_FEN, status: 'CHECK', turn: 'WHITE' }), {
+          status: 200,
+        }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+
+    // The white king (e1) carries a red check highlight. No moves were
+    // played, so the last-move layer is empty; nothing is selected, so the
+    // hint layer is empty — e1 is the only styled square.
+    await waitFor(() => {
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(Object.keys(styles)).toEqual(['e1']);
+      expect(styles.e1.backgroundColor).toBe('rgba(220, 38, 38, 0.5)');
+    });
+  });
+
+  it('highlights the mated king square when the status is CHECKMATE', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState({ fen: CHECK_FEN, status: 'CHECKMATE', turn: 'WHITE' }), {
+          status: 200,
+        }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    // The terminal modal opens (CHECKMATE), and underneath, the board still
+    // marks the mated king (e1) in red.
+    await waitFor(() => {
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      expect(styles.e1?.backgroundColor).toBe('rgba(220, 38, 38, 0.5)');
+    });
+  });
+
+  it('does not highlight any king square for an ongoing (non-check) position', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(sampleGameState(), { status: 200 }),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Bob$/)).toBeInTheDocument();
+    });
+    // ONGOING + no moves + no selection → no styled squares at all.
+    expect(lastChessboardOptions!.squareStyles ?? {}).toEqual({});
+  });
+
+  it('merges the check highlight with the last-move highlight without clobbering it', async () => {
+    // White king on e1 in check from the black queen on e4; the last move
+    // recorded is e7-e5 (an unrelated pair). Both the last-move squares and
+    // the check square must appear in the merged payload.
+    server.use(
+      http.get(`${TEST_API_BASE_URL}/api/games/:id`, () =>
+        HttpResponse.json(
+          sampleGameState({
+            fen: CHECK_FEN,
+            status: 'CHECK',
+            turn: 'WHITE',
+            moves: [{ from: 'e7', to: 'e5', promotion: null }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    renderWithProviders('/play', inRoomWhite);
+
+    await waitFor(() => {
+      const styles = lastChessboardOptions!.squareStyles ?? {};
+      // Last-move e7/e5 (amber) PLUS the check king e1 (red).
+      expect(Object.keys(styles).sort()).toEqual(['e1', 'e5', 'e7']);
+      expect(styles.e1.backgroundColor).toBe('rgba(220, 38, 38, 0.5)');
+      expect(styles.e5.backgroundColor).toBe('rgba(255, 208, 0, 0.45)');
+    });
   });
 
   it('non-ABANDONED terminal statuses still surface the modal (regression guard)', async () => {

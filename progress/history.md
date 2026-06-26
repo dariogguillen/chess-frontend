@@ -4605,3 +4605,34 @@ src/components/InvitationsMenu/InvitationsMenu.test.tsx,
 src/pages/Profile/Profile.test.tsx, notes/26.98-direct-invitations-send.md (new).
 
 **Feature note:** `notes/26.98-direct-invitations-send.md`
+
+## 2026-06-26 — check-indicator (26.99)
+
+**Status:** done
+
+**Summary:** Small play-testing-driven playability tweak: an on-board cue
+when a king is in check. The backend already reports GameStatus.Check /
+Checkmate; the side in check is `turn` (must respond). Part A: a new pure
+`findKingSquare(fen, side)` (parses the FEN placement field, no chess.js
+read) locates the in-check king; a `checkSquareStyles` memo (keyed on
+[fen, status, turn]) shades it translucent red (rgba(220,38,38,0.5),
+theme-agnostic like the 22.7 amber) when status is Check or Checkmate,
+merged into the single squareStyles payload as
+{ ...lastMoveStyles, ...checkSquareStyles, ...moveHints } (last-move base,
+check next, live move-hints win — no clobber; the 22.7 terminal-clears test
+was tightened to include the new king square). Part B: the TurnIndicator
+renders an additive "Check" chip (error color, per-path WarningAmberIcon,
+aria-label "Your king is in check") inside its existing role=status/aria-live
+region when status === Check, so the cue is NOT colour-only; Checkmate stays
+terminal (the winner modal owns it). The spectator view inherits the
+highlight (same gameState, no role-gating). reviewer + ui-reviewer approved;
+./init.sh green (562 tests, +13). No new deps. One deviation: hoisted
+checkStatus/checkTurn to locals for the React Compiler's
+preserve-manual-memoization rule (same pattern as lastMoveStyles).
+
+**Files touched:** src/pages/Play/kingSquare.ts (new, +test),
+src/pages/Play/Play.tsx (+test),
+src/components/TurnIndicator/TurnIndicator.tsx (+test),
+notes/26.99-check-indicator.md (new).
+
+**Feature note:** `notes/26.99-check-indicator.md`

@@ -1,8 +1,9 @@
 import { Box, Chip } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
-import { isTerminalStatus } from '../../api/games';
+import { GameStatus, isTerminalStatus } from '../../api/games';
 import type { GameState } from '../../api/games';
 import type { Role } from '../../api/rooms';
 
@@ -76,41 +77,57 @@ export const TurnIndicator = ({ gameState, role }: TurnIndicatorProps) => {
 
   const isMyTurn = gameState.turn === role;
 
-  // The Chip is wrapped in a `role="status"` + `aria-live="polite"` Box
-  // so screen readers announce transitions between "Your Turn" and
-  // "Opponent's Turn" without interrupting the user. `polite` is the
-  // right politeness level: a turn flip is a normal state update, not
-  // an error. The wrapper mounts only when the chip is visible (none of
-  // the three hidden arms reach this code path), which is intentional:
-  // when the chip appears or its text changes, the live region carries
-  // the announcement.
-  if (isMyTurn) {
-    return (
-      <Box role="status" aria-live="polite" sx={{ display: 'inline-flex' }}>
-        <Chip
-          icon={<PlayArrowIcon />}
-          label="Your Turn"
-          size="small"
-          color="primary"
-          variant="filled"
-          aria-label="It is your turn to move"
-          sx={{ alignSelf: 'center', minWidth: CHIP_MIN_WIDTH_PX }}
-        />
-      </Box>
-    );
-  }
+  // CHECK is a non-terminal status (`isTerminalStatus` excludes it), so the
+  // turn chip still shows when a king is in check — and the side that must
+  // respond is `gameState.turn`. We surface a small adjacent "Check" chip so
+  // the in-check state is conveyed in TEXT, not by the board's red king
+  // highlight alone (which is colour-only and decorative). CHECKMATE is
+  // terminal → the component already returned `null` above and the winner
+  // modal owns that state, so no "Check" cue is needed there.
+  const inCheck = gameState.status === GameStatus.Check;
 
+  const turnChip = isMyTurn ? (
+    <Chip
+      icon={<PlayArrowIcon />}
+      label="Your Turn"
+      size="small"
+      color="primary"
+      variant="filled"
+      aria-label="It is your turn to move"
+      sx={{ alignSelf: 'center', minWidth: CHIP_MIN_WIDTH_PX }}
+    />
+  ) : (
+    <Chip
+      icon={<HourglassEmptyIcon />}
+      label="Opponent's Turn"
+      size="small"
+      color="default"
+      variant="outlined"
+      aria-label="Waiting for opponent to move"
+      sx={{ alignSelf: 'center', minWidth: CHIP_MIN_WIDTH_PX }}
+    />
+  );
+
+  // The chips are wrapped in a `role="status"` + `aria-live="polite"` Box so
+  // screen readers announce transitions between "Your Turn" and "Opponent's
+  // Turn" — and the appearance of the "Check" cue — without interrupting the
+  // user. `polite` is the right politeness level: a turn flip (or a check)
+  // is a normal state update, not an error. The wrapper mounts only when the
+  // chip is visible (none of the three hidden arms reach this code path).
   return (
-    <Box role="status" aria-live="polite" sx={{ display: 'inline-flex' }}>
-      <Chip
-        icon={<HourglassEmptyIcon />}
-        label="Opponent's Turn"
-        size="small"
-        color="default"
-        variant="outlined"
-        aria-label="Waiting for opponent to move"
-        sx={{ alignSelf: 'center', minWidth: CHIP_MIN_WIDTH_PX }}
-      />
+    <Box role="status" aria-live="polite" sx={{ display: 'inline-flex', gap: 1 }}>
+      {turnChip}
+      {inCheck && (
+        <Chip
+          icon={<WarningAmberIcon />}
+          label="Check"
+          size="small"
+          color="error"
+          variant="filled"
+          aria-label="Your king is in check"
+          sx={{ alignSelf: 'center' }}
+        />
+      )}
     </Box>
   );
 };
