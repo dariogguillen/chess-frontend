@@ -42,6 +42,29 @@ describe('mapError', () => {
     expect(result.httpStatus).toBe(403);
   });
 
+  it('promotes the friend/invitation server error codes to a typed ApiError that maps to a message', () => {
+    const socialCodes = [
+      ApiErrorCode.FriendCodeNotFound,
+      ApiErrorCode.FriendRequestNotFound,
+      ApiErrorCode.FriendNotFound,
+      ApiErrorCode.AlreadyFriends,
+      ApiErrorCode.DuplicateFriendRequest,
+      ApiErrorCode.SelfFriendship,
+      ApiErrorCode.InvitationNotFound,
+      ApiErrorCode.NotRoomMember,
+    ];
+
+    for (const code of socialCodes) {
+      const response = new Response(null, { status: 400 });
+      const result = mapError({ error: code }, response);
+
+      expect(result).toBeInstanceOf(ApiError);
+      expect(result.code).toBe(code);
+      expect(messageFor(result.code)).toBe(errorMessages[code]);
+      expect(messageFor(result.code).length).toBeGreaterThan(0);
+    }
+  });
+
   it('falls back to UNKNOWN_ERROR for an unrecognised body', () => {
     const response = new Response(null, { status: 500 });
     const result = mapError({ something: 'else' }, response);

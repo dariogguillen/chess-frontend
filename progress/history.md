@@ -4420,3 +4420,61 @@ src/hooks/useGameStomp.ts (+test), src/pages/Play/Play.tsx (+test),
 src/routes/Public.tsx, notes/26.7-spectator-view.md (new).
 
 **Feature note:** `notes/26.7-spectator-view.md`
+
+## 2026-06-26 — social-contract-resnapshot (26.8)
+
+**Status:** done
+
+**Summary:** Enabler mirroring 20.1 / 21: re-snapshotted openapi.json from
+PROD and regenerated schema.ts so the backend's deployed friendship +
+friend-invitations surface becomes type-available. Delta: 12 new paths
+(/api/me/friend-code, /api/me/friends*, /api/me/friends/requests*,
+/api/me/invitations*), 8 new schemas (FriendCodeResponse, FriendRequestResponse,
+FriendRequestsPage, FriendResponse, FriendsPage, InvitationResponse,
+SendFriendRequestRequest, SendInvitationRequest), zero removed/renamed (no
+alias retarget). 8 new error codes (ALREADY_FRIENDS, DUPLICATE_FRIEND_REQUEST,
+FRIEND_CODE_NOT_FOUND, FRIEND_NOT_FOUND, FRIEND_REQUEST_NOT_FOUND,
+INVITATION_NOT_FOUND, NOT_ROOM_MEMBER, SELF_FRIENDSHIP) broke the
+Exclude-extends-never exhaustiveness guards at typecheck, so they were
+mirrored into errors.ts (const object + KNOWN_CODES + errorMessages with
+friendly copy, guarded by `satisfies Record<ApiErrorCode,string>`) + a
+mapError test over all 8. Codegen idempotent; no feature code/UI/routes;
+bundle delta ~zero. reviewer approved; ui-reviewer skipped (no UI surface).
+`./init.sh` green (455 tests). NOTE: profile + stats are NOT yet deployed on
+the backend; the invitation STOMP events (InvitationReceivedEvent etc.) are
+NOT in the OpenAPI (hand-maintained in wsEvents.ts when invitations get
+built). Unblocks the profile-shell / friends / invitations frontend work.
+
+**Files touched:** openapi.json, src/api/generated/schema.ts,
+src/api/errors.ts (+test), notes/26.8-social-contract-resnapshot.md (new).
+
+**Feature note:** `notes/26.8-social-contract-resnapshot.md`
+
+## 2026-06-26 — profile-shell (26.9)
+
+**Status:** done
+
+**Summary:** First product feature of the social epic: a minimal /profile
+page as the stable home for friends (next) → invitations → later stats +
+game-reviews. User chose v1 = shell only (info + navigation). The page:
+gated to authenticated users (inverse of Login's guard — a guest hits
+<Navigate to="/home" replace />); a single <h1> "My account"; calls me()
+(auth.ts) on mount for the email (+ fresh displayName) with a role="status"
+aria-live CircularProgress while loading and a graceful fallback to the
+identity's displayName (email omitted) if me() rejects — no crash; and three
+placeholder sections (Friends / My games / Stats) as real <h2> headings +
+"Coming soon" copy where the upcoming features slot in. Added a lazy
+/profile route (own chunk, 1.89 kB) and a "Profile" MenuItem in AccountMenu
+(PersonIcon per-path, between the displayName row and Logout, navigates +
+closes the menu, authenticated-only). reviewer + ui-reviewer approved;
+./init.sh green (462 tests, +7). AuthenticatedIdentity carries userId +
+displayName but not email, hence the me() fetch. One deviation: dropped a
+redundant synchronous setLoading(true) in the mount effect (loading inits
+true; react-hooks 7's set-state-in-effect rule flags it) — behavior
+identical.
+
+**Files touched:** src/pages/Profile/{Profile.tsx,index.ts} (new, +test),
+src/routes/Public.tsx, src/components/AccountMenu/AccountMenu.tsx (+test),
+notes/26.9-profile-shell.md (new).
+
+**Feature note:** `notes/26.9-profile-shell.md`

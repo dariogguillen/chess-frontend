@@ -74,6 +74,28 @@ describe('AccountMenu', () => {
     expect(screen.getByRole('menuitem', { name: /log out/i })).toBeInTheDocument();
   });
 
+  it('shows a Profile item in the menu', async () => {
+    const user = userEvent.setup();
+    renderMenu(authedIdentity);
+
+    await openMenu(user);
+
+    expect(screen.getByRole('menuitem', { name: /profile/i })).toBeInTheDocument();
+  });
+
+  it('navigates to /profile and closes the menu when Profile is clicked', async () => {
+    const user = userEvent.setup();
+    renderMenu(authedIdentity);
+
+    await openMenu(user);
+    await user.click(screen.getByRole('menuitem', { name: /profile/i }));
+
+    expect(navigateMock).toHaveBeenCalledWith('/profile');
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: /profile/i })).toBeNull();
+    });
+  });
+
   it('logs out directly and navigates home when not in a room', async () => {
     const user = userEvent.setup();
     renderMenu(authedIdentity);

@@ -809,6 +809,34 @@
     ]
   },
   {
+    "id": "social-contract-resnapshot",
+    "title": "Re-snapshot OpenAPI for friends + invitations",
+    "description": "Enabler, mirrors auth-openapi-resnapshot (20.1) and backend-contract-resnapshot (21). The backend deployed friendship + friend-invitations (origin/main tops at 'feat: friend invitations'); the frontend openapi.json (last snapshotted at feature 21) lacks all of it. Re-snapshot from PROD (chess-backend.duckdns.org/v3/api-docs, which carries the deployed friends/invitations) and regenerate src/api/generated/schema.ts so the new surface becomes type-available. Verified delta (2026-06-26): 12 new paths (/api/me/friend-code, /api/me/friends*, /api/me/friends/requests*, /api/me/invitations*), 8 new schemas (FriendCodeResponse, FriendRequestResponse, FriendRequestsPage, FriendResponse, FriendsPage, InvitationResponse, SendFriendRequestRequest, SendInvitationRequest), ZERO removed/renamed schemas (no alias retarget, unlike 21's Player->PlayerView). BUT 8 NEW error codes (ALREADY_FRIENDS, DUPLICATE_FRIEND_REQUEST, FRIEND_CODE_NOT_FOUND, FRIEND_NOT_FOUND, FRIEND_REQUEST_NOT_FOUND, INVITATION_NOT_FOUND, NOT_ROOM_MEMBER, SELF_FRIENDSHIP) that break the codebase's Exclude<...> extends never exhaustiveness guards at typecheck — must be mirrored into errors.ts (const object + KNOWN_CODES + errorMessages) as 21 did for its 2 new codes. NOTE: profile + stats are NOT yet deployed (still in progress on the backend), and the invitation STOMP events (InvitationReceivedEvent etc.) are NOT in the OpenAPI (hand-maintained in wsEvents.ts when invitations get built) — both out of scope here. No feature code; unblocks the profile-shell / friends / invitations features.",
+    "status": "done",
+    "priority": 26.8,
+    "acceptance": [
+      "openapi.json re-snapshotted from PROD; the 12 new friend/invitation paths and 8 new schemas are present.",
+      "npm run openapi:generate regenerates src/api/generated/schema.ts; the new types are available; codegen idempotent (second run no diff).",
+      "The 8 new error codes are mirrored into errors.ts (ApiErrorCode const object + KNOWN_CODES + errorMessages with friendly user-facing copy) + a mapError test, so typecheck compiles and the codes map to messages.",
+      "No feature code, no UI, no routes; bundle delta zero (compile-time types + a few const-object entries).",
+      "./init.sh green end-to-end (typecheck is the real gate)."
+    ]
+  },
+  {
+    "id": "profile-shell",
+    "title": "Profile page shell (/profile) — the home for the social epic",
+    "description": "A minimal /profile page as the stable home for the social features (friends next, then invitations; later stats + game-reviews). User chose v1 scope = shell only (info + navigation), no friends CRUD yet. The page: gated to authenticated users (if identity.kind !== Authenticated → Navigate, mirror-inverse of Login's guard at Login.tsx:79); shows displayName (from the context identity) + email (fetched via the existing me() from auth.ts on mount, with a loading state and a graceful fallback to just displayName if me() fails); and lays out placeholder sections (Friends / My games / Stats) marked 'coming soon' so the structure is visible and later features slot in. Add a 'Profile' MenuItem to AccountMenu (navigates to /profile, between the displayName row and Logout). Add a lazy /profile route in Public.tsx. No friends/invitations/stats logic yet — those are their own features. AuthenticatedIdentity has userId+displayName but NOT email (UserContext.tsx:50-54), hence the me() call.",
+    "status": "done",
+    "priority": 26.9,
+    "acceptance": [
+      "A new /profile route (lazy) renders a Profile page gated to authenticated users; a guest hitting /profile is redirected (to /home).",
+      "The page shows the user's displayName (from identity) and email (fetched via me() on mount, with a loading indicator and a fallback to displayName-only if me() rejects).",
+      "Placeholder sections for Friends / My games / Stats are present (clearly 'coming soon'), giving the home structure for later features.",
+      "AccountMenu gains a 'Profile' item that navigates to /profile; it remains authenticated-only; Logout still works.",
+      "Single <h1>, accessible; anonymous play + all existing flows unaffected. ./init.sh green; ui-reviewer approves the new page + menu."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

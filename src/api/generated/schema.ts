@@ -44,6 +44,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List incoming invitations
+         * @description Returns the caller's pending incoming invitations, filtered to still-live, still-joinable rooms (stale ones are pruned). Each entry carries the side the invitee would take and the room's time control, derived from the live room. Requires a valid Bearer JWT.
+         */
+        get: operations["listInvitations"];
+        put?: never;
+        /**
+         * Invite a friend to a room
+         * @description Invites an ACCEPTED friend (by user id) to a FRIEND room the caller created. The invitee receives a real-time push on /user/queue/invitations if connected, and can also fetch it via GET /api/me/invitations. Re-sending the same (room, invitee) is idempotent (refresh, no error). Requires a valid Bearer JWT.
+         */
+        post: operations["sendInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/invitations/{roomId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept an invitation
+         * @description Accepts the invitation for {roomId}, joining the room as the second player. The join is performed server-side using the room's stored join token (never exposed to the client); the inviter learns of the join via the existing RoomJoinedEvent on /topic/rooms/{roomId}. Returns the joined room (roomId, playerId, role, gameId). Path {roomId} is case-insensitive. Requires a valid Bearer JWT.
+         */
+        post: operations["acceptInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/friends/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a friend request by friend code
+         * @description Creates a PENDING friend request from the caller to the user owning the supplied friend code. Requires a valid Bearer JWT.
+         */
+        post: operations["sendRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/friends/requests/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept an incoming friend request
+         * @description Flips a PENDING request to ACCEPTED. Only the request's addressee may accept; any other caller — including the requester or one naming an unknown id — gets 404 with the same FRIEND_REQUEST_NOT_FOUND code (no existence leak). Requires a valid Bearer JWT.
+         */
+        post: operations["acceptRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/games/{id}/moves": {
         parameters: {
             query?: never;
@@ -184,6 +268,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/friends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated user's friends
+         * @description Paginated ACCEPTED friends, newest first, projecting each friend's live display name and friend code. Pagination: page (default 0, min 0); size (default 20, min 1, max 100). Requires a valid Bearer JWT.
+         */
+        get: operations["listFriends"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/friends/requests/outgoing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List outgoing pending friend requests
+         * @description Paginated PENDING requests where the caller is the requester, newest first. Same pagination contract as the friends list. Requires a valid Bearer JWT.
+         */
+        get: operations["listOutgoingRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/friends/requests/incoming": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List incoming pending friend requests
+         * @description Paginated PENDING requests where the caller is the addressee, newest first. Same pagination contract as the friends list. Requires a valid Bearer JWT.
+         */
+        get: operations["listIncomingRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/friend-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the authenticated user's friend code
+         * @description Returns the caller's stable, shareable 8-char friend code. Another user adds the caller as a friend by typing this code — there is no directory or search surface. Requires a valid Bearer JWT.
+         */
+        get: operations["getFriendCode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -219,6 +383,86 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/invitations/{roomId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Decline an invitation
+         * @description The invitee declines the invitation for {roomId}; it is deleted and the inviter receives an InvitationDeclinedEvent on their user queue. Path {roomId} is case-insensitive. Requires a valid Bearer JWT.
+         */
+        delete: operations["declineInvitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/invitations/{roomId}/to/{inviteeUserId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel an invitation
+         * @description The inviter cancels an invitation they sent to {inviteeUserId} for {roomId}; it is deleted and the invitee receives an InvitationCancelledEvent on their user queue. Path {roomId} is case-insensitive. Requires a valid Bearer JWT.
+         */
+        delete: operations["cancelInvitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/friends/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an accepted friend
+         * @description Removes an ACCEPTED friendship with the user named by the path id. Either party may remove. Requires a valid Bearer JWT.
+         */
+        delete: operations["removeFriend"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/friends/requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Reject or cancel a pending friend request
+         * @description Deletes a PENDING request. The requester cancels their own outgoing request; the addressee rejects an incoming one — both delete the row (there is no REJECTED state, so re-requesting later is allowed). A non-participant or unknown id gets 404 FRIEND_REQUEST_NOT_FOUND (no existence leak). Requires a valid Bearer JWT.
+         */
+        delete: operations["deleteRequest"];
         options?: never;
         head?: never;
         patch?: never;
@@ -302,7 +546,7 @@ export interface components {
              * @example ROOM_NOT_FOUND
              * @enum {string}
              */
-            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER" | "AUTHENTICATION_REQUIRED" | "EMAIL_ALREADY_TAKEN" | "INVALID_CREDENTIALS" | "INVALID_JOIN_TOKEN";
+            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER" | "AUTHENTICATION_REQUIRED" | "EMAIL_ALREADY_TAKEN" | "INVALID_CREDENTIALS" | "INVALID_JOIN_TOKEN" | "FRIEND_CODE_NOT_FOUND" | "FRIEND_REQUEST_NOT_FOUND" | "FRIEND_NOT_FOUND" | "ALREADY_FRIENDS" | "DUPLICATE_FRIEND_REQUEST" | "SELF_FRIENDSHIP" | "INVITATION_NOT_FOUND" | "NOT_ROOM_MEMBER";
             message?: string;
             /** Format: date-time */
             timestamp?: string;
@@ -315,6 +559,26 @@ export interface components {
              * @example 8b3c1f04-1234-5678-9abc-def012345678
              */
             joinToken?: string;
+        };
+        SendInvitationRequest: {
+            /**
+             * @description Id of the FRIEND room the caller created and is inviting into. The caller must be a player of this room. Six-char short code.
+             * @example K7M3X9
+             */
+            roomId?: string;
+            /**
+             * Format: uuid
+             * @description User id of an ACCEPTED friend of the caller (from GET /api/me/friends). Must be an existing accepted friendship or the request is rejected 404 FRIEND_NOT_FOUND.
+             * @example 8b3c1f04-1234-5678-9abc-def012345678
+             */
+            friendUserId: string;
+        };
+        SendFriendRequestRequest: {
+            /**
+             * @description The friend code of the user to send a request to.
+             * @example K7M3X9PQ
+             */
+            friendCode?: string;
         };
         MoveRequest: {
             /**
@@ -504,6 +768,36 @@ export interface components {
              */
             moveCount?: number;
         };
+        InvitationResponse: {
+            /**
+             * @description Room the invitation targets (6-char short code).
+             * @example K7M3X9
+             */
+            roomId?: string;
+            /**
+             * Format: uuid
+             * @description User id of the inviter.
+             * @example 8b3c1f04-1234-5678-9abc-def012345678
+             */
+            inviterUserId?: string;
+            /**
+             * @description Display name of the inviter.
+             * @example Alice
+             */
+            inviterDisplayName?: string;
+            /** @description The room's declared clock; null for an untimed room. */
+            timeControl?: components["schemas"]["TimeControl"];
+            /**
+             * @description Side the invitee would take on accept (the opposite of the creator's side).
+             * @example BLACK
+             */
+            side?: string;
+            /**
+             * Format: date-time
+             * @description When the invitation was created or last refreshed (ISO-8601 UTC).
+             */
+            createdAt?: string;
+        };
         MyGameSummary: {
             /**
              * Format: uuid
@@ -595,6 +889,165 @@ export interface components {
              * @example false
              */
             empty?: boolean;
+        };
+        FriendResponse: {
+            /**
+             * Format: uuid
+             * @description The friend's user id.
+             * @example 0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000
+             */
+            userId?: string;
+            /**
+             * @description The friend's current display name (live, not a snapshot).
+             * @example Bob
+             */
+            displayName?: string;
+            /**
+             * @description The friend's shareable friend code.
+             * @example K7M3X9PQ
+             */
+            friendCode?: string;
+            /**
+             * Format: date-time
+             * @description Instant the friendship was accepted.
+             * @example 2026-06-23T10:23:11.123Z
+             */
+            friendsSince?: string;
+        };
+        /** @description Spring Data Page envelope for FriendResponse entries. */
+        FriendsPage: {
+            /** @description Friends on this page, newest first. */
+            content?: components["schemas"]["FriendResponse"][];
+            /**
+             * Format: int64
+             * @description Total number of friends across all pages.
+             * @example 12
+             */
+            totalElements?: number;
+            /**
+             * Format: int32
+             * @description Total number of pages.
+             * @example 1
+             */
+            totalPages?: number;
+            /**
+             * Format: int32
+             * @description Page size requested (or the default).
+             * @example 20
+             */
+            size?: number;
+            /**
+             * Format: int32
+             * @description Zero-based page index.
+             * @example 0
+             */
+            number?: number;
+            /**
+             * @description True when this is the first page.
+             * @example true
+             */
+            first?: boolean;
+            /**
+             * @description True when this is the last page.
+             * @example true
+             */
+            last?: boolean;
+            /**
+             * Format: int32
+             * @description Number of entries on this page.
+             * @example 12
+             */
+            numberOfElements?: number;
+            /**
+             * @description True when this page is empty.
+             * @example false
+             */
+            empty?: boolean;
+        };
+        FriendRequestResponse: {
+            /**
+             * Format: uuid
+             * @description The request id; used to accept, reject, or cancel.
+             */
+            requestId?: string;
+            /**
+             * Format: uuid
+             * @description The other party's user id.
+             */
+            userId?: string;
+            /**
+             * @description The other party's current display name (live, not a snapshot).
+             * @example Alice
+             */
+            displayName?: string;
+            /**
+             * @description The other party's shareable friend code.
+             * @example K7M3X9PQ
+             */
+            friendCode?: string;
+            /**
+             * Format: date-time
+             * @description Instant the request was created.
+             * @example 2026-06-23T10:23:11.123Z
+             */
+            createdAt?: string;
+        };
+        /** @description Spring Data Page envelope for FriendRequestResponse entries. */
+        FriendRequestsPage: {
+            /** @description Requests on this page, newest first. */
+            content?: components["schemas"]["FriendRequestResponse"][];
+            /**
+             * Format: int64
+             * @description Total number of requests across all pages.
+             * @example 3
+             */
+            totalElements?: number;
+            /**
+             * Format: int32
+             * @description Total number of pages.
+             * @example 1
+             */
+            totalPages?: number;
+            /**
+             * Format: int32
+             * @description Page size requested (or the default).
+             * @example 20
+             */
+            size?: number;
+            /**
+             * Format: int32
+             * @description Zero-based page index.
+             * @example 0
+             */
+            number?: number;
+            /**
+             * @description True when this is the first page.
+             * @example true
+             */
+            first?: boolean;
+            /**
+             * @description True when this is the last page.
+             * @example true
+             */
+            last?: boolean;
+            /**
+             * Format: int32
+             * @description Number of entries on this page.
+             * @example 3
+             */
+            numberOfElements?: number;
+            /**
+             * @description True when this page is empty.
+             * @example false
+             */
+            empty?: boolean;
+        };
+        FriendCodeResponse: {
+            /**
+             * @description The caller's shareable friend code; 8 chars over an unambiguous alphabet.
+             * @example K7M3X9PQ
+             */
+            friendCode?: string;
         };
         HealthResponse: {
             /**
@@ -709,6 +1162,256 @@ export interface operations {
             };
             /** @description Room already has two players */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listInvitations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's live incoming invitations (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationResponse"];
+                };
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sendInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Invitation sent. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request (validation failure or malformed JSON). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description NOT_ROOM_MEMBER — the caller is not a player of the room. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description FRIEND_NOT_FOUND — friendUserId is not an accepted friend; or ROOM_NOT_FOUND — the room does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description ROOM_FULL — the room has no free joinable slot (already full, or a bot room). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    acceptInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Joined; game created. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomResponse"];
+                };
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description INVITATION_NOT_FOUND — no live invitation for the caller on that room. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description ROOM_FULL — the room filled before the caller accepted. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sendRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendFriendRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Request created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Blank friend code (validation) or unparseable body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description FRIEND_CODE_NOT_FOUND — no user owns the supplied code. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description ALREADY_FRIENDS (already an accepted friendship) or DUPLICATE_FRIEND_REQUEST (a pending request already exists in either direction). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description SELF_FRIENDSHIP — the code is the caller's own. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    acceptRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request accepted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description FRIEND_REQUEST_NOT_FOUND — the request does not exist or the caller is not its addressee. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -998,6 +1701,158 @@ export interface operations {
             };
         };
     };
+    listFriends: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of friends (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendsPage"];
+                };
+            };
+            /** @description Invalid pagination parameter (page < 0 or size outside [1, 100]). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listOutgoingRequests: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of outgoing requests (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendRequestsPage"];
+                };
+            };
+            /** @description Invalid pagination parameter (page < 0 or size outside [1, 100]). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listIncomingRequests: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of incoming requests (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendRequestsPage"];
+                };
+            };
+            /** @description Invalid pagination parameter (page < 0 or size outside [1, 100]). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getFriendCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's friend code. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendCodeResponse"];
+                };
+            };
+            /** @description Missing, malformed, expired, or unsigned-by-us JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -1048,6 +1903,168 @@ export interface operations {
                 };
             };
             /** @description Game does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    declineInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation declined. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description INVITATION_NOT_FOUND — no invitation for the caller on that room. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancelInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: string;
+                inviteeUserId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description NOT_ROOM_MEMBER — the caller is not a player of the room. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description INVITATION_NOT_FOUND — no such invitation. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    removeFriend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Friendship removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description FRIEND_NOT_FOUND — no accepted friendship exists with that user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid JWT. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description FRIEND_REQUEST_NOT_FOUND — the request does not exist or the caller is not a participant. */
             404: {
                 headers: {
                     [name: string]: unknown;

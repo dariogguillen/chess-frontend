@@ -53,6 +53,14 @@ export const ApiErrorCode = {
   EmailAlreadyTaken: 'EMAIL_ALREADY_TAKEN',
   InvalidCredentials: 'INVALID_CREDENTIALS',
   InvalidJoinToken: 'INVALID_JOIN_TOKEN',
+  FriendCodeNotFound: 'FRIEND_CODE_NOT_FOUND',
+  FriendRequestNotFound: 'FRIEND_REQUEST_NOT_FOUND',
+  FriendNotFound: 'FRIEND_NOT_FOUND',
+  AlreadyFriends: 'ALREADY_FRIENDS',
+  DuplicateFriendRequest: 'DUPLICATE_FRIEND_REQUEST',
+  SelfFriendship: 'SELF_FRIENDSHIP',
+  InvitationNotFound: 'INVITATION_NOT_FOUND',
+  NotRoomMember: 'NOT_ROOM_MEMBER',
   NetworkError: 'NETWORK_ERROR',
   UnknownError: 'UNKNOWN_ERROR',
 } as const satisfies Record<string, ApiErrorCode>;
@@ -140,6 +148,14 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<ServerErrorCode>([
   ApiErrorCode.EmailAlreadyTaken,
   ApiErrorCode.InvalidCredentials,
   ApiErrorCode.InvalidJoinToken,
+  ApiErrorCode.FriendCodeNotFound,
+  ApiErrorCode.FriendRequestNotFound,
+  ApiErrorCode.FriendNotFound,
+  ApiErrorCode.AlreadyFriends,
+  ApiErrorCode.DuplicateFriendRequest,
+  ApiErrorCode.SelfFriendship,
+  ApiErrorCode.InvitationNotFound,
+  ApiErrorCode.NotRoomMember,
 ]);
 
 /**
@@ -183,6 +199,14 @@ export const errorMessages: Readonly<Record<ApiErrorCode, string>> = {
   [ApiErrorCode.InvalidCredentials]: 'Incorrect email or password.',
   [ApiErrorCode.InvalidJoinToken]:
     'That join link is invalid or has expired. Ask the room creator for a fresh link.',
+  [ApiErrorCode.FriendCodeNotFound]: 'No user found with that friend code.',
+  [ApiErrorCode.FriendRequestNotFound]: 'That friend request was not found.',
+  [ApiErrorCode.FriendNotFound]: 'That friend was not found.',
+  [ApiErrorCode.AlreadyFriends]: "You're already friends.",
+  [ApiErrorCode.DuplicateFriendRequest]: 'A friend request is already pending.',
+  [ApiErrorCode.SelfFriendship]: "You can't add yourself as a friend.",
+  [ApiErrorCode.InvitationNotFound]: 'That invitation was not found or has expired.',
+  [ApiErrorCode.NotRoomMember]: "You're not a member of that room.",
   [ApiErrorCode.NetworkError]: 'Could not reach the server. Check your connection and try again.',
   [ApiErrorCode.UnknownError]: 'Something went wrong. Please try again.',
 };

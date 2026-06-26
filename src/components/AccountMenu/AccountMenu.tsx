@@ -1,5 +1,6 @@
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import LogoutIcon from '@mui/icons-material/Logout';
+import PersonIcon from '@mui/icons-material/Person';
 import {
   Button,
   Dialog,
@@ -57,6 +58,11 @@ export const AccountMenu = () => {
     navigate('/home');
   };
 
+  const handleProfile = () => {
+    handleClose();
+    navigate('/profile');
+  };
+
   const handleLogout = () => {
     handleClose();
     if (room.phase === RoomPhase.InRoom) {
@@ -103,6 +109,12 @@ export const AccountMenu = () => {
           />
         </MenuItem>
         <Divider />
+        <MenuItem onClick={handleProfile}>
+          <ListItemIcon>
+            <PersonIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Profile</ListItemText>
+        </MenuItem>
         <MenuItem onClick={handleLogout}>
           <ListItemIcon>
             <LogoutIcon fontSize="small" />

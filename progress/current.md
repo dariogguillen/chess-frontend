@@ -1,10 +1,125 @@
 # Current session
 
-**Status:** `spectator-view` (26.7) CLOSED (2026-06-24). reviewer +
-ui-reviewer approved; `./init.sh` green (454 tests). See history.md.
-Watch-a-game via /watch?roomId=X is live.
+**Status:** `profile-shell` (26.9) CLOSED (2026-06-26). reviewer +
+ui-reviewer approved; `./init.sh` green (462 tests). /profile home is live
+(authed-only, AccountMenu entry, placeholder Friends/My games/Stats
+sections). NEXT in the social epic: **friends**.
 
-**Counts:** 49 done · 1 pending (27 game-reviews, PAUSED on backend).
+**Counts:** 51 done · 1 pending (27 game-reviews paused).
+
+## Social epic progress
+- ✅ 26.8 social-contract-resnapshot · ✅ 26.9 profile-shell
+- ▶ NEXT: **friends** — friend-code + send/accept/reject requests + list +
+  remove, in the profile's Friends section. All endpoints live (see the
+  social-resnapshot note for the 12 paths / 8 schemas / 8 error codes).
+  Decision-first with the user on scope (full CRUD vs incremental).
+- then: **direct-invitations** (needs friends; verify the personal STOMP
+  topic for InvitationReceivedEvent).
+- backend-gated: **stats** (profile section) + **game-reviews** (winnerSide).
+
+## ⚠️ Uncommitted — keep the commit split clean
+26.8 (openapi.json, schema.ts, errors.ts+test) and 26.9 (pages/Profile/*,
+Public.tsx, AccountMenu+test) are separate features — commit separately.
+Prior backlog (20.9…26.7) was already committed/deployed by the user.
+
+## Plan — `profile-shell` (26.9, IN PROGRESS)
+
+Minimal /profile page = the stable home for the social epic. User chose v1
+= shell only (info + navigation), friends CRUD is its own feature next.
+
+**Facts (file:line):** `AuthenticatedIdentity` = userId + displayName, NO
+email (UserContext.tsx:50-54) → fetch email via `me()` (auth.ts) on mount.
+Auth guard pattern: Login redirects when ALREADY authed
+(`identity.kind === Authenticated → <Navigate to="/home">`, Login.tsx:79);
+Profile is the inverse. AccountMenu menu items at AccountMenu.tsx:99-110
+(displayName disabled row → Divider → Logout). Routes are lazy in
+Public.tsx.
+
+### Steps
+1. **New `src/pages/Profile/`** (Profile.tsx + index + test). Gate:
+   `if (identity.kind !== IdentityKind.Authenticated) return <Navigate
+   to="/home" replace />`. On mount call `me()` to get email (+ fresh
+   displayName); show a CircularProgress while loading and fall back to the
+   identity's displayName (email omitted) if me() rejects — don't crash.
+   Single `<h1>` ("Profile" / "My account"). Render displayName + email,
+   then placeholder sections **Friends / My games / Stats** each marked
+   "coming soon" (plain, accessible — they're where later features slot in).
+2. **Route:** add `{ path: 'profile', element: <Profile /> }` lazy in
+   Public.tsx (match the NewGame/Play lazy pattern).
+3. **AccountMenu:** add a "Profile" `MenuItem` (e.g. AccountCircle/Person
+   icon, per-path import) that `navigate('/profile')` + closes the menu,
+   placed between the displayName row and Logout. Authenticated-only
+   (AccountMenu already only renders when authed). Logout unchanged.
+
+### Tests
+- Profile: authed → renders displayName + email (me() mocked via MSW);
+  me() rejects → displayName shown, no crash; guest → redirected to /home.
+- AccountMenu: a "Profile" item appears and navigates to /profile (authed);
+  Logout still works.
+
+### Accessibility (ui-reviewer REQUIRED — new page + menu)
+Single `<h1>`; the loading state is announced (role/aria-live on the
+spinner or a "Loading…" label); the menu item has a clear name; placeholder
+sections are real headings/text, not colour-only.
+
+### Out of scope
+Friends CRUD (next feature), invitations, stats, game-reviews, editing the
+profile (no backend endpoint). No new deps. `./init.sh` green.
+
+---
+
+## (social epic + resnapshot plan retained below for reference)
+
+## The social epic (sequenced with the user, 2026-06-26)
+
+Backend now offers (DEPLOYED): **friends** (friend-code, send/accept/reject
+requests, list, remove) and **direct game invitations** (invite a friend by
+friendUserId to a FRIEND room → they get a live STOMP InvitationReceivedEvent
+→ accept joins them). Dependency chain: profile (home) → friends →
+invitations. Planned frontend sequence:
+1. **26.8 social-contract-resnapshot** (THIS) — re-snapshot + mirror error codes.
+2. **profile-shell** — /profile page + AccountMenu entry (stable home; me()).
+3. **friends** — friend-code, requests, list (lives in the profile).
+4. **direct-invitations** — invite a friend + receive live (needs a personal
+   STOMP topic — verify how InvitationReceivedEvent is delivered).
+5. When backend ships: **stats** (profile section) + unblock **game-reviews**
+   (needs winnerSide on MyGameSummary).
+
+## Plan — `social-contract-resnapshot` (26.8, IN PROGRESS)
+
+Pure enabler (mirrors 20.1 / 21). Pre-inspected prod vs the committed
+openapi.json (2026-06-26):
+- 12 new paths (friend-code, friends, friends/requests*, invitations*).
+- 8 new schemas (FriendCodeResponse, FriendRequestResponse, FriendRequestsPage,
+  FriendResponse, FriendsPage, InvitationResponse, SendFriendRequestRequest,
+  SendInvitationRequest).
+- ZERO removed/renamed schemas (no alias retarget needed).
+- 8 NEW error codes that BREAK the exhaustiveness guards at typecheck:
+  ALREADY_FRIENDS, DUPLICATE_FRIEND_REQUEST, FRIEND_CODE_NOT_FOUND,
+  FRIEND_NOT_FOUND, FRIEND_REQUEST_NOT_FOUND, INVITATION_NOT_FOUND,
+  NOT_ROOM_MEMBER, SELF_FRIENDSHIP.
+
+### Steps for the implementer
+1. Re-snapshot from PROD:
+   `curl -fsSL https://chess-backend.duckdns.org/v3/api-docs | jq . > openapi.json`
+   (the openapi:fetch script points at localhost:8080 which isn't running —
+   one-off; do NOT rewrite the script). Record the prod-snapshot in the note.
+2. `npm run openapi:generate`; confirm idempotency (second run no diff).
+3. Mirror the 8 new error codes into `src/api/errors.ts`: add each to the
+   `ApiErrorCode` const object, `KNOWN_CODES`, and `errorMessages` with
+   friendly user-facing copy (e.g. SELF_FRIENDSHIP → "You can't add yourself
+   as a friend."; FRIEND_CODE_NOT_FOUND → "No user found with that friend
+   code."; DUPLICATE_FRIEND_REQUEST → "A friend request is already
+   pending."; ALREADY_FRIENDS → "You're already friends."; INVITATION_NOT_FOUND
+   → "That invitation was not found or has expired."; etc.). Add a mapError
+   test asserting the new codes promote + map. This is the in-scope mirroring
+   (21 precedent).
+4. No alias retarget (no schema renamed). No feature code/UI/routes.
+5. `./init.sh` green (typecheck is the gate). Format the note (prettier).
+
+### Out of scope
+profile-shell / friends / invitations features; the invitation STOMP events
+(not in OpenAPI); profile + stats (not deployed yet). Bundle delta ~zero.
 
 ## ⚠️ game-reviews (27) is BLOCKED on the backend — user's call
 

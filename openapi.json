@@ -21,8 +21,16 @@
       "description": "Authenticated-user endpoints."
     },
     {
+      "name": "Friends",
+      "description": "Mutual request/accept friendships discovered by friend code."
+    },
+    {
       "name": "Authentication",
       "description": "Authenticated-user information."
+    },
+    {
+      "name": "Invitations",
+      "description": "Invite accepted friends to a room you created."
     },
     {
       "name": "Rooms",
@@ -151,6 +159,294 @@
           },
           "409": {
             "description": "Room already has two players",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/invitations": {
+      "get": {
+        "tags": [
+          "Invitations"
+        ],
+        "summary": "List incoming invitations",
+        "description": "Returns the caller's pending incoming invitations, filtered to still-live, still-joinable rooms (stale ones are pruned). Each entry carries the side the invitee would take and the room's time control, derived from the live room. Requires a valid Bearer JWT.",
+        "operationId": "listInvitations",
+        "responses": {
+          "200": {
+            "description": "The caller's live incoming invitations (possibly empty).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Invitations"
+        ],
+        "summary": "Invite a friend to a room",
+        "description": "Invites an ACCEPTED friend (by user id) to a FRIEND room the caller created. The invitee receives a real-time push on /user/queue/invitations if connected, and can also fetch it via GET /api/me/invitations. Re-sending the same (room, invitee) is idempotent (refresh, no error). Requires a valid Bearer JWT.",
+        "operationId": "sendInvitation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Invitation sent."
+          },
+          "400": {
+            "description": "Invalid request (validation failure or malformed JSON).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "NOT_ROOM_MEMBER — the caller is not a player of the room.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "FRIEND_NOT_FOUND — friendUserId is not an accepted friend; or ROOM_NOT_FOUND — the room does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ROOM_FULL — the room has no free joinable slot (already full, or a bot room).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/invitations/{roomId}/accept": {
+      "post": {
+        "tags": [
+          "Invitations"
+        ],
+        "summary": "Accept an invitation",
+        "description": "Accepts the invitation for {roomId}, joining the room as the second player. The join is performed server-side using the room's stored join token (never exposed to the client); the inviter learns of the join via the existing RoomJoinedEvent on /topic/rooms/{roomId}. Returns the joined room (roomId, playerId, role, gameId). Path {roomId} is case-insensitive. Requires a valid Bearer JWT.",
+        "operationId": "acceptInvitation",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Joined; game created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "INVITATION_NOT_FOUND — no live invitation for the caller on that room.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ROOM_FULL — the room filled before the caller accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/friends/requests": {
+      "post": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "Send a friend request by friend code",
+        "description": "Creates a PENDING friend request from the caller to the user owning the supplied friend code. Requires a valid Bearer JWT.",
+        "operationId": "sendRequest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendFriendRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Request created."
+          },
+          "400": {
+            "description": "Blank friend code (validation) or unparseable body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "FRIEND_CODE_NOT_FOUND — no user owns the supplied code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALREADY_FRIENDS (already an accepted friendship) or DUPLICATE_FRIEND_REQUEST (a pending request already exists in either direction).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "SELF_FRIENDSHIP — the code is the caller's own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/friends/requests/{id}/accept": {
+      "post": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "Accept an incoming friend request",
+        "description": "Flips a PENDING request to ACCEPTED. Only the request's addressee may accept; any other caller — including the requester or one naming an unknown id — gets 404 with the same FRIEND_REQUEST_NOT_FOUND code (no existence leak). Requires a valid Bearer JWT.",
+        "operationId": "acceptRequest",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Request accepted."
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "FRIEND_REQUEST_NOT_FOUND — the request does not exist or the caller is not its addressee.",
             "content": {
               "application/json": {
                 "schema": {
@@ -545,6 +841,239 @@
         }
       }
     },
+    "/api/me/friends": {
+      "get": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "List the authenticated user's friends",
+        "description": "Paginated ACCEPTED friends, newest first, projecting each friend's live display name and friend code. Pagination: page (default 0, min 0); size (default 20, min 1, max 100). Requires a valid Bearer JWT.",
+        "operationId": "listFriends",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of friends (possibly empty).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination parameter (page < 0 or size outside [1, 100]).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/friends/requests/outgoing": {
+      "get": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "List outgoing pending friend requests",
+        "description": "Paginated PENDING requests where the caller is the requester, newest first. Same pagination contract as the friends list. Requires a valid Bearer JWT.",
+        "operationId": "listOutgoingRequests",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of outgoing requests (possibly empty).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination parameter (page < 0 or size outside [1, 100]).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/friends/requests/incoming": {
+      "get": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "List incoming pending friend requests",
+        "description": "Paginated PENDING requests where the caller is the addressee, newest first. Same pagination contract as the friends list. Requires a valid Bearer JWT.",
+        "operationId": "listIncomingRequests",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of incoming requests (possibly empty).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination parameter (page < 0 or size outside [1, 100]).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/friend-code": {
+      "get": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "Get the authenticated user's friend code",
+        "description": "Returns the caller's stable, shareable 8-char friend code. Another user adds the caller as a friend by typing this code — there is no directory or search surface. Requires a valid Bearer JWT.",
+        "operationId": "getFriendCode",
+        "responses": {
+          "200": {
+            "description": "The caller's friend code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendCodeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired, or unsigned-by-us JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [
@@ -609,6 +1138,207 @@
           },
           "404": {
             "description": "Game does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/invitations/{roomId}": {
+      "delete": {
+        "tags": [
+          "Invitations"
+        ],
+        "summary": "Decline an invitation",
+        "description": "The invitee declines the invitation for {roomId}; it is deleted and the inviter receives an InvitationDeclinedEvent on their user queue. Path {roomId} is case-insensitive. Requires a valid Bearer JWT.",
+        "operationId": "declineInvitation",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Invitation declined."
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "INVITATION_NOT_FOUND — no invitation for the caller on that room.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/invitations/{roomId}/to/{inviteeUserId}": {
+      "delete": {
+        "tags": [
+          "Invitations"
+        ],
+        "summary": "Cancel an invitation",
+        "description": "The inviter cancels an invitation they sent to {inviteeUserId} for {roomId}; it is deleted and the invitee receives an InvitationCancelledEvent on their user queue. Path {roomId} is case-insensitive. Requires a valid Bearer JWT.",
+        "operationId": "cancelInvitation",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "inviteeUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Invitation cancelled."
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "NOT_ROOM_MEMBER — the caller is not a player of the room.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "INVITATION_NOT_FOUND — no such invitation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/friends/{userId}": {
+      "delete": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "Remove an accepted friend",
+        "description": "Removes an ACCEPTED friendship with the user named by the path id. Either party may remove. Requires a valid Bearer JWT.",
+        "operationId": "removeFriend",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Friendship removed."
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "FRIEND_NOT_FOUND — no accepted friendship exists with that user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/friends/requests/{id}": {
+      "delete": {
+        "tags": [
+          "Friends"
+        ],
+        "summary": "Reject or cancel a pending friend request",
+        "description": "Deletes a PENDING request. The requester cancels their own outgoing request; the addressee rejects an incoming one — both delete the row (there is no REJECTED state, so re-requesting later is allowed). A non-participant or unknown id gets 404 FRIEND_REQUEST_NOT_FOUND (no existence leak). Requires a valid Bearer JWT.",
+        "operationId": "deleteRequest",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Request deleted."
+          },
+          "401": {
+            "description": "Missing or invalid JWT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "FRIEND_REQUEST_NOT_FOUND — the request does not exist or the caller is not a participant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -733,7 +1463,15 @@
               "AUTHENTICATION_REQUIRED",
               "EMAIL_ALREADY_TAKEN",
               "INVALID_CREDENTIALS",
-              "INVALID_JOIN_TOKEN"
+              "INVALID_JOIN_TOKEN",
+              "FRIEND_CODE_NOT_FOUND",
+              "FRIEND_REQUEST_NOT_FOUND",
+              "FRIEND_NOT_FOUND",
+              "ALREADY_FRIENDS",
+              "DUPLICATE_FRIEND_REQUEST",
+              "SELF_FRIENDSHIP",
+              "INVITATION_NOT_FOUND",
+              "NOT_ROOM_MEMBER"
             ],
             "example": "ROOM_NOT_FOUND"
           },
@@ -758,6 +1496,37 @@
             "type": "string",
             "description": "Secret join token obtained by the creator from the create response and shared out-of-band with the opponent. Required for rooms created after feature 22.7 shipped; a missing or wrong token returns 403 INVALID_JOIN_TOKEN.",
             "example": "8b3c1f04-1234-5678-9abc-def012345678"
+          }
+        }
+      },
+      "SendInvitationRequest": {
+        "type": "object",
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "description": "Id of the FRIEND room the caller created and is inviting into. The caller must be a player of this room. Six-char short code.",
+            "example": "K7M3X9",
+            "minLength": 1
+          },
+          "friendUserId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User id of an ACCEPTED friend of the caller (from GET /api/me/friends). Must be an existing accepted friendship or the request is rejected 404 FRIEND_NOT_FOUND.",
+            "example": "8b3c1f04-1234-5678-9abc-def012345678"
+          }
+        },
+        "required": [
+          "friendUserId"
+        ]
+      },
+      "SendFriendRequestRequest": {
+        "type": "object",
+        "properties": {
+          "friendCode": {
+            "type": "string",
+            "description": "The friend code of the user to send a request to.",
+            "example": "K7M3X9PQ",
+            "minLength": 1
           }
         }
       },
@@ -1066,6 +1835,41 @@
           }
         }
       },
+      "InvitationResponse": {
+        "type": "object",
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "description": "Room the invitation targets (6-char short code).",
+            "example": "K7M3X9"
+          },
+          "inviterUserId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User id of the inviter.",
+            "example": "8b3c1f04-1234-5678-9abc-def012345678"
+          },
+          "inviterDisplayName": {
+            "type": "string",
+            "description": "Display name of the inviter.",
+            "example": "Alice"
+          },
+          "timeControl": {
+            "$ref": "#/components/schemas/TimeControl",
+            "description": "The room's declared clock; null for an untimed room."
+          },
+          "side": {
+            "type": "string",
+            "description": "Side the invitee would take on accept (the opposite of the creator's side).",
+            "example": "BLACK"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the invitation was created or last refreshed (ISO-8601 UTC)."
+          }
+        }
+      },
       "MyGameSummary": {
         "type": "object",
         "properties": {
@@ -1175,6 +1979,190 @@
             "type": "boolean",
             "description": "True when this page is empty.",
             "example": false
+          }
+        }
+      },
+      "FriendResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The friend's user id.",
+            "example": "0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "The friend's current display name (live, not a snapshot).",
+            "example": "Bob"
+          },
+          "friendCode": {
+            "type": "string",
+            "description": "The friend's shareable friend code.",
+            "example": "K7M3X9PQ"
+          },
+          "friendsSince": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Instant the friendship was accepted.",
+            "example": "2026-06-23T10:23:11.123Z"
+          }
+        }
+      },
+      "FriendsPage": {
+        "type": "object",
+        "description": "Spring Data Page envelope for FriendResponse entries.",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "Friends on this page, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/FriendResponse"
+            }
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of friends across all pages.",
+            "example": 12
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total number of pages.",
+            "example": 1
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Page size requested (or the default).",
+            "example": 20
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Zero-based page index.",
+            "example": 0
+          },
+          "first": {
+            "type": "boolean",
+            "description": "True when this is the first page.",
+            "example": true
+          },
+          "last": {
+            "type": "boolean",
+            "description": "True when this is the last page.",
+            "example": true
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of entries on this page.",
+            "example": 12
+          },
+          "empty": {
+            "type": "boolean",
+            "description": "True when this page is empty.",
+            "example": false
+          }
+        }
+      },
+      "FriendRequestResponse": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The request id; used to accept, reject, or cancel."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The other party's user id."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "The other party's current display name (live, not a snapshot).",
+            "example": "Alice"
+          },
+          "friendCode": {
+            "type": "string",
+            "description": "The other party's shareable friend code.",
+            "example": "K7M3X9PQ"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Instant the request was created.",
+            "example": "2026-06-23T10:23:11.123Z"
+          }
+        }
+      },
+      "FriendRequestsPage": {
+        "type": "object",
+        "description": "Spring Data Page envelope for FriendRequestResponse entries.",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "Requests on this page, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/FriendRequestResponse"
+            }
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of requests across all pages.",
+            "example": 3
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total number of pages.",
+            "example": 1
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Page size requested (or the default).",
+            "example": 20
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Zero-based page index.",
+            "example": 0
+          },
+          "first": {
+            "type": "boolean",
+            "description": "True when this is the first page.",
+            "example": true
+          },
+          "last": {
+            "type": "boolean",
+            "description": "True when this is the last page.",
+            "example": true
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of entries on this page.",
+            "example": 3
+          },
+          "empty": {
+            "type": "boolean",
+            "description": "True when this page is empty.",
+            "example": false
+          }
+        }
+      },
+      "FriendCodeResponse": {
+        "type": "object",
+        "properties": {
+          "friendCode": {
+            "type": "string",
+            "description": "The caller's shareable friend code; 8 chars over an unambiguous alphabet.",
+            "example": "K7M3X9PQ"
           }
         }
       },
