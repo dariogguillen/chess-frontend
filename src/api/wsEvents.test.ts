@@ -1,11 +1,21 @@
 import { describe, it, expect } from 'vitest';
 
 import { GameStatus, PromotionPiece, Side } from './games';
-import { ConnectionState, DiscoveryState, GameTopicEventType, RoomEventType } from './wsEvents';
+import {
+  ConnectionState,
+  DiscoveryState,
+  GameTopicEventType,
+  InvitationQueueEventType,
+  RoomEventType,
+} from './wsEvents';
 import type {
   GameAbandonedEvent,
   GameTimedOutEvent,
   GameTopicEvent,
+  InvitationCancelledEvent,
+  InvitationDeclinedEvent,
+  InvitationQueueEvent,
+  InvitationReceivedEvent,
   MoveEvent,
   OpponentConnectionStatus,
   PlayerDisconnectedEvent,
@@ -341,6 +351,114 @@ describe('wsEvents', () => {
       // Runtime: still a plain object — the assertion above is purely
       // structural so the test body can read it.
       expect(bogus).toBeDefined();
+    });
+  });
+
+  describe('InvitationQueueEventType', () => {
+    it('exposes the three expected discriminator constants', () => {
+      expect(InvitationQueueEventType.Received).toBe('INVITATION_RECEIVED');
+      expect(InvitationQueueEventType.Declined).toBe('INVITATION_DECLINED');
+      expect(InvitationQueueEventType.Cancelled).toBe('INVITATION_CANCELLED');
+    });
+  });
+
+  describe('InvitationReceivedEvent', () => {
+    it('parses an INVITATION_RECEIVED payload with a time control', () => {
+      const payload = JSON.parse(
+        JSON.stringify({
+          type: 'INVITATION_RECEIVED',
+          roomId: 'K7M3X9',
+          inviterUserId: '8b3c1f04-1234-5678-9abc-def012345678',
+          inviterDisplayName: 'Alice',
+          timeControl: { initialMs: 300_000, incrementMs: 2_000 },
+        }),
+      ) as InvitationReceivedEvent;
+
+      expect(payload.type).toBe(InvitationQueueEventType.Received);
+      expect(payload.roomId).toBe('K7M3X9');
+      expect(payload.inviterDisplayName).toBe('Alice');
+      expect(payload.timeControl).toEqual({ initialMs: 300_000, incrementMs: 2_000 });
+    });
+
+    it('allows a null time control for an untimed room', () => {
+      const event: InvitationReceivedEvent = {
+        type: InvitationQueueEventType.Received,
+        roomId: 'K7M3X9',
+        inviterUserId: 'u-alice',
+        inviterDisplayName: 'Alice',
+        timeControl: null,
+      };
+
+      const roundTripped = JSON.parse(JSON.stringify(event)) as InvitationReceivedEvent;
+      expect(roundTripped).toEqual(event);
+      expect(roundTripped.timeControl).toBeNull();
+    });
+  });
+
+  describe('InvitationDeclinedEvent', () => {
+    it('parses an INVITATION_DECLINED payload to the typed shape', () => {
+      const event: InvitationDeclinedEvent = {
+        type: InvitationQueueEventType.Declined,
+        roomId: 'K7M3X9',
+        inviteeUserId: 'u-bob',
+      };
+
+      const roundTripped = JSON.parse(JSON.stringify(event)) as InvitationDeclinedEvent;
+      expect(roundTripped).toEqual(event);
+      expect(roundTripped.type).toBe('INVITATION_DECLINED');
+    });
+  });
+
+  describe('InvitationCancelledEvent', () => {
+    it('parses an INVITATION_CANCELLED payload to the typed shape', () => {
+      const event: InvitationCancelledEvent = {
+        type: InvitationQueueEventType.Cancelled,
+        roomId: 'K7M3X9',
+      };
+
+      const roundTripped = JSON.parse(JSON.stringify(event)) as InvitationCancelledEvent;
+      expect(roundTripped).toEqual(event);
+      expect(roundTripped.type).toBe('INVITATION_CANCELLED');
+    });
+  });
+
+  describe('InvitationQueueEvent', () => {
+    it('narrows each variant by its type discriminator in a switch', () => {
+      const events: ReadonlyArray<InvitationQueueEvent> = [
+        {
+          type: InvitationQueueEventType.Received,
+          roomId: 'r1',
+          inviterUserId: 'u-alice',
+          inviterDisplayName: 'Alice',
+          timeControl: null,
+        },
+        {
+          type: InvitationQueueEventType.Declined,
+          roomId: 'r2',
+          inviteeUserId: 'u-bob',
+        },
+        {
+          type: InvitationQueueEventType.Cancelled,
+          roomId: 'r3',
+        },
+      ];
+
+      const tags = events.map((event) => {
+        switch (event.type) {
+          case InvitationQueueEventType.Received:
+            return `recv:${event.inviterDisplayName}`;
+          case InvitationQueueEventType.Declined:
+            return `decl:${event.inviteeUserId}`;
+          case InvitationQueueEventType.Cancelled:
+            return `cancel:${event.roomId}`;
+          default: {
+            const _exhaustive: never = event;
+            void _exhaustive;
+            return 'x';
+          }
+        }
+      });
+      expect(tags).toEqual(['recv:Alice', 'decl:u-bob', 'cancel:r3']);
     });
   });
 

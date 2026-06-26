@@ -47,6 +47,16 @@ export interface StompClient {
  */
 export type StompClientConfig = Readonly<{
   url: string;
+  /**
+   * STOMP native headers sent on the CONNECT frame. `@stomp/stompjs`
+   * forwards these to the broker as connect headers — the seam the
+   * app-level invitations connection uses to carry `Authorization:
+   * Bearer <jwt>` so the backend's `StompAuthInterceptor` resolves the
+   * session Principal (and thus the per-user `/user/queue/...`
+   * destination). The per-game connection omits this (its identity rides
+   * on the SUBSCRIBE-frame `playerId` header instead).
+   */
+  connectHeaders?: Record<string, string>;
   onError?: (err: unknown) => void;
   /**
    * Fires every time the underlying STOMP `CONNECTED` frame is observed,
@@ -97,4 +107,12 @@ export interface MockStompClient extends StompClient {
   readonly subscriptions: ReadonlyArray<MockSubscription>;
   readonly connectCalls: number;
   readonly disconnectCalls: number;
+  /**
+   * The `connectHeaders` from the {@link StompClientConfig} the mock was
+   * built with, or `undefined` when the factory was called without a
+   * config (the per-game tests) or without headers. Lets the
+   * invitations-provider tests assert the `Authorization: Bearer <jwt>`
+   * header was passed on the app-level connection.
+   */
+  readonly connectHeaders: Record<string, string> | undefined;
 }

@@ -15,6 +15,7 @@ interface SubscriptionLike {
 
 export interface ClientLike {
   brokerURL: string | undefined;
+  connectHeaders: Record<string, string>;
   reconnectDelay: number;
   onConnect: (frame: StompFrameLike) => void;
   onDisconnect: (frame: StompFrameLike) => void;
@@ -63,6 +64,13 @@ export const createStompClient = (
   const Ctor: ClientCtor = opts.ClientCtor ?? (Client as unknown as ClientCtor);
   const client = new Ctor();
   client.brokerURL = config.url;
+  // Forward connect headers (e.g. `Authorization: Bearer <jwt>`) verbatim
+  // to the underlying stompjs `Client`, which emits them on the STOMP
+  // CONNECT frame. Only set when provided so the per-game connection (no
+  // auth header) leaves the library default in place.
+  if (config.connectHeaders !== undefined) {
+    client.connectHeaders = config.connectHeaders;
+  }
   if (config.reconnectDelay !== undefined) {
     client.reconnectDelay = config.reconnectDelay;
   }

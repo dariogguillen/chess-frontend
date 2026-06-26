@@ -851,6 +851,31 @@
     ]
   },
   {
+    "id": "direct-invitations-receive",
+    "title": "Receive direct invitations live (app STOMP + accept/reject)",
+    "description": "Invite a friend (by friendUserId) to a FRIEND room you created; the friend receives a LIVE invitation and accepts -> joins. REST live (26.8): POST /api/me/invitations {roomId, friendUserId}; GET /api/me/invitations (InvitationResponse {roomId, inviterUserId, inviterDisplayName, side, createdAt}); POST .../{roomId}/accept -> RoomResponse (joins, like joinRoom); DELETE .../{roomId} (decline); DELETE .../{roomId}/to/{inviteeUserId} (cancel). LIVE DELIVERY (verified in backend, NOT in OpenAPI - STOMP): convertAndSendToUser(userId,'/queue/invitations',event) resolves to /user/queue/invitations; the client must CONNECT authenticated with the Bearer JWT (StompAuthInterceptor sets the session Principal from the token). Broker prefixes: /topic public, /queue per-user, /user user-destination prefix. Events: InvitationReceivedEvent {type:INVITATION_RECEIVED, roomId, inviterUserId, inviterDisplayName, timeControl} (invitee); InvitationDeclinedEvent {type:INVITATION_DECLINED, roomId, inviteeUserId} (inviter); InvitationCancelledEvent {type:INVITATION_CANCELLED, roomId} (invitee). MAIN DESIGN RISK: an app-level authenticated STOMP connection + subscription to /user/queue/invitations that lives while the user is logged in (today STOMP is per-game, anonymous, mounted in Play). Needs: StompClient CONNECT with an Authorization header; an app-level provider/hook; integration with friends (pick a friend to invite) + Play (invite from the creator's room) + accept->enterRoom->/play. Scope + decompose with the user after the Explore.",
+    "status": "done",
+    "priority": 26.97,
+    "acceptance": [
+      "StompClient supports connectHeaders (CONNECT with Authorization: Bearer <jwt>); types.ts + the mock track it; a test asserts the header is sent.",
+      "wsEvents.ts adds InvitationReceived/Declined/Cancelled types (REAL backend shapes: received = {type,roomId,inviterUserId,inviterDisplayName,timeControl}; declined = {type,roomId,inviteeUserId}; cancelled = {type,roomId}) + a union + the exhaustive discriminator.",
+      "src/api/invitations.ts: listInvitations (narrowed), acceptInvitation(roomId)->RoomResponse, declineInvitation(roomId) — ApiError/mapError discipline; tests cover happy + INVITATION_NOT_FOUND.",
+      "An app-level InvitationsProvider (mounted in App.tsx inside UserContextProvider) connects an authenticated STOMP client to /user/queue/invitations ONLY when identity is Authenticated, seeds pending invitations via listInvitations, applies INVITATION_RECEIVED (add) / INVITATION_CANCELLED (remove), exposes invitations + accept/decline, and disconnects on logout/unmount; a guest never connects.",
+      "UI: a badge with the pending count in the Header/AccountMenu opens a panel listing invitations (inviter name) with Accept (-> acceptInvitation -> enterRoom -> /play) and Reject (-> declineInvitation -> remove). Push UX is a chip/panel, not a modal (inline-status-over-modals).",
+      "Authenticated-only; anonymous play + the per-game STOMP (Play) unaffected (separate connection). ./init.sh green; ui-reviewer approves."
+    ]
+  },
+  {
+    "id": "direct-invitations-send",
+    "title": "Send a direct invitation to a friend from your room",
+    "description": "Second half of direct-invitations. From the Play page (the creator of a FRIEND room), an 'Invite a friend' control opens a friend picker (reuses friends.ts listFriends → FriendResponse.userId) and calls sendInvitation(roomId, friendUserId) (POST /api/me/invitations). Add the API ops not in -receive: sendInvitation, cancelInvitation(roomId, inviteeUserId). Handle the inviter-side live events: INVITATION_DECLINED (the invitee rejected — toast 'X declined') over the same /user/queue/invitations personal channel from -receive. Show sent/pending state; allow cancel. Errors (INVITATION_NOT_FOUND, NOT_ROOM_MEMBER, etc.) via the mapped Snackbar. Depends on direct-invitations-receive (the provider + STOMP infra + API module).",
+    "status": "pending",
+    "priority": 26.98,
+    "acceptance": [
+      "Refine before delegating (after -receive lands): Invite-a-friend picker in Play, sendInvitation + cancelInvitation, inviter-side INVITATION_DECLINED handling, ./init.sh green + ui-reviewer."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",

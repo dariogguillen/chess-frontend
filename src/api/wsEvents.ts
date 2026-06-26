@@ -15,6 +15,7 @@
 
 import type { components } from './generated/schema';
 import { GameStatus, PromotionPiece, Side } from './games';
+import type { TimeControl } from './games';
 
 /**
  * STOMP event discriminator constants for `/topic/games/{gameId}`.
@@ -447,6 +448,128 @@ export type RoomJoinedEvent = Readonly<{
  * touching call sites that already gate on the known constant.
  */
 export type RoomEvent = RoomJoinedEvent;
+
+/**
+ * STOMP event discriminator constants for the per-user invitations queue
+ * `/user/queue/invitations`.
+ *
+ * The backend's `InvitationEvent` is a sealed interface with three
+ * variants — `InvitationReceivedEvent`, `InvitationDeclinedEvent`,
+ * `InvitationCancelledEvent` — all delivered on the authenticated user's
+ * personal queue (the broker's `/user` user-destination prefix routes
+ * each to the right session Principal). Every variant carries an explicit
+ * `type` field so the frontend discriminator lives in one const object.
+ *
+ * Receive vs. send split:
+ * - `INVITATION_RECEIVED` and `INVITATION_CANCELLED` are invitee-side and
+ *   consumed by `direct-invitations-receive` (this feature): one adds a
+ *   pending invitation, the other removes a cancelled one.
+ * - `INVITATION_DECLINED` is inviter-side; its type is added here so the
+ *   union is exhaustive, but the handling (a "X declined" toast) lands in
+ *   `direct-invitations-send` (26.98).
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/InvitationEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/InvitationReceivedEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/InvitationDeclinedEvent.java`
+ *   chess-backend-java: `src/main/java/.../websocket/InvitationCancelledEvent.java`
+ */
+export const InvitationQueueEventType = {
+  Received: 'INVITATION_RECEIVED',
+  Declined: 'INVITATION_DECLINED',
+  Cancelled: 'INVITATION_CANCELLED',
+} as const;
+export type InvitationQueueEventType =
+  (typeof InvitationQueueEventType)[keyof typeof InvitationQueueEventType];
+
+/**
+ * Mirror of the backend's `InvitationReceivedEvent.java` record (Spring
+ * messaging payload for `/user/queue/invitations`).
+ *
+ * Pushed to the INVITEE the moment a friend invites them to a room. The
+ * receiving client adds it to the pending-invitations list (the Header
+ * badge + panel) so the user can accept or decline live.
+ *
+ * Note: this event carries NEITHER `side` NOR `createdAt` — those live on
+ * the REST `InvitationResponse` ({@link Invitation} in `invitations.ts`),
+ * which seeds the list on connect. The push event is the lighter "a new
+ * invite just arrived" signal; the panel shows inviter + time control.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/InvitationReceivedEvent.java`
+ *
+ * Fields:
+ * - `type`                — discriminator constant `'INVITATION_RECEIVED'`.
+ * - `roomId`              — the room the invitee is invited to join (the
+ *                          handle for accept / decline).
+ * - `inviterUserId`      — UUID of the friend who sent the invite.
+ * - `inviterDisplayName` — the inviter's display name, rendered in the panel.
+ * - `timeControl`        — the room's clock, or `null` for an untimed room.
+ */
+export type InvitationReceivedEvent = Readonly<{
+  type: typeof InvitationQueueEventType.Received;
+  roomId: string;
+  inviterUserId: string;
+  inviterDisplayName: string;
+  timeControl: TimeControl | null;
+}>;
+
+/**
+ * Mirror of the backend's `InvitationDeclinedEvent.java` record (Spring
+ * messaging payload for `/user/queue/invitations`).
+ *
+ * Pushed to the INVITER when an invitee declines. Parsed here for an
+ * exhaustive union; the inviter-side handling (a toast) is
+ * `direct-invitations-send` (26.98).
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/InvitationDeclinedEvent.java`
+ *
+ * Fields:
+ * - `type`           — discriminator constant `'INVITATION_DECLINED'`.
+ * - `roomId`         — the room whose invitation was declined.
+ * - `inviteeUserId`  — UUID of the invitee who declined.
+ */
+export type InvitationDeclinedEvent = Readonly<{
+  type: typeof InvitationQueueEventType.Declined;
+  roomId: string;
+  inviteeUserId: string;
+}>;
+
+/**
+ * Mirror of the backend's `InvitationCancelledEvent.java` record (Spring
+ * messaging payload for `/user/queue/invitations`).
+ *
+ * Pushed to the INVITEE when the inviter cancels a pending invitation. The
+ * receiving client removes the matching invitation (by `roomId`) from the
+ * pending list so a cancelled invite disappears from the panel live.
+ *
+ * Backend source of truth:
+ *   chess-backend-java: `src/main/java/.../websocket/InvitationCancelledEvent.java`
+ *
+ * Fields:
+ * - `type`   — discriminator constant `'INVITATION_CANCELLED'`.
+ * - `roomId` — the room whose invitation was cancelled (matched against
+ *              the pending list to drop the entry).
+ */
+export type InvitationCancelledEvent = Readonly<{
+  type: typeof InvitationQueueEventType.Cancelled;
+  roomId: string;
+}>;
+
+/**
+ * Discriminated union of every variant on `/user/queue/invitations`.
+ *
+ * The subscriber pattern-matches on `event.type` and TypeScript narrows
+ * each branch. Adding a new variant on the backend's sealed
+ * `InvitationEvent` requires (a) a new entry in
+ * {@link InvitationQueueEventType}, (b) a new arm here, (c) a `switch`
+ * arm in the consumer (the `never` exhaustiveness guard flags any gap).
+ */
+export type InvitationQueueEvent =
+  | InvitationReceivedEvent
+  | InvitationDeclinedEvent
+  | InvitationCancelledEvent;
 
 /**
  * Room-discovery lifecycle discriminant for {@link useRoomDiscovery}.

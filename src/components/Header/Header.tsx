@@ -9,6 +9,7 @@ import type { PaletteMode } from '@mui/material/styles';
 import type { DrawerComponentProps } from '../Drawer';
 import { AccountMenu } from '../AccountMenu';
 import { BoardThemeSelector } from '../BoardThemeSelector';
+import { InvitationsMenu } from '../InvitationsMenu';
 
 export interface HeaderProps extends DrawerComponentProps {
   mode: PaletteMode;
@@ -54,6 +55,7 @@ const Header = ({ open, setOpen, mode, onToggleMode }: HeaderProps) => {
         >
           {mode === 'dark' ? <LightModeIcon /> : <ModeNightIcon />}
         </IconButton>
+        <InvitationsMenu />
         <AccountMenu />
       </Toolbar>
     </AppBar>

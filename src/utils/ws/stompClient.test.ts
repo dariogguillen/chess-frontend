@@ -18,6 +18,7 @@ const makeFakeClientCtor = () => {
 
   class FakeClient implements ClientLike {
     brokerURL: string | undefined;
+    connectHeaders: Record<string, string> = {};
     reconnectDelay = 0;
     onConnect: (frame: FakeFrame) => void = () => {};
     onDisconnect: (frame: FakeFrame) => void = () => {};
@@ -198,6 +199,24 @@ describe('createStompClient', () => {
     createStompClient({ url: 'ws://test/ws' }, { ClientCtor: Ctor });
 
     expect(created[0].reconnectDelay).toBe(0);
+  });
+
+  it('forwards connectHeaders from config to the underlying Client', () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    createStompClient(
+      { url: 'ws://test/ws', connectHeaders: { Authorization: 'Bearer jwt-123' } },
+      { ClientCtor: Ctor },
+    );
+
+    expect(created).toHaveLength(1);
+    expect(created[0].connectHeaders).toEqual({ Authorization: 'Bearer jwt-123' });
+  });
+
+  it('leaves connectHeaders at the Client default when config omits them', () => {
+    const { Ctor, created } = makeFakeClientCtor();
+    createStompClient({ url: 'ws://test/ws' }, { ClientCtor: Ctor });
+
+    expect(created[0].connectHeaders).toEqual({});
   });
 
   it('forwards STOMP errors to onError after connection is established', async () => {

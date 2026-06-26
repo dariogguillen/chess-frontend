@@ -1,4 +1,4 @@
-import type { MockStompClient, MockSubscription, Unsubscribe } from './types';
+import type { MockStompClient, MockSubscription, StompClientConfig, Unsubscribe } from './types';
 
 /**
  * Build a {@link MockStompClient} for tests. The mock implements the same
@@ -23,8 +23,13 @@ import type { MockStompClient, MockSubscription, Unsubscribe } from './types';
  * failure path swap in their own `MockStompClient` whose `connect` rejects;
  * the production `createStompClient` factory is exercised separately in
  * `stompClient.test.ts`.
+ *
+ * The optional `config` mirrors the {@link StompClientConfig} a real
+ * factory receives. Only `connectHeaders` is retained (exposed for
+ * inspection); the rest of the config is irrelevant to the mock's
+ * behaviour. The per-game tests call this with no argument.
  */
-export const createMockStompClient = (): MockStompClient => {
+export const createMockStompClient = (config?: StompClientConfig): MockStompClient => {
   type AnyHandler = (message: unknown) => void;
 
   const subscribers = new Map<string, Set<AnyHandler>>();
@@ -96,6 +101,9 @@ export const createMockStompClient = (): MockStompClient => {
     },
     get disconnectCalls() {
       return state.disconnectCalls;
+    },
+    get connectHeaders() {
+      return config?.connectHeaders;
     },
   };
 };

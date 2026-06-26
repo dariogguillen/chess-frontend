@@ -4515,3 +4515,51 @@ src/components/FriendsSection/{FriendsSection.tsx,index.ts} (+test),
 src/pages/Profile/Profile.tsx (+test), notes/26.95-friends.md (new).
 
 **Feature note:** `notes/26.95-friends.md`
+
+## 2026-06-26 — direct-invitations-receive (26.97)
+
+**Status:** done
+
+**Summary:** First (infra-heavy) half of direct invitations — receiving them
+live. User chose split receive→send and a Header badge + panel (push UX, not
+a modal). The hard part: an APP-LEVEL authenticated STOMP connection,
+SEPARATE from the per-game one. Parts: (A) extended StompClient with
+`connectHeaders` (types + stompClient + mock; @stomp/stompjs native) so the
+client CONNECTs with `Authorization: Bearer <jwt>`; (B) InvitationReceived/
+Declined/Cancelled events in wsEvents.ts (real backend shapes) + union +
+exhaustive discriminant; (C) src/api/invitations.ts (listInvitations,
+acceptInvitation→RoomResponse reusing the now-exported narrowRoomResponse,
+declineInvitation) — NOTE the OpenAPI types GET /api/me/invitations as a
+single InvitationResponse but the backend returns a LIST (springdoc
+flattened it), handled with one documented boundary cast that still narrows
+every element via narrowInvitation; (D) an app-level InvitationsProvider
+(mounted in App.tsx inside UserContextProvider) keyed on the authenticated
+userId — guest = no connection; authed = Bearer connectHeaders + subscribe
+to /user/queue/invitations + seed via listInvitations + RECEIVED add
+(de-dup by roomId) / CANCELLED remove / DECLINED ignored (26.98); accept →
+acceptInvitation → enterRoom + navigate('/play') + remove; decline → remove;
+logout/unmount → disconnect; (E) a self-gating InvitationsMenu in the Header
+— a badged Mail IconButton whose accessible name carries the count
+("Invitations (N)"), opening a Menu with per-item Accept/Reject named after
+the inviter. reviewer + ui-reviewer approved; ./init.sh green (523 tests,
++33). No new deps.
+
+DEFERRED follow-ups (reviewer-flagged, non-blocking):
+- Backend schema bug: GET /api/me/invitations is typed as a single
+  InvitationResponse but returns a list — fixing the springdoc @Schema in
+  the backend would drop the frontend boundary cast (cross-repo).
+- The RECEIVED push lacks side/createdAt; the provider synthesizes them
+  (panel never renders them). Watch in 26.98 if `side` is read off a
+  push-originated entry.
+- accept/decline failures (e.g. ROOM_FULL on accept) are swallowed by the
+  menu (.catch); no user-facing Snackbar yet — polish candidate for 26.98.
+
+**Files touched:** src/utils/ws/{types,stompClient,mockStompClient}.ts
+(+stompClient.test), src/api/wsEvents.ts (+test), src/api/invitations.ts
+(+test), src/api/rooms.ts (export narrowRoomResponse),
+src/context/InvitationsContext.tsx (+test), src/context/index.tsx,
+src/components/InvitationsMenu/* (new, +test),
+src/components/Header/Header.tsx (+test), src/App.tsx,
+notes/26.97-direct-invitations-receive.md (new).
+
+**Feature note:** `notes/26.97-direct-invitations-receive.md`

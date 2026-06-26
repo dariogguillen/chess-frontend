@@ -4,18 +4,32 @@ import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
-import { BoardThemeProvider, IdentityKind, UserContextProvider } from '../../context';
+import {
+  BoardThemeProvider,
+  IdentityKind,
+  InvitationsProvider,
+  UserContextProvider,
+} from '../../context';
 import type { Identity } from '../../context';
+import { createMockStompClient } from '../../utils/ws';
 import Header from './Header';
 
-// Header embeds the BoardThemeSelector (consumes `useBoardTheme`) and the
-// AccountMenu (consumes `useUserContext` + `useNavigate`). Wrap every
-// render in both providers and a router so those children mount cleanly.
+// Header embeds the BoardThemeSelector (consumes `useBoardTheme`), the
+// AccountMenu and the InvitationsMenu (both consume `useUserContext` +
+// `useNavigate`; the latter also `useInvitations`). Wrap every render in
+// those providers and a router so the children mount cleanly. The
+// InvitationsProvider is given a mock STOMP factory + an empty REST seed so
+// no real WebSocket / network call fires.
 const renderHeader = (ui: ReactElement, initialIdentity?: Identity) =>
   render(
     <MemoryRouter>
       <UserContextProvider initialIdentity={initialIdentity}>
-        <BoardThemeProvider>{ui}</BoardThemeProvider>
+        <InvitationsProvider
+          clientFactory={() => createMockStompClient()}
+          listInvitations={() => Promise.resolve([])}
+        >
+          <BoardThemeProvider>{ui}</BoardThemeProvider>
+        </InvitationsProvider>
       </UserContextProvider>
     </MemoryRouter>,
   );

@@ -1,10 +1,115 @@
 # Current session
 
-**Status:** `friends` (26.95) CLOSED (2026-06-26). reviewer + ui-reviewer
-approved; `./init.sh` green (490 tests). The profile's Friends section is
-fully live (code/add/requests-in-out/list/remove). NEXT: **direct-invitations**.
+**Status:** `direct-invitations-receive` (26.97) CLOSED (2026-06-26).
+reviewer + ui-reviewer approved; `./init.sh` green (523 tests). The
+app-level authenticated STOMP + Header invitations badge/panel are live.
+NEXT: **direct-invitations-send** (26.98) — the second half.
 
-**Counts:** 52 done · 1 pending (27 game-reviews paused).
+**Counts:** 53 done · 2 pending (26.98 send, 27 game-reviews paused).
+
+## Social epic progress
+- ✅ 26.8 resnapshot · ✅ 26.9 profile-shell · ✅ 26.95 friends
+- ✅ 26.97 direct-invitations-receive (infra + provider + Header badge/panel)
+- ▶ NEXT: **26.98 direct-invitations-send** — from Play (creator of a FRIEND
+  room), an "Invite a friend" picker (reuse friends.ts listFriends) →
+  sendInvitation(roomId, friendUserId); add cancelInvitation; handle the
+  inviter-side INVITATION_DECLINED event (already parsed in 26.97, just
+  ignored) → a toast. The invitations API module + STOMP provider + the
+  /user/queue channel all exist from 26.97. Fold in the 26.97 follow-ups:
+  a Snackbar on accept/send failure (ROOM_FULL etc.).
+- backend-gated: **stats** (profile section) + **game-reviews** (winnerSide).
+
+## Deferred follow-ups (tracked)
+- Backend: GET /api/me/invitations typed as single but returns a list
+  (springdoc @Schema) → fixing it drops a frontend boundary cast (cross-repo).
+- friends "Load more" double-click (26.95); spectator-ended-game-ux (26.7);
+  clock-skew-anchoring (26.6); per-route document.title.
+
+## Plan — `direct-invitations-receive` (26.97, IN PROGRESS)
+
+Receive direct invitations live + accept/reject. The hard part is an
+APP-LEVEL authenticated STOMP connection. Backend (verified): the invitee
+gets InvitationReceivedEvent at `/user/queue/invitations`; the client must
+CONNECT with `Authorization: Bearer <jwt>` (StompAuthInterceptor sets the
+session Principal). Broker prefixes: /topic public, /queue per-user, /user
+user-destination. Explore confirmed 100% viable — patterns exist, extend
+them. NOTE: the Explore invented `side`/`createdAt` on the received event —
+the REAL backend shape is `{type:'INVITATION_RECEIVED', roomId,
+inviterUserId, inviterDisplayName, timeControl}`.
+
+### Part A — StompClient connectHeaders
+- `src/utils/ws/types.ts`: add `connectHeaders?: Record<string,string>` to
+  `StompClientConfig` (and the `ClientLike` interface, ~16-34).
+- `src/utils/ws/stompClient.ts`: after `client.brokerURL = config.url`
+  (~65), set `if (config.connectHeaders) client.connectHeaders =
+  config.connectHeaders;` (@stomp/stompjs supports it natively).
+- `src/utils/ws/mockStompClient.ts`: track `connectHeaders` so a test can
+  assert the Authorization header was passed.
+
+### Part B — Invitation STOMP events (`src/api/wsEvents.ts`)
+Add an `InvitationQueueEventType` const object + types matching the REAL
+backend shapes: InvitationReceivedEvent {type, roomId, inviterUserId,
+inviterDisplayName, timeControl: TimeControl|null}; InvitationDeclinedEvent
+{type, roomId, inviteeUserId}; InvitationCancelledEvent {type, roomId}; +
+an `InvitationQueueEvent` union + exhaustive discriminator. (Declined is
+inviter-side — parsed now, consumed by -send (26.98); Cancelled is
+invitee-side — consumed here to drop a cancelled invite.)
+
+### Part C — API (`src/api/invitations.ts` + test)
+Narrowed wrappers, ApiError/mapError discipline (like friends.ts/rooms.ts):
+`listInvitations(page?)` → narrowed Invitation[] (InvitationResponse:
+{roomId, inviterUserId, inviterDisplayName, side, createdAt});
+`acceptInvitation(roomId): Promise<RoomResponse>` (POST .../{roomId}/accept,
+narrowed like joinRoom); `declineInvitation(roomId): Promise<void>` (DELETE
+.../{roomId}). Tests: happy + INVITATION_NOT_FOUND. (send/cancel are 26.98.)
+
+### Part D — App-level InvitationsProvider (`src/context/InvitationsContext.tsx`)
+A provider mounted in App.tsx INSIDE UserContextProvider (needs identity +
+enterRoom; no theme). Behaviour:
+- If `identity.kind !== Authenticated`: no connection, empty state.
+- If Authenticated: create a StompClient (the ClientCtor seam) with
+  `connectHeaders: { Authorization: 'Bearer ' + readToken() }`, connect,
+  subscribe to `/user/queue/invitations`. Seed pending via listInvitations().
+  Apply INVITATION_RECEIVED (add) / INVITATION_CANCELLED (remove by roomId).
+  Mirror useGameStomp's lifecycle (connecting→connected, cleanup on unmount).
+- Expose `{ invitations, accept(roomId), decline(roomId) }`. accept →
+  acceptInvitation → `enterRoom(response)` + `navigate('/play')` + remove;
+  decline → declineInvitation + remove.
+- Tear down (unsubscribe + disconnect) when identity flips to guest (logout)
+  or on unmount. SEPARATE connection from the per-game one (different auth,
+  destination, lifetime — Explore's recommendation).
+- Re-export in src/context/index.tsx; add a `useInvitations()` hook.
+
+### Part E — UI: Header badge + panel
+- A new control in the Header (next to AccountMenu) OR inside AccountMenu:
+  a badged icon (e.g. a Mail/Notifications icon) showing the pending count;
+  opens a Menu/Popover listing invitations (inviterDisplayName, time control
+  if any) with **Accept** and **Reject** per item. Authenticated-only.
+- Accept/Reject call the context's accept/decline. The badge count comes
+  from the context. Push UX: a chip/badge + panel, NOT a modal.
+- a11y: badged button has an accessible name incl. the count
+  ("Invitations (2)"); per-item buttons name the inviter; the panel is a
+  proper menu/dialog with focus management.
+
+### Tests
+- stompClient: connectHeaders is set on the client / passed on CONNECT.
+- wsEvents: the three invitation events parse to their typed shape.
+- invitations.ts: list/accept/decline happy + INVITATION_NOT_FOUND.
+- InvitationsProvider (MockStompClient + MSW): guest → no connect; authed →
+  connects with the Bearer header, seeds list, INVITATION_RECEIVED adds,
+  INVITATION_CANCELLED removes, accept → enterRoom + navigate + remove,
+  decline → remove, logout → disconnect.
+- Header/panel: badge count, accept navigates, reject removes.
+
+### Out of scope (→ 26.98 send)
+sendInvitation, cancelInvitation, the Invite-a-friend picker in Play, and
+inviter-side INVITATION_DECLINED handling. Also out: stats, game-reviews.
+No new deps. `./init.sh` green. If too big for one clean pass, STOP and
+report (e.g. infra+API+provider first, then the Header UI).
+
+---
+
+## (social epic context + prior plans retained below)
 
 ## Social epic progress
 - ✅ 26.8 resnapshot · ✅ 26.9 profile-shell · ✅ 26.95 friends

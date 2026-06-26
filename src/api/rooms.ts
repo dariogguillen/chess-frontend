@@ -128,7 +128,7 @@ const narrowRole = (raw: GeneratedRoomResponse['role']): Role => {
   }
 };
 
-const narrowRoomResponse = (raw: GeneratedRoomResponse | undefined): RoomResponse => {
+export const narrowRoomResponse = (raw: GeneratedRoomResponse | undefined): RoomResponse => {
   if (raw === undefined || raw.roomId === undefined || raw.playerId === undefined) {
     throw new ApiError(
       ApiErrorCode.UnknownError,
