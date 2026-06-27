@@ -4636,3 +4636,51 @@ src/components/TurnIndicator/TurnIndicator.tsx (+test),
 notes/26.99-check-indicator.md (new).
 
 **Feature note:** `notes/26.99-check-indicator.md`
+
+## 2026-06-26 — profile-contract-resnapshot (26.995)
+
+**Status:** done
+
+**Summary:** Enabler (mirrors 21/26.8, but simpler — no new error codes).
+Re-snapshotted openapi.json from PROD + regenerated schema.ts for the
+just-deployed backend profile bundle. Delta: 3 new paths
+(/api/me/games/{id}, /api/me/password, /api/me/stats), PATCH on /api/me, 4
+new schemas (ChangePasswordRequest, MyGameDetail, MyStatsResponse,
+UpdateProfileRequest), MyGameSummary.result (WHITE_WIN|BLACK_WIN|DRAW added,
+also on MyGameDetail). ZERO new error codes (ErrorResponse.error
+byte-identical — no errors.ts mirror, unlike 26.8), zero removed/renamed.
+The additive .result broke no exhaustiveness guard (nothing consumes it
+yet). Codegen idempotent; no feature code/UI/routes; bundle delta ~zero.
+reviewer approved; ui-reviewer skipped (no UI). ./init.sh green (562 tests).
+Unblocks me-stats (27.1), game-reviews (27), edit-profile (27.3).
+
+**Files touched:** openapi.json, src/api/generated/schema.ts,
+notes/26.995-profile-contract-resnapshot.md (new).
+
+**Feature note:** `notes/26.995-profile-contract-resnapshot.md`
+
+## 2026-06-27 — me-stats (27.1)
+
+**Status:** done
+
+**Summary:** Filled the profile's Stats placeholder from GET /api/me/stats.
+First of the three profile-bundle features (user chose me-stats → game-
+reviews → edit-profile). Part A: a new src/api/me.ts with getMyStats()
+returning narrowed MyStats {total, wins, losses, draws, unknown, winRate}
+(ApiError/mapError; throws on missing fields) — a home for the non-auth
+/api/me/* surface (edit-profile will extend it). Part B: a StatsSection
+component replacing the Stats placeholder in Profile (My games stays a
+placeholder for game-reviews next); loads on mount with FriendsSection-style
+loading(role=status)/empty(total===0 → "No games yet")/error states; renders
+total + W/L/D + win rate, with an `unknown` footnote only when > 0. winRate
+was VERIFIED (not assumed) as a fraction 0–1 in the backend
+(MyStatsResponse.java: wins/decided), formatted Math.round(*100)% (0.5 →
+"50%", 0.0 → "0%"). reviewer + ui-reviewer approved; ./init.sh green (571
+tests, +9). No new deps. Minor noted gap: no test of the loaded view at
+winRate 0.0 with total>0 (formatWinRate(0) is provably correct).
+
+**Files touched:** src/api/me.ts (+test),
+src/components/StatsSection/* (new, +test),
+src/pages/Profile/Profile.tsx (+test), notes/27.1-me-stats.md (new).
+
+**Feature note:** `notes/27.1-me-stats.md`

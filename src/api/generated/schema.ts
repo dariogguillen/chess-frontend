@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change the authenticated user's password
+         * @description Verifies the supplied current password against the stored hash, then sets the new BCrypt hash. Returns 204 with no body. A wrong current password — or an OAuth-only account that has no password set — returns 401 INVALID_CREDENTIALS, with no leak of which case applied. Existing JWTs are not revoked (the tokens are stateless).
+         */
+        put: operations["changePassword"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/rooms": {
         parameters: {
             query?: never;
@@ -188,6 +208,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the authenticated user
+         * @description Returns the user identified by the Authorization: Bearer JWT. Requires a valid token issued by this backend; the response includes the user's id, canonical email, and display name. JWT issuance ships in feature 17; this endpoint is the validator side of the contract.
+         */
+        get: operations["me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update the authenticated user's display name
+         * @description Partial update of the authenticated user's profile. Only the display name is editable here; email is the unique login identity (out of scope) and the password has its own endpoint. Persists the change and returns the updated profile. The rename reflects live in the friends list but not in past games (those snapshot the name at archive time).
+         */
+        patch: operations["updateProfile"];
+        trace?: never;
+    };
     "/api/rooms/{id}": {
         parameters: {
             query?: never;
@@ -228,7 +272,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/me": {
+    "/api/me/stats": {
         parameters: {
             query?: never;
             header?: never;
@@ -236,10 +280,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get the authenticated user
-         * @description Returns the user identified by the Authorization: Bearer JWT. Requires a valid token issued by this backend; the response includes the user's id, canonical email, and display name. JWT issuance ships in feature 17; this endpoint is the validator side of the contract.
+         * Get the authenticated user's win/loss/draw record
+         * @description Returns the caller's aggregate record across all archived games where they participated as either side: total, wins, losses, draws, an 'unknown' bucket for legacy NULL-result games (old ABANDONED rows whose winner is unrecoverable), and a winRate over decided games (unknown-result games excluded from the denominator). The buckets reconcile: total == wins + losses + draws + unknown. Bot games are included (the human side carries the user id); a vs-human-only split is a later follow-up. Requires a valid Bearer JWT — anonymous requests get 401 AUTHENTICATION_REQUIRED.
          */
-        get: operations["me"];
+        get: operations["stats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -260,6 +304,26 @@ export interface paths {
          * @description Returns the archived (terminal-status) games where the caller participated as either side, newest first, in the standard Spring Data Page envelope. Pagination params: page (default 0, min 0); size (default 20, min 1, max 100). Requires a valid Bearer JWT — anonymous requests get 401 AUTHENTICATION_REQUIRED. The page shape is the standard Spring Data envelope: { content, totalElements, totalPages, size, number, ... }.
          */
         get: operations["getMyGames"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/games/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one archived game with its full move list
+         * @description Returns a single archived (terminal-status) game the caller participated in, with the FULL ordered move list (move_idx ascending) plus the starting and final FEN, so the frontend can replay it move-by-move. Requires a valid Bearer JWT. The caller must be a participant (white_user_id OR black_user_id matches): a non-participant, an unknown game id, and an anonymous game (both user ids null) ALL return the same 404 GAME_NOT_FOUND (no-leak — a non-participant cannot tell a game exists).
+         */
+        get: operations["getMyGame"];
         put?: never;
         post?: never;
         delete?: never;
@@ -472,6 +536,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ChangePasswordRequest: {
+            /** @description The user's existing password. Never logged or returned. */
+            currentPassword?: string;
+            /** @description The new password; 8-72 chars (72 is BCrypt's input cap). Never logged or returned. */
+            newPassword?: string;
+        };
+        /** @description Standard error envelope returned by every 4xx response from the API. */
+        ErrorResponse: {
+            /**
+             * @description Stable upper-snake-case error code identifying the error class. Intended for programmatic matching by clients.
+             * @example ROOM_NOT_FOUND
+             * @enum {string}
+             */
+            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER" | "AUTHENTICATION_REQUIRED" | "EMAIL_ALREADY_TAKEN" | "INVALID_CREDENTIALS" | "INVALID_JOIN_TOKEN" | "FRIEND_CODE_NOT_FOUND" | "FRIEND_REQUEST_NOT_FOUND" | "FRIEND_NOT_FOUND" | "ALREADY_FRIENDS" | "DUPLICATE_FRIEND_REQUEST" | "SELF_FRIENDSHIP" | "INVITATION_NOT_FOUND" | "NOT_ROOM_MEMBER";
+            message?: string;
+            /** Format: date-time */
+            timestamp?: string;
+        };
         CreateRoomRequest: {
             /** @example Alice */
             displayName?: string;
@@ -538,18 +620,6 @@ export interface components {
              * @example 8b3c1f04-1234-5678-9abc-def012345678
              */
             joinToken?: string;
-        };
-        /** @description Standard error envelope returned by every 4xx response from the API. */
-        ErrorResponse: {
-            /**
-             * @description Stable upper-snake-case error code identifying the error class. Intended for programmatic matching by clients.
-             * @example ROOM_NOT_FOUND
-             * @enum {string}
-             */
-            error?: "ROOM_NOT_FOUND" | "ROOM_FULL" | "GAME_NOT_FOUND" | "GAME_ALREADY_ENDED" | "ILLEGAL_MOVE" | "NOT_YOUR_TURN" | "VALIDATION_FAILED" | "MALFORMED_REQUEST" | "MISSING_HEADER" | "AUTHENTICATION_REQUIRED" | "EMAIL_ALREADY_TAKEN" | "INVALID_CREDENTIALS" | "INVALID_JOIN_TOKEN" | "FRIEND_CODE_NOT_FOUND" | "FRIEND_REQUEST_NOT_FOUND" | "FRIEND_NOT_FOUND" | "ALREADY_FRIENDS" | "DUPLICATE_FRIEND_REQUEST" | "SELF_FRIENDSHIP" | "INVITATION_NOT_FOUND" | "NOT_ROOM_MEMBER";
-            message?: string;
-            /** Format: date-time */
-            timestamp?: string;
         };
         JoinRoomRequest: {
             /** @example Bob */
@@ -690,12 +760,24 @@ export interface components {
             email?: string;
             /** @description Human-readable name shown in the UI. */
             displayName?: string;
+            /**
+             * Format: date-time
+             * @description Account creation timestamp ('member since'); ISO-8601 instant.
+             */
+            createdAt?: string;
         };
         LoginRequest: {
             /** @description Account email; case-insensitive, normalised to lowercase server-side. */
             email?: string;
             /** @description Plain-text password. */
             password?: string;
+        };
+        UpdateProfileRequest: {
+            /**
+             * @description New human-readable name shown in the UI.
+             * @example Alice
+             */
+            displayName?: string;
         };
         PlayerInRoom: {
             /**
@@ -756,6 +838,12 @@ export interface components {
              */
             status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED" | "TIMEOUT";
             /**
+             * @description Who won the game. WHITE_WIN / BLACK_WIN / DRAW. Null for legacy archived games whose winner was unknown at backfill time.
+             * @example WHITE_WIN
+             * @enum {string}
+             */
+            result?: "WHITE_WIN" | "BLACK_WIN" | "DRAW";
+            /**
              * Format: date-time
              * @description Instant the game was archived.
              * @example 2026-05-19T10:23:11.123Z
@@ -767,6 +855,45 @@ export interface components {
              * @example 42
              */
             moveCount?: number;
+        };
+        /** @description Aggregate win/loss/draw record for the authenticated user. */
+        MyStatsResponse: {
+            /**
+             * Format: int64
+             * @description All archived games where the user is white_user_id OR black_user_id. Equals wins + losses + draws + unknown.
+             * @example 5
+             */
+            total?: number;
+            /**
+             * Format: int64
+             * @description Games the user won.
+             * @example 2
+             */
+            wins?: number;
+            /**
+             * Format: int64
+             * @description Games the user lost.
+             * @example 1
+             */
+            losses?: number;
+            /**
+             * Format: int64
+             * @description Games drawn.
+             * @example 1
+             */
+            draws?: number;
+            /**
+             * Format: int64
+             * @description Legacy NULL-result games (old ABANDONED rows whose winner is unrecoverable). Counted in total but excluded from W/L/D and from the winRate denominator.
+             * @example 1
+             */
+            unknown?: number;
+            /**
+             * Format: double
+             * @description Win rate over decided games (unknown-result games excluded from the denominator); 0.0 when there are no decided games.
+             * @example 0.5
+             */
+            winRate?: number;
         };
         InvitationResponse: {
             /**
@@ -827,6 +954,12 @@ export interface components {
              * @enum {string}
              */
             status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED" | "TIMEOUT";
+            /**
+             * @description Who won the game. WHITE_WIN / BLACK_WIN / DRAW. Null for legacy archived games whose winner was unknown at backfill time (old ABANDONED rows do not encode the abandoner in the final FEN).
+             * @example WHITE_WIN
+             * @enum {string}
+             */
+            result?: "WHITE_WIN" | "BLACK_WIN" | "DRAW";
             /**
              * Format: date-time
              * @description Instant the game was archived.
@@ -889,6 +1022,65 @@ export interface components {
              * @example false
              */
             empty?: boolean;
+        };
+        MyGameDetail: {
+            /**
+             * Format: uuid
+             * @description Archived game id.
+             * @example 0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000
+             */
+            gameId?: string;
+            /**
+             * @description Room id the game was played in.
+             * @example K7M3X9
+             */
+            roomId?: string;
+            /**
+             * @description Audit-time display name of the white side (frozen at game time).
+             * @example Alice
+             */
+            whiteDisplayName?: string;
+            /**
+             * @description Audit-time display name of the black side (frozen at game time).
+             * @example Bob
+             */
+            blackDisplayName?: string;
+            /**
+             * @description Side the authenticated caller was on; the UI uses it to orient/flip the board.
+             * @example WHITE
+             * @enum {string}
+             */
+            selfSide?: "WHITE" | "BLACK";
+            /**
+             * @description Terminal status of the game.
+             * @example CHECKMATE
+             * @enum {string}
+             */
+            status?: "CHECKMATE" | "STALEMATE" | "DRAW" | "ABANDONED" | "TIMEOUT";
+            /**
+             * @description Who won the game. WHITE_WIN / BLACK_WIN / DRAW. Null for legacy archived games whose winner was unknown at backfill time.
+             * @example WHITE_WIN
+             * @enum {string}
+             */
+            result?: "WHITE_WIN" | "BLACK_WIN" | "DRAW";
+            /**
+             * @description FEN the game started from; the first frame of the replay.
+             * @example rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+             */
+            startingFen?: string;
+            /**
+             * @description FEN after the last move; the final frame of the replay.
+             * @example rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3
+             */
+            finalFen?: string;
+            /**
+             * Format: date-time
+             * @description Instant the game was archived.
+             * @example 2026-05-19T10:23:11.123Z
+             */
+            endedAt?: string;
+            /** @description Full move history in playback order (move_idx ascending). Empty for a game that ended before any move was played. */
+            moves?: components["schemas"]["MoveSummary"][];
         };
         FriendResponse: {
             /**
@@ -1076,6 +1268,46 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed; no body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description newPassword is blank or outside 8-72 chars (VALIDATION_FAILED) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Wrong current password, an OAuth-only account with no password, or a missing/invalid JWT (INVALID_CREDENTIALS / authentication required) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     createRoom: {
         parameters: {
             query?: never;
@@ -1569,6 +1801,77 @@ export interface operations {
             };
         };
     };
+    me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated user details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Missing, malformed, expired, or unsigned-by-us JWT. Feature 17's AuthEntryPoint writes a structured ErrorResponse body with code AUTHENTICATION_REQUIRED — the same envelope every other 4xx in the API uses. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated user details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description displayName is blank or longer than 100 chars (VALIDATION_FAILED) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing, malformed, expired, or unsigned-by-us JWT */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getRoom: {
         parameters: {
             query?: never;
@@ -1631,7 +1934,7 @@ export interface operations {
             };
         };
     };
-    me: {
+    stats: {
         parameters: {
             query?: never;
             header?: never;
@@ -1640,16 +1943,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Authenticated user details */
+            /** @description The authenticated user's aggregate win/loss/draw record. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeResponse"];
+                    "application/json": components["schemas"]["MyStatsResponse"];
                 };
             };
-            /** @description Missing, malformed, expired, or unsigned-by-us JWT. Feature 17's AuthEntryPoint writes a structured ErrorResponse body with code AUTHENTICATION_REQUIRED — the same envelope every other 4xx in the API uses. */
+            /** @description Missing, malformed, expired, or unsigned-by-us JWT. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1692,6 +1995,46 @@ export interface operations {
             };
             /** @description Missing, malformed, expired, or unsigned-by-us JWT. Body is the standard ErrorResponse envelope with code AUTHENTICATION_REQUIRED. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getMyGame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archived game with its full move list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyGameDetail"];
+                };
+            };
+            /** @description Missing, malformed, expired, or unsigned-by-us JWT. Body is the standard ErrorResponse envelope with code AUTHENTICATION_REQUIRED. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No archived game with that id exists for which the caller was a participant. The not-found and not-a-participant cases are indistinguishable (no-leak). Body is the standard ErrorResponse envelope with code GAME_NOT_FOUND. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

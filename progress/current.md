@@ -1,10 +1,84 @@
 # Current session
 
-**Status:** `check-indicator` (26.99) CLOSED (2026-06-26). reviewer +
-ui-reviewer approved; `./init.sh` green (562 tests). King-in-check board
-highlight + a "Check" TurnIndicator chip are live.
+**Status:** `me-stats` (27.1) CLOSED (2026-06-27). reviewer + ui-reviewer
+approved; `./init.sh` green (571 tests). The profile Stats section is live.
+NEXT: **game-reviews (27)** — the user's original priority. Then edit-profile.
 
-**Counts:** 55 done · 1 pending (27 game-reviews — backend-gated).
+**Counts:** 57 done · 2 pending (27 game-reviews, 27.3 edit-profile).
+
+## Next — `game-reviews` (27) — decision-first, likely sub-featured
+The user's original product goal, now fully unblocked. Contract (in the
+26.995 snapshot): GET /api/me/games → MyGameSummary[] {gameId, roomId,
+opponentDisplayName, selfSide, status, result (WHITE_WIN|BLACK_WIN|DRAW),
+endedAt, moveCount} (paginated page/size); GET /api/me/games/{id} →
+MyGameDetail {gameId, roomId, whiteDisplayName, blackDisplayName, selfSide,
+status, result, startingFen, finalFen, moves, endedAt}. Plan shape: a
+"My games" profile section (the remaining placeholder) listing past games
+with W/L/D derived from result+selfSide → a per-game replay view that steps
+through `moves` (reuse the 22.7 SAN `toSanList` + MoveList; make moves
+clickable to scrub to a position). Decompose with the user: (a) My games
+list first, (b) replay view second. Surface scope (PGN export? pagination?
+board orientation by selfSide?) before planning.
+
+## ⚠️ Uncommitted — split per feature
+26.99, 26.995, 27.1 separate features (26.95/26.97/26.98 committed earlier).
+
+## Plan — `me-stats` (27.1, IN PROGRESS)
+
+Fill the profile's Stats placeholder from GET /api/me/stats. Small.
+`MyStatsResponse`: { total, wins, losses, draws, unknown (all int),
+winRate (double) }. Profile.tsx maps a `COMING_SOON` array (~15-) with
+"My games" + "Stats"; FriendsSection already replaced "Friends" (~127).
+
+### Part A — API
+A typed, narrowed `getMyStats()` → `MyStats { total, wins, losses, draws,
+unknown, winRate }`, ApiError/mapError discipline (like auth.ts me() /
+friends.ts). Put it in a new `src/api/me.ts` (groups /api/me/* — stats now,
+edit-profile later) OR extend auth.ts — implementer's call. Tests: happy +
+an error path.
+
+### Part B — UI
+A `StatsSection` component (e.g. src/components/StatsSection/) that replaces
+the "Stats" placeholder in Profile (keep "My games" as a placeholder — it's
+game-reviews next). Loads getMyStats on mount (mirror FriendsSection's
+loading/empty/error pattern). Renders total + W/L/D + win rate. NOTE on
+`winRate`: confirm whether the backend sends a fraction (0–1) or a percent
+(0–100) and format as a % accordingly (check a real value / the backend);
+document the choice. Show `unknown` only if > 0 (games with no recorded
+result), discreetly. Empty state: total === 0 → "No games yet."
+
+### Tests
+- me.ts: getMyStats happy + error mapping.
+- StatsSection: renders the numbers + win rate; loading; the no-games empty
+  state; error fallback.
+
+### Accessibility (ui-reviewer REQUIRED — new profile section)
+Section heading (h2/h3 consistent with the profile hierarchy under the
+single h1); numbers are readable text (not colour-only); loading announced.
+
+### Out of scope
+game-reviews (27, next), edit-profile (27.3). No new deps. `./init.sh` green.
+
+## Newly-unblocked roadmap (backend deployed 2026-06-26)
+Verified prod delta: 3 new paths (/api/me/games/{id}, /api/me/password,
+/api/me/stats) + PATCH /api/me + GET /api/me/games; 4 new schemas
+(ChangePasswordRequest, MyGameDetail, MyStatsResponse, UpdateProfileRequest);
+MyGameSummary.result (WHITE_WIN|BLACK_WIN|DRAW); ZERO new error codes; zero
+renames. After the re-snapshot, three features are buildable (order TBD with
+the user):
+- **me-stats (27.1)** — Stats profile section from /api/me/stats. Small.
+- **game-reviews (27)** — "My games" list (now with result) + per-game
+  replay via /api/me/games/{id} (MyGameDetail has moves + startingFen/
+  finalFen; reuse the 22.7 SAN list for clickable scrubbing). The user's
+  original priority; larger, likely sub-featured.
+- **edit-profile (27.3)** — PATCH /api/me displayName + PUT /api/me/password.
+
+## Plan — `profile-contract-resnapshot` (26.995, IN PROGRESS)
+Mechanical, mirrors 21/26.8 but SIMPLER (no new error codes). Re-snapshot
+openapi.json from PROD, `npm run openapi:generate`, confirm idempotency, no
+feature code. Typecheck is the gate. (MyGameSummary.result is additive — it
+doesn't break the existing narrowing; no enum-exhaustiveness guard on result
+unless the code adds one. The new paths/schemas are purely additive.)
 
 ## Where things stand
 The frontend has consumed everything the DEPLOYED backend offers. The user

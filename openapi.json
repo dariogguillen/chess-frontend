@@ -46,6 +46,51 @@
     }
   ],
   "paths": {
+    "/api/me/password": {
+      "put": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Change the authenticated user's password",
+        "description": "Verifies the supplied current password against the stored hash, then sets the new BCrypt hash. Returns 204 with no body. A wrong current password — or an OAuth-only account that has no password set — returns 401 INVALID_CREDENTIALS, with no leak of which case applied. Existing JWTs are not revoked (the tokens are stateless).",
+        "operationId": "changePassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Password changed; no body"
+          },
+          "400": {
+            "description": "newPassword is blank or outside 8-72 chars (VALIDATION_FAILED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong current password, an OAuth-only account with no password, or a missing/invalid JWT (INVALID_CREDENTIALS / authentication required)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/rooms": {
       "post": {
         "tags": [
@@ -654,6 +699,88 @@
         }
       }
     },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Get the authenticated user",
+        "description": "Returns the user identified by the Authorization: Bearer JWT. Requires a valid token issued by this backend; the response includes the user's id, canonical email, and display name. JWT issuance ships in feature 17; this endpoint is the validator side of the contract.",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "Authenticated user details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired, or unsigned-by-us JWT. Feature 17's AuthEntryPoint writes a structured ErrorResponse body with code AUTHENTICATION_REQUIRED — the same envelope every other 4xx in the API uses.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Update the authenticated user's display name",
+        "description": "Partial update of the authenticated user's profile. Only the display name is editable here; email is the unique login identity (out of scope) and the password has its own endpoint. Persists the change and returns the updated profile. The rename reflects live in the friends list but not in past games (those snapshot the name at archive time).",
+        "operationId": "updateProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "displayName is blank or longer than 100 chars (VALIDATION_FAILED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired, or unsigned-by-us JWT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/rooms/{id}": {
       "get": {
         "tags": [
@@ -742,27 +869,27 @@
         }
       }
     },
-    "/api/me": {
+    "/api/me/stats": {
       "get": {
         "tags": [
           "Authentication"
         ],
-        "summary": "Get the authenticated user",
-        "description": "Returns the user identified by the Authorization: Bearer JWT. Requires a valid token issued by this backend; the response includes the user's id, canonical email, and display name. JWT issuance ships in feature 17; this endpoint is the validator side of the contract.",
-        "operationId": "me",
+        "summary": "Get the authenticated user's win/loss/draw record",
+        "description": "Returns the caller's aggregate record across all archived games where they participated as either side: total, wins, losses, draws, an 'unknown' bucket for legacy NULL-result games (old ABANDONED rows whose winner is unrecoverable), and a winRate over decided games (unknown-result games excluded from the denominator). The buckets reconcile: total == wins + losses + draws + unknown. Bot games are included (the human side carries the user id); a vs-human-only split is a later follow-up. Requires a valid Bearer JWT — anonymous requests get 401 AUTHENTICATION_REQUIRED.",
+        "operationId": "stats",
         "responses": {
           "200": {
-            "description": "Authenticated user details",
+            "description": "The authenticated user's aggregate win/loss/draw record.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MeResponse"
+                  "$ref": "#/components/schemas/MyStatsResponse"
                 }
               }
             }
           },
           "401": {
-            "description": "Missing, malformed, expired, or unsigned-by-us JWT. Feature 17's AuthEntryPoint writes a structured ErrorResponse body with code AUTHENTICATION_REQUIRED — the same envelope every other 4xx in the API uses.",
+            "description": "Missing, malformed, expired, or unsigned-by-us JWT.",
             "content": {
               "application/json": {
                 "schema": {
@@ -830,6 +957,59 @@
           },
           "401": {
             "description": "Missing, malformed, expired, or unsigned-by-us JWT. Body is the standard ErrorResponse envelope with code AUTHENTICATION_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/games/{id}": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Get one archived game with its full move list",
+        "description": "Returns a single archived (terminal-status) game the caller participated in, with the FULL ordered move list (move_idx ascending) plus the starting and final FEN, so the frontend can replay it move-by-move. Requires a valid Bearer JWT. The caller must be a participant (white_user_id OR black_user_id matches): a non-participant, an unknown game id, and an anonymous game (both user ids null) ALL return the same 404 GAME_NOT_FOUND (no-leak — a non-participant cannot tell a game exists).",
+        "operationId": "getMyGame",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The archived game with its full move list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyGameDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired, or unsigned-by-us JWT. Body is the standard ErrorResponse envelope with code AUTHENTICATION_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No archived game with that id exists for which the caller was a participant. The not-found and not-a-participant cases are indistinguishable (no-leak). Body is the standard ErrorResponse envelope with code GAME_NOT_FOUND.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1353,6 +1533,63 @@
   },
   "components": {
     "schemas": {
+      "ChangePasswordRequest": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "description": "The user's existing password. Never logged or returned.",
+            "minLength": 1
+          },
+          "newPassword": {
+            "type": "string",
+            "description": "The new password; 8-72 chars (72 is BCrypt's input cap). Never logged or returned.",
+            "maxLength": 72,
+            "minLength": 8
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standard error envelope returned by every 4xx response from the API.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Stable upper-snake-case error code identifying the error class. Intended for programmatic matching by clients.",
+            "enum": [
+              "ROOM_NOT_FOUND",
+              "ROOM_FULL",
+              "GAME_NOT_FOUND",
+              "GAME_ALREADY_ENDED",
+              "ILLEGAL_MOVE",
+              "NOT_YOUR_TURN",
+              "VALIDATION_FAILED",
+              "MALFORMED_REQUEST",
+              "MISSING_HEADER",
+              "AUTHENTICATION_REQUIRED",
+              "EMAIL_ALREADY_TAKEN",
+              "INVALID_CREDENTIALS",
+              "INVALID_JOIN_TOKEN",
+              "FRIEND_CODE_NOT_FOUND",
+              "FRIEND_REQUEST_NOT_FOUND",
+              "FRIEND_NOT_FOUND",
+              "ALREADY_FRIENDS",
+              "DUPLICATE_FRIEND_REQUEST",
+              "SELF_FRIENDSHIP",
+              "INVITATION_NOT_FOUND",
+              "NOT_ROOM_MEMBER"
+            ],
+            "example": "ROOM_NOT_FOUND"
+          },
+          "message": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "CreateRoomRequest": {
         "type": "object",
         "properties": {
@@ -1440,47 +1677,6 @@
             "type": "string",
             "description": "Secret join token required by POST /api/rooms/{id}/join. Non-null ONLY on the create response — the creator keeps it and shares it out-of-band with the opponent. Null on the join response, and never returned by GET /api/rooms/{id}. Possession of the roomId alone (used for watching) does not authorise joining.",
             "example": "8b3c1f04-1234-5678-9abc-def012345678"
-          }
-        }
-      },
-      "ErrorResponse": {
-        "type": "object",
-        "description": "Standard error envelope returned by every 4xx response from the API.",
-        "properties": {
-          "error": {
-            "type": "string",
-            "description": "Stable upper-snake-case error code identifying the error class. Intended for programmatic matching by clients.",
-            "enum": [
-              "ROOM_NOT_FOUND",
-              "ROOM_FULL",
-              "GAME_NOT_FOUND",
-              "GAME_ALREADY_ENDED",
-              "ILLEGAL_MOVE",
-              "NOT_YOUR_TURN",
-              "VALIDATION_FAILED",
-              "MALFORMED_REQUEST",
-              "MISSING_HEADER",
-              "AUTHENTICATION_REQUIRED",
-              "EMAIL_ALREADY_TAKEN",
-              "INVALID_CREDENTIALS",
-              "INVALID_JOIN_TOKEN",
-              "FRIEND_CODE_NOT_FOUND",
-              "FRIEND_REQUEST_NOT_FOUND",
-              "FRIEND_NOT_FOUND",
-              "ALREADY_FRIENDS",
-              "DUPLICATE_FRIEND_REQUEST",
-              "SELF_FRIENDSHIP",
-              "INVITATION_NOT_FOUND",
-              "NOT_ROOM_MEMBER"
-            ],
-            "example": "ROOM_NOT_FOUND"
-          },
-          "message": {
-            "type": "string"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -1710,6 +1906,11 @@
           "displayName": {
             "type": "string",
             "description": "Human-readable name shown in the UI."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Account creation timestamp ('member since'); ISO-8601 instant."
           }
         }
       },
@@ -1725,6 +1926,18 @@
             "type": "string",
             "description": "Plain-text password.",
             "minLength": 1
+          }
+        }
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "description": "New human-readable name shown in the UI.",
+            "example": "Alice",
+            "maxLength": 100,
+            "minLength": 0
           }
         }
       },
@@ -1821,6 +2034,16 @@
             ],
             "example": "CHECKMATE"
           },
+          "result": {
+            "type": "string",
+            "description": "Who won the game. WHITE_WIN / BLACK_WIN / DRAW. Null for legacy archived games whose winner was unknown at backfill time.",
+            "enum": [
+              "WHITE_WIN",
+              "BLACK_WIN",
+              "DRAW"
+            ],
+            "example": "WHITE_WIN"
+          },
           "endedAt": {
             "type": "string",
             "format": "date-time",
@@ -1832,6 +2055,48 @@
             "format": "int32",
             "description": "Number of moves played in the game.",
             "example": 42
+          }
+        }
+      },
+      "MyStatsResponse": {
+        "type": "object",
+        "description": "Aggregate win/loss/draw record for the authenticated user.",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "All archived games where the user is white_user_id OR black_user_id. Equals wins + losses + draws + unknown.",
+            "example": 5
+          },
+          "wins": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Games the user won.",
+            "example": 2
+          },
+          "losses": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Games the user lost.",
+            "example": 1
+          },
+          "draws": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Games drawn.",
+            "example": 1
+          },
+          "unknown": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Legacy NULL-result games (old ABANDONED rows whose winner is unrecoverable). Counted in total but excluded from W/L/D and from the winRate denominator.",
+            "example": 1
+          },
+          "winRate": {
+            "type": "number",
+            "format": "double",
+            "description": "Win rate over decided games (unknown-result games excluded from the denominator); 0.0 when there are no decided games.",
+            "example": 0.5
           }
         }
       },
@@ -1910,6 +2175,16 @@
             ],
             "example": "CHECKMATE"
           },
+          "result": {
+            "type": "string",
+            "description": "Who won the game. WHITE_WIN / BLACK_WIN / DRAW. Null for legacy archived games whose winner was unknown at backfill time (old ABANDONED rows do not encode the abandoner in the final FEN).",
+            "enum": [
+              "WHITE_WIN",
+              "BLACK_WIN",
+              "DRAW"
+            ],
+            "example": "WHITE_WIN"
+          },
           "endedAt": {
             "type": "string",
             "format": "date-time",
@@ -1979,6 +2254,86 @@
             "type": "boolean",
             "description": "True when this page is empty.",
             "example": false
+          }
+        }
+      },
+      "MyGameDetail": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Archived game id.",
+            "example": "0d52a8a0-aaaa-bbbb-cccc-ddddeeee0000"
+          },
+          "roomId": {
+            "type": "string",
+            "description": "Room id the game was played in.",
+            "example": "K7M3X9"
+          },
+          "whiteDisplayName": {
+            "type": "string",
+            "description": "Audit-time display name of the white side (frozen at game time).",
+            "example": "Alice"
+          },
+          "blackDisplayName": {
+            "type": "string",
+            "description": "Audit-time display name of the black side (frozen at game time).",
+            "example": "Bob"
+          },
+          "selfSide": {
+            "type": "string",
+            "description": "Side the authenticated caller was on; the UI uses it to orient/flip the board.",
+            "enum": [
+              "WHITE",
+              "BLACK"
+            ],
+            "example": "WHITE"
+          },
+          "status": {
+            "type": "string",
+            "description": "Terminal status of the game.",
+            "enum": [
+              "CHECKMATE",
+              "STALEMATE",
+              "DRAW",
+              "ABANDONED",
+              "TIMEOUT"
+            ],
+            "example": "CHECKMATE"
+          },
+          "result": {
+            "type": "string",
+            "description": "Who won the game. WHITE_WIN / BLACK_WIN / DRAW. Null for legacy archived games whose winner was unknown at backfill time.",
+            "enum": [
+              "WHITE_WIN",
+              "BLACK_WIN",
+              "DRAW"
+            ],
+            "example": "WHITE_WIN"
+          },
+          "startingFen": {
+            "type": "string",
+            "description": "FEN the game started from; the first frame of the replay.",
+            "example": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          },
+          "finalFen": {
+            "type": "string",
+            "description": "FEN after the last move; the final frame of the replay.",
+            "example": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Instant the game was archived.",
+            "example": "2026-05-19T10:23:11.123Z"
+          },
+          "moves": {
+            "type": "array",
+            "description": "Full move history in playback order (move_idx ascending). Empty for a game that ended before any move was played.",
+            "items": {
+              "$ref": "#/components/schemas/MoveSummary"
+            }
           }
         }
       },

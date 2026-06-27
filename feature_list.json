@@ -895,6 +895,19 @@
     ]
   },
   {
+    "id": "profile-contract-resnapshot",
+    "title": "Re-snapshot OpenAPI for profile-edit, stats, game results + review",
+    "description": "Enabler (mirrors 21/26.8). The backend deployed: edit profile (PATCH /api/me UpdateProfileRequest {displayName}; PUT /api/me/password ChangePasswordRequest), me stats (GET /api/me/stats MyStatsResponse {total,wins,losses,draws,unknown,winRate}), game results (MyGameSummary gained result: WHITE_WIN|BLACK_WIN|DRAW), and game review (GET /api/me/games + GET /api/me/games/{id} MyGameDetail {gameId,roomId,whiteDisplayName,blackDisplayName,selfSide,status,result,startingFen,finalFen,moves,endedAt}). Verified delta (2026-06-26): 3 new paths (/api/me/games/{id}, /api/me/password, /api/me/stats) + PATCH on /api/me + GET on /api/me/games; 4 new schemas (ChangePasswordRequest, MyGameDetail, MyStatsResponse, UpdateProfileRequest); MyGameSummary.result added; ZERO new error codes (no errors.ts mirror needed, unlike 26.8); ZERO removed/renamed schemas. Re-snapshot from PROD + regen schema.ts. No feature code. Unblocks me-stats, game-reviews, edit-profile.",
+    "status": "done",
+    "priority": 26.995,
+    "acceptance": [
+      "openapi.json re-snapshotted from PROD; the 3 new paths + PATCH /api/me + GET /api/me/games and the 4 new schemas + MyGameSummary.result are present.",
+      "npm run openapi:generate regenerates schema.ts; codegen idempotent (second run no diff).",
+      "No new error codes to mirror (verified); no alias retarget; no feature code/UI/routes; bundle delta ~zero.",
+      "./init.sh green (typecheck compiles against the regenerated schema)."
+    ]
+  },
+  {
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",
@@ -908,6 +921,26 @@
       "PGN download button on the replay view.",
       "Tests: history list renders, replay viewer navigates moves, PGN download triggers correctly.",
       "./init.sh passes."
+    ]
+  },
+  {
+    "id": "me-stats",
+    "title": "Stats section in the profile",
+    "description": "Fill the profile's Stats placeholder with GET /api/me/stats (MyStatsResponse {total, wins, losses, draws, unknown, winRate}). A typed wrapper in api (or extend a me/profile module) + a StatsSection component rendering the aggregate counts + win rate. Authenticated-only (lives in the gated profile). Small.",
+    "status": "done",
+    "priority": 27.1,
+    "acceptance": [
+      "Refine before delegating. Stats section shows total/wins/losses/draws/winRate from /api/me/stats; loading/empty/error; ./init.sh green + ui-reviewer."
+    ]
+  },
+  {
+    "id": "edit-profile",
+    "title": "Edit displayName + change password",
+    "description": "Now that the backend exposes PATCH /api/me (UpdateProfileRequest {displayName}) and PUT /api/me/password (ChangePasswordRequest), add profile editing: edit the displayName (updates the identity/displayName everywhere) and a change-password form. In the profile. Authenticated-only. Decision-first on UX (inline edit vs a form/dialog).",
+    "status": "pending",
+    "priority": 27.3,
+    "acceptance": [
+      "Refine before delegating. Edit displayName (PATCH) reflected in the identity; change password (PUT) with current+new; validation + error codes; ./init.sh green + ui-reviewer."
     ]
   }
 ]

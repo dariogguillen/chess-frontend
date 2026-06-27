@@ -40,10 +40,11 @@ const meHandler = (user: { id: string; displayName: string; email: string }) =>
   http.get(`${TEST_API_BASE_URL}/api/me`, () => HttpResponse.json(user, { status: 200 }));
 
 // The mounted `FriendsSection` fires four requests on mount (friend code +
-// three lists). Profile's own assertions don't care about their content, so
-// we register quiet defaults to keep MSW from logging unhandled requests.
+// three lists) and the mounted `StatsSection` fires one (/api/me/stats).
+// Profile's own assertions don't care about their content, so we register
+// quiet defaults to keep MSW from logging unhandled requests.
 const emptyPage = { content: [], number: 0, totalPages: 1, last: true };
-const friendsHandlers = [
+const sectionHandlers = [
   http.get(`${TEST_API_BASE_URL}/api/me/friend-code`, () =>
     HttpResponse.json({ friendCode: 'ME000000' }, { status: 200 }),
   ),
@@ -54,12 +55,18 @@ const friendsHandlers = [
   http.get(`${TEST_API_BASE_URL}/api/me/friends/requests/outgoing`, () =>
     HttpResponse.json(emptyPage),
   ),
+  http.get(`${TEST_API_BASE_URL}/api/me/stats`, () =>
+    HttpResponse.json(
+      { total: 0, wins: 0, losses: 0, draws: 0, unknown: 0, winRate: 0 },
+      { status: 200 },
+    ),
+  ),
 ];
 
 describe('Profile page', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    server.use(...friendsHandlers);
+    server.use(...sectionHandlers);
   });
 
   it('renders a single h1 with the page title', async () => {
@@ -83,11 +90,11 @@ describe('Profile page', () => {
     renderProfile(authedIdentity);
 
     await screen.findByText('ada@example.com');
-    // The Friends section graduated to a live component (its own h2).
+    // The Friends and Stats sections graduated to live components (each its
+    // own h2). My games remains a placeholder heading.
     expect(screen.getByRole('heading', { level: 2, name: /^friends$/i })).toBeInTheDocument();
-    // My games / Stats remain placeholders.
+    expect(screen.getByRole('heading', { level: 2, name: /^stats$/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /my games/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /stats/i })).toBeInTheDocument();
   });
 
   it('falls back to the identity display name and omits the email when me() rejects', async () => {

@@ -3,23 +3,20 @@ import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { me } from '../../api/auth';
 import { FriendsSection } from '../../components/FriendsSection';
+import { StatsSection } from '../../components/StatsSection';
 import { IdentityKind, useUserContext } from '../../context';
 
 /**
  * The placeholder sections that still mark where the social epic slots in.
- * "Friends" graduated to its own live `FriendsSection` (below); "My games"
- * and "Stats" remain real headings + copy (not colour-only chips) so the
- * page is navigable today and those future features have a stable,
- * accessible home to grow into.
+ * "Friends" and "Stats" graduated to their own live sections (below);
+ * "My games" remains a real heading + copy (not a colour-only chip) so the
+ * page is navigable today and that future feature (game-reviews) has a
+ * stable, accessible home to grow into.
  */
 const COMING_SOON: ReadonlyArray<Readonly<{ title: string; body: string }>> = [
   {
     title: 'My games',
     body: 'Review the games you have played, replay them move by move. Coming soon.',
-  },
-  {
-    title: 'Stats',
-    body: 'Your win/loss record and rating over time. Coming soon.',
   },
 ];
 
@@ -125,6 +122,8 @@ const Profile = () => {
         <Divider flexItem />
 
         <FriendsSection />
+
+        <StatsSection />
 
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
