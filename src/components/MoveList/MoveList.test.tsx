@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MoveList } from './MoveList';
 import { PromotionPiece } from '../../api/games';
 import type { MoveSummary } from '../../api/games';
@@ -75,5 +76,55 @@ describe('MoveList', () => {
       />,
     );
     expect(screen.getByText('exf8=Q+')).toBeInTheDocument();
+  });
+
+  it('renders plies as plain text (no buttons) when onPlyClick is absent', () => {
+    // This is Play's mode — the existing render must stay non-interactive.
+    render(<MoveList moves={[move('e2', 'e4'), move('e7', 'e5')]} />);
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+  });
+
+  describe('interactive mode (onPlyClick set)', () => {
+    const game = [move('e2', 'e4'), move('e7', 'e5'), move('g1', 'f3')];
+
+    it('renders each ply as a button named by its SAN', () => {
+      render(<MoveList moves={game} onPlyClick={vi.fn()} />);
+      expect(screen.getByRole('button', { name: 'Go to move e4' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Go to move e5' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Go to move Nf3' })).toBeInTheDocument();
+    });
+
+    it('reports the 1-based ply count (position after the move) on click', async () => {
+      const onPlyClick = vi.fn();
+      render(<MoveList moves={game} onPlyClick={onPlyClick} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Go to move e4' }));
+      expect(onPlyClick).toHaveBeenLastCalledWith(1);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Go to move e5' }));
+      expect(onPlyClick).toHaveBeenLastCalledWith(2);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Go to move Nf3' }));
+      expect(onPlyClick).toHaveBeenLastCalledWith(3);
+    });
+
+    it('marks the active ply with aria-current', () => {
+      render(<MoveList moves={game} onPlyClick={vi.fn()} activePly={2} />);
+      expect(screen.getByRole('button', { name: 'Go to move e5' })).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+      expect(screen.getByRole('button', { name: 'Go to move e4' })).not.toHaveAttribute(
+        'aria-current',
+      );
+    });
+
+    it('highlights no ply when activePly is 0 (starting position)', () => {
+      render(<MoveList moves={game} onPlyClick={vi.fn()} activePly={0} />);
+      const current = screen
+        .getAllByRole('button')
+        .filter((b) => b.getAttribute('aria-current') === 'true');
+      expect(current).toHaveLength(0);
+    });
   });
 });

@@ -61,6 +61,7 @@ const sectionHandlers = [
       { status: 200 },
     ),
   ),
+  http.get(`${TEST_API_BASE_URL}/api/me/games`, () => HttpResponse.json(emptyPage)),
 ];
 
 describe('Profile page', () => {

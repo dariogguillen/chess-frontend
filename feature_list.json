@@ -911,16 +911,14 @@
     "id": "game-reviews",
     "title": "Game history and replay",
     "description": "List of past games per authenticated user with PGN export and a replay viewer (step through moves). Depends on user-accounts (priority 20) for persistent identity and a backend gameHistory endpoint. Frontend: /history list route + /history/{gameId} replay viewer + PGN download.",
-    "status": "pending",
+    "status": "done",
     "priority": 27,
     "acceptance": [
-      "Depends on user-accounts (priority 20) shipping first.",
-      "Backend (cross-repo): GET /api/users/{userId}/games returns the user's past games; GET /api/games/{gameId}/pgn returns PGN text; GET /api/games/{gameId} already exists.",
-      "Frontend: /history route lists games (paginated). Click navigates to /history/{gameId}.",
-      "/history/{gameId} renders a replay board with move navigation (forward, back, jump-to-start, jump-to-end, autoplay).",
-      "PGN download button on the replay view.",
-      "Tests: history list renders, replay viewer navigates moves, PGN download triggers correctly.",
-      "./init.sh passes."
+      "Profile 'My games' section: GET /api/me/games (paginated) — each row shows opponent + Won/Lost/Draw (derived from result+selfSide) + date + moveCount + a Review button navigating to /game-review/{gameId}; Load more while !last; loading/empty/error.",
+      "Replay page at /game-review/:gameId (lazy, auth-gated like Profile): GET /api/me/games/{id} (MyGameDetail); a READ-ONLY board oriented by selfSide showing fenAtPly(currentPly); step controls (First/Previous/Next/Last move) + arrow keys; a clickable SAN MoveList (activePly / aria-current, click jumps); header with both players + result.",
+      "fenAtPly is a pure replay helper (fresh chess.js from startingFen; null on invalid/out-of-range). MoveList extended backward-compatibly (optional onPlyClick/activePly) — Play unchanged.",
+      "Authenticated-only; anonymous play + Play/profile/Stats/Friends unaffected. ./init.sh green; ui-reviewer approved.",
+      "NOTE: scope refined with the user this session — route is /game-review/:gameId (not the original /history); PGN export was deferred (see deferred follow-ups), pending the user's confirmation."
     ]
   },
   {

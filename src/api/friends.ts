@@ -124,7 +124,7 @@ const narrowFriendRequest = (raw: GeneratedFriendRequest): FriendRequest => {
  * the meta fields default sensibly when absent (an empty page → `page 0`,
  * `totalPages 1` so we never offer "Load more" into the void).
  */
-const narrowPage = <Raw, T>(
+export const narrowPage = <Raw, T>(
   raw: { content?: Raw[]; number?: number; totalPages?: number; last?: boolean } | undefined,
   narrowItem: (item: Raw) => T,
 ): Page<T> => {

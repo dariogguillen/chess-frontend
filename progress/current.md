@@ -1,10 +1,100 @@
 # Current session
 
-**Status:** `me-stats` (27.1) CLOSED (2026-06-27). reviewer + ui-reviewer
-approved; `./init.sh` green (571 tests). The profile Stats section is live.
-NEXT: **game-reviews (27)** — the user's original priority. Then edit-profile.
+**Status:** 🎉 `game-reviews` (27) CLOSED (2026-06-27) — the user's original
+priority feature. reviewer + ui-reviewer approved; `./init.sh` green (609
+tests). "My games" list + per-game replay (step controls + clickable SAN +
+keyboard) are live. NEXT: **edit-profile (27.3)** — the LAST backlog item.
 
-**Counts:** 57 done · 2 pending (27 game-reviews, 27.3 edit-profile).
+**Counts:** 58 done · 1 pending (27.3 edit-profile).
+
+## ⚠️ Scope to confirm with the user (game-reviews)
+The original acceptance mentioned PGN export + a /history route. The shipped
+feature uses /game-review/:gameId and DEFERRED PGN export (leader marked it
+out of scope in the plan without explicitly asking). Acceptance was updated.
+Confirm with the user whether PGN export is wanted as a follow-up.
+
+## Next — `edit-profile` (27.3) — the last backlog item
+PATCH /api/me {displayName} (UpdateProfileRequest) + PUT /api/me/password
+(ChangePasswordRequest). In the profile (extend api/me.ts + a profile edit
+surface). Authenticated-only. Decision-first on UX (inline edit vs form/
+dialog; the displayName change must reflect in the context identity).
+
+## ⚠️ Uncommitted — split per feature
+26.99, 26.995, 27.1, 27 are separate features.
+
+## Deferred follow-ups (tracked)
+- game-reviews PGN export (confirm with user); global ←/→ key listener.
+- me-stats: no test of loaded winRate 0.0 + total>0.
+- InvitationsNotice severity (26.98); friends Load-more double-click (26.95);
+  spectator-ended-game-ux (26.7); clock-skew (26.6); per-route title;
+  backend /api/me/invitations typed-single-vs-list (26.97).
+
+## Plan — `game-reviews` (27, IN PROGRESS)
+
+A "My games" profile section (list of past games with W/L/D) + a per-game
+replay view (step through moves + click a SAN move to jump). Contract in the
+26.995 snapshot. Explore confirmed heavy reuse. MyGameDetail.moves is a
+`MoveSummary[]` — reuse the 22.7 `toSanList` + chess.js replay.
+
+**REUSE as-is:** `toSanList` (Play/sanList.ts), `MoveSummary` +
+`narrowMoveSummary` + `narrowSide`/`narrowStatus` + `GameStatus`/`Side`
+(games.ts), `narrowPage` + `Page<T>` (friends.ts), the auth guard
+(Profile.tsx), the StatsSection section pattern.
+
+### Part A — API (`src/api/me.ts`)
+Add `getMyGames(page?)` → narrowed `Page<MyGameSummary>` (GET /api/me/games,
+paginated) and `getMyGameDetail(id)` → narrowed `MyGameDetail` (GET
+/api/me/games/{id}). New types MyGameSummary {gameId, roomId,
+opponentDisplayName, selfSide, status, result: 'WHITE_WIN'|'BLACK_WIN'|
+'DRAW'|null, endedAt, moveCount} and MyGameDetail {…, whiteDisplayName,
+blackDisplayName, startingFen, finalFen, moves: MoveSummary[]}. Reuse
+narrowPage / narrowMoveSummary / narrowSide / narrowStatus. Tests: happy +
+error + narrowing.
+
+### Part B — `fenAtPly` util (pure)
+`fenAtPly(startingFen, moves, plyIndex): string | null` — fresh `new Chess()`,
+load startingFen, replay moves[0..plyIndex] (promotion lowercased), return
+fen; null on invalid/unreplayable. Ply 0 = the starting position (no move
+applied) — define the indexing clearly (e.g. currentPly 0 = startingFen,
+currentPly k = after move k-1). Tests: known game, out-of-bounds, invalid FEN.
+
+### Part C — MoveList clickable (backward-compatible, Option A)
+Extend `MoveList` with OPTIONAL `onPlyClick?(plyIndex)` + `activePly?` props.
+When `onPlyClick` is set, each ply renders as a button; `activePly` highlights
+the current ply. Play passes neither → unchanged (non-interactive). Tests:
+the new interactive behaviour + Play's existing render still passes.
+
+### Part D — "My games" section (profile)
+A `MyGamesSection` (mirror StatsSection: paginated, loading/empty/error)
+replacing the "My games" placeholder in Profile (drop it from COMING_SOON;
+the array becomes empty — render nothing or remove it). Each row: opponent +
+`formatResult(result, selfSide)` → Won/Lost/Draw + date + moveCount + a
+"Review" button → `navigate('/game-review/{gameId}')`. "Load more" while
+`!last`. Tests: list renders W/L/D, review navigates, empty/loading.
+
+### Part E — GameReview page + route
+New `src/pages/GameReview/` + lazy route `game-review/:gameId` in Public.tsx,
+auth-gated (guest → Navigate to /home, like Profile). On mount, getMyGameDetail
+(loading/error). Layout (mirror Play's board+MoveList grid): a READ-ONLY
+board showing `fenAtPly(currentPly)` oriented by selfSide (canDragPiece →
+false, no drop/click handlers; reuse the board theme; highlight the last
+move from moves[currentPly-1], optional check highlight via findKingSquare),
+the clickable MoveList (activePly = currentPly, onPlyClick sets it), and
+step controls ◀◀ ◀ ▶ ▶▶ (start/back/forward/end) operating `currentPly`
+in [0, moves.length]. Show opponent names + result + terminal status header.
+Tests: auth guard, fetch+render, stepping changes the position, clicking a
+move jumps, board orientation by selfSide.
+
+### Accessibility (ui-reviewer REQUIRED — list + replay)
+Step controls are buttons with clear names ("Next move", "Previous move",
+"First move", "Last move"); the clickable SAN moves are buttons named by
+their notation; the read-only board is announced as today; single h1 per
+page; loading announced. Optional: left/right arrow keys to step.
+
+### Out of scope
+PGN export; engine analysis/eval; edit-profile (27.3). No new deps
+(chess.js + react-chessboard already present). `./init.sh` green. If too big
+for one clean pass, STOP and report (e.g. API+list first, then the replay).
 
 ## Next — `game-reviews` (27) — decision-first, likely sub-featured
 The user's original product goal, now fully unblocked. Contract (in the

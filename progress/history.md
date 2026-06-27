@@ -4684,3 +4684,49 @@ src/components/StatsSection/* (new, +test),
 src/pages/Profile/Profile.tsx (+test), notes/27.1-me-stats.md (new).
 
 **Feature note:** `notes/27.1-me-stats.md`
+
+## 2026-06-27 — game-reviews (27)
+
+**Status:** done
+
+**Summary:** The user's original priority product feature, fully unblocked
+by the backend's game-results + game-review deploy. Built in one feature
+(user's choice): a "My games" profile section + a per-game replay. Heavy
+reuse: toSanList (22.7), MoveSummary/narrowMoveSummary/narrowSide/
+narrowStatus (games.ts, exported), narrowPage/Page<T> (friends.ts,
+exported), the StatsSection section pattern, the Profile auth guard. Parts:
+(A) me.ts getMyGames(page)→Page<MyGameSummary> + getMyGameDetail(id)→
+MyGameDetail + a GameResult const-object (WHITE_WIN|BLACK_WIN|DRAW, result
+nullable for legacy games); (B) a pure fenAtPly(startingFen, moves, ply)
+helper (ply 0 = start, ply k = after moves[k-1]; null on invalid/out-of-
+range) — the replay reconstruction; (C) MoveList extended backward-compat
+with optional onPlyClick/activePly (Play passes neither → unchanged,
+regression-tested); (D) a MyGamesSection (paginated list, formatResult →
+Won/Lost/Draw/unknown, Review → /game-review/{id}) replacing the last
+profile placeholder (COMING_SOON removed; sections now Friends/MyGames/
+Stats); (E) a GameReview page at lazy auth-gated /game-review/:gameId — a
+read-only board (allowDragging false, oriented by selfSide, amber last-move
++ red check highlights) driven by currentPly∈[0,moves.length], step controls
+(First/Previous/Next/Last + ←/→ keys), a clickable SAN MoveList, and a
+players+result header. reviewer + ui-reviewer approved; ./init.sh green
+(609 tests, +47, GameReview is its own lazy chunk). No new deps.
+
+SCOPE NOTE: the original feature_list acceptance (a /history route, PGN
+export, anonymous /api/users/{id}/games) was superseded by the refined plan
+agreed with the user this session (route /game-review/:gameId, the
+authenticated /api/me/games, PGN deferred). Acceptance was updated to match.
+
+DEFERRED follow-ups (non-blocking): PGN export (pending user confirmation
+it's wanted); the ←/→ replay key listener is a global window handler (fine
+for this input-less read-only page; revisit if a focusable input ever lands
+there).
+
+**Files touched:** src/api/me.ts (+test), src/api/games.ts (export 3
+narrowers), src/api/friends.ts (export narrowPage),
+src/pages/GameReview/{GameReview.tsx,fenAtPly.ts,index.ts} (new, +2 tests),
+src/components/MoveList/MoveList.tsx (+test),
+src/components/MyGamesSection/* (new, +test),
+src/pages/Profile/Profile.tsx (+test), src/routes/Public.tsx,
+notes/27-game-reviews.md (new).
+
+**Feature note:** `notes/27-game-reviews.md`

@@ -1,24 +1,11 @@
-import { Box, CircularProgress, Container, Divider, Paper, Stack, Typography } from '@mui/material';
+import { Box, CircularProgress, Container, Divider, Stack, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { me } from '../../api/auth';
 import { FriendsSection } from '../../components/FriendsSection';
+import { MyGamesSection } from '../../components/MyGamesSection';
 import { StatsSection } from '../../components/StatsSection';
 import { IdentityKind, useUserContext } from '../../context';
-
-/**
- * The placeholder sections that still mark where the social epic slots in.
- * "Friends" and "Stats" graduated to their own live sections (below);
- * "My games" remains a real heading + copy (not a colour-only chip) so the
- * page is navigable today and that future feature (game-reviews) has a
- * stable, accessible home to grow into.
- */
-const COMING_SOON: ReadonlyArray<Readonly<{ title: string; body: string }>> = [
-  {
-    title: 'My games',
-    body: 'Review the games you have played, replay them move by move. Coming soon.',
-  },
-];
 
 /**
  * `/profile` — the authenticated user's account home and the stable anchor
@@ -123,24 +110,9 @@ const Profile = () => {
 
         <FriendsSection />
 
-        <StatsSection />
+        <MyGamesSection />
 
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={{ xs: 2, sm: 3 }}
-          sx={{ width: '100%' }}
-        >
-          {COMING_SOON.map((section) => (
-            <Paper key={section.title} variant="outlined" sx={{ p: 3, flex: 1, borderRadius: 2 }}>
-              <Typography variant="h6" component="h2" gutterBottom>
-                {section.title}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {section.body}
-              </Typography>
-            </Paper>
-          ))}
-        </Stack>
+        <StatsSection />
       </Stack>
     </Container>
   );

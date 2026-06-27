@@ -175,7 +175,7 @@ type GeneratedGameStateResponse = components['schemas']['GameStateResponse'];
 type GeneratedPlayer = components['schemas']['PlayerView'];
 type GeneratedMoveSummary = components['schemas']['MoveSummary'];
 
-const narrowSide = (raw: GeneratedGameStateResponse['turn']): Side => {
+export const narrowSide = (raw: GeneratedGameStateResponse['turn']): Side => {
   switch (raw) {
     case Side.White:
       return Side.White;
@@ -190,7 +190,7 @@ const narrowSide = (raw: GeneratedGameStateResponse['turn']): Side => {
   }
 };
 
-const narrowStatus = (raw: GeneratedGameStateResponse['status']): GameStatus => {
+export const narrowStatus = (raw: GeneratedGameStateResponse['status']): GameStatus => {
   switch (raw) {
     case GameStatus.Ongoing:
       return GameStatus.Ongoing;
@@ -246,7 +246,7 @@ const narrowPlayer = (raw: GeneratedPlayer | undefined, label: 'white' | 'black'
   return { id: raw.id, displayName: raw.displayName };
 };
 
-const narrowMoveSummary = (raw: GeneratedMoveSummary): MoveSummary => {
+export const narrowMoveSummary = (raw: GeneratedMoveSummary): MoveSummary => {
   if (raw.from === undefined || raw.to === undefined) {
     throw new ApiError(
       ApiErrorCode.UnknownError,
