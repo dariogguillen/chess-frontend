@@ -30,7 +30,7 @@
     "@emotion/styled": "^11.13.0",
     "@fontsource/inter": "^5.2.8",
     "@mui/icons-material": "^6.5.0",
-    "@mui/material": "^6.1.3",
+    "@mui/material": "^9.2.0",
     "@stomp/stompjs": "^7.3.0",
     "chess.js": "^1.0.0-beta.8",
     "openapi-fetch": "^0.17.0",
